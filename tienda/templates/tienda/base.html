@@ -1,0 +1,36 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Betta Diseño{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="{% url 'tienda:home' %}">
+    <img class="brand-logo" src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseño">
+  </a>
+  <nav>
+    <a href="{% url 'tienda:home' %}#productos">Productos</a>
+    <a href="{% url 'tienda:panel_dashboard' %}">Panel</a>
+    <a href="/admin/">Django admin</a>
+  </nav>
+</header>
+
+{% if messages %}
+  <div class="messages">
+    {% for message in messages %}<div class="message">{{ message }}</div>{% endfor %}
+  </div>
+{% endif %}
+
+<main>{% block content %}{% endblock %}</main>
+<footer class="footer">
+  <strong>Betta Diseño</strong> · Diseñar, producir e instalar. Solicitudes personalizadas con revisión antes de producción.
+</footer>
+</body>
+</html>

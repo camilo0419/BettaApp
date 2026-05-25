@@ -1,0 +1,23 @@
+{% extends 'tienda/base.html' %}
+{% block title %}Solicitud recibida · Betta Diseño{% endblock %}
+
+{% block content %}
+<section class="success-layout">
+  <div class="success-card">
+    <p class="eyebrow">Solicitud recibida</p>
+    <h1>Gracias, {{ cotizacion.nombre_cliente }}.</h1>
+    <p>Registramos la solicitud <strong>#{{ cotizacion.id }}</strong> para <strong>{{ cotizacion.producto.nombre }}</strong>.</p>
+    <div class="summary-box">
+      <div><span>Precio estimado</span><strong>{{ precio_formateado }} COP</strong></div>
+      <div><span>Estado</span><strong>{{ cotizacion.get_estado_display }}</strong></div>
+      <div><span>Revisión</span><strong>{% if cotizacion.requiere_revision %}Requiere validación{% else %}Cotización automática{% endif %}</strong></div>
+    </div>
+    <p class="muted">El valor es estimado. Betta Diseño validará archivo, materiales, medidas, instalación y tiempos antes de producir.</p>
+    <div class="success-actions">
+      <a class="btn btn-primary" href="{{ whatsapp_url }}" target="_blank">Enviar por WhatsApp</a>
+      <a class="btn btn-secondary" href="{% url 'tienda:home' %}">Volver al catálogo</a>
+      <a class="btn btn-secondary" href="{% url 'tienda:panel_cotizacion_detalle' cotizacion.id %}">Ver en panel</a>
+    </div>
+  </div>
+</section>
+{% endblock %}

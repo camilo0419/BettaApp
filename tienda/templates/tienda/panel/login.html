@@ -1,0 +1,29 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ingreso panel · Betta Diseño</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
+</head>
+<body class="login-body">
+  <section class="login-card">
+    <img src="{% static 'tienda/img/marca/betta-logo-fish.jpeg' %}" alt="Betta Diseño">
+    <p class="eyebrow">Panel administrativo</p>
+    <h1>Ingreso seguro</h1>
+    <p class="muted">Usa el usuario creado con <strong>createsuperuser</strong>.</p>
+    <form method="post" class="quote-form">
+      {% csrf_token %}
+      <label>Usuario{{ form.username }}</label>
+      <label>Contraseña{{ form.password }}</label>
+      {% if form.errors %}<div class="error-box">Usuario o contraseña inválidos.</div>{% endif %}
+      <button class="btn btn-primary full" type="submit">Entrar al panel</button>
+    </form>
+    <a class="login-link" href="{% url 'tienda:home' %}">Volver a la tienda</a>
+  </section>
+</body>
+</html>

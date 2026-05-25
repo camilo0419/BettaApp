@@ -1,0 +1,41 @@
+{% extends 'tienda/panel/base_panel.html' %}
+{% block title %}Solicitud #{{ cotizacion.id }} · Betta Diseño{% endblock %}
+{% block header %}Solicitud #{{ cotizacion.id }}{% endblock %}
+{% block content %}
+<section class="detail-admin-grid">
+  <article class="panel-card">
+    <div class="panel-card-head">
+      <h2>{{ cotizacion.producto.nombre }}</h2>
+      <a class="btn btn-secondary" href="{% url 'tienda:panel_cotizacion_editar' cotizacion.id %}">Editar solicitud</a>
+    </div>
+    <div class="info-grid">
+      <div><span>Cliente</span><strong>{{ cotizacion.nombre_cliente }}</strong></div>
+      <div><span>Celular</span><strong>{{ cotizacion.celular }}</strong></div>
+      <div><span>Email</span><strong>{{ cotizacion.email|default:'-' }}</strong></div>
+      <div><span>Estado</span><strong><span class="status {{ cotizacion.estado }}">{{ cotizacion.get_estado_display }}</span></strong></div>
+      <div><span>Medidas</span><strong>{{ cotizacion.ancho_cm|default:'-' }} x {{ cotizacion.alto_cm|default:'-' }} cm</strong></div>
+      <div><span>Cantidad</span><strong>{{ cotizacion.cantidad }}</strong></div>
+      <div><span>Área</span><strong>{{ cotizacion.area_m2|floatformat:2 }} m²</strong></div>
+      <div><span>Precio estimado</span><strong>${{ cotizacion.precio_estimado|floatformat:0 }}</strong></div>
+    </div>
+    <hr>
+    <h3>Personalización</h3>
+    <p><strong>Texto / referencia:</strong> {{ cotizacion.texto_personalizado|default:'-' }}</p>
+    <p><strong>Color:</strong> {{ cotizacion.color|default:'-' }}</p>
+    <p><strong>Observaciones:</strong><br>{{ cotizacion.observaciones|default:'-'|linebreaksbr }}</p>
+    <p><strong>Notas internas:</strong><br>{{ cotizacion.notas_internas|default:'-'|linebreaksbr }}</p>
+    {% if cotizacion.archivo %}<p><a class="btn btn-primary" href="{{ cotizacion.archivo.url }}" target="_blank">Abrir archivo adjunto</a></p>{% endif %}
+  </article>
+
+  <aside class="panel-card">
+    <h2>Mover estado</h2>
+    <p class="muted">Actualiza el avance operativo de la solicitud.</p>
+    <form method="post" class="state-list">
+      {% csrf_token %}
+      {% for value,label in estados %}
+        <button name="estado" value="{{ value }}" class="state-button {% if cotizacion.estado == value %}active{% endif %}" type="submit">{{ label }}</button>
+      {% endfor %}
+    </form>
+  </aside>
+</section>
+{% endblock %}

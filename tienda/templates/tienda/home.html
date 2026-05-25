@@ -1,0 +1,46 @@
+{% extends 'tienda/base.html' %}
+{% load static %}
+{% block title %}Betta Diseño · Productos configurables{% endblock %}
+
+{% block content %}
+<section class="hero betta-hero">
+  <div>
+    <p class="eyebrow">Cotizador gráfico personalizado</p>
+    <h1>Impulsa tu marca con piezas gráficas hechas a la medida.</h1>
+    <p class="hero-copy">Configura medidas, materiales, acabados y archivos antes de enviar tu solicitud. Betta Diseño revisa cada requerimiento antes de producir para asegurar un resultado profesional.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#productos">Cotizar producto</a>
+      <a class="btn btn-secondary" href="{% url 'tienda:panel_dashboard' %}">Entrar al panel</a>
+    </div>
+  </div>
+  <div class="hero-brand-card">
+    <img src="{% static 'tienda/img/marca/betta-logo-fish.jpeg' %}" alt="Betta Diseño">
+    <span>Diseñar · Producir · Instalar</span>
+  </div>
+</section>
+
+<section id="productos" class="section">
+  <div class="section-title">
+    <p class="eyebrow">Productos iniciales</p>
+    <h2>Elige qué quieres personalizar</h2>
+    <p>Estos cinco productos funcionan como base del MVP. Todos guardan la solicitud en el panel administrativo.</p>
+  </div>
+  <div class="product-grid">
+    {% for producto in productos %}
+      <article class="product-card">
+        <div class="product-image-wrap"><img src="{% static producto.imagen %}" alt="{{ producto.nombre }}"></div>
+        <div class="product-body">
+          <span class="category">{{ producto.categoria }}</span>
+          <h3>{{ producto.nombre }}</h3>
+          <p>{{ producto.descripcion_corta }}</p>
+          <div class="price-line">
+            <span>Desde</span>
+            <strong>${{ producto.precio_base|floatformat:0 }} / {{ producto.unidad_precio }}</strong>
+          </div>
+          <a class="btn btn-primary full" href="{% url 'tienda:producto_detalle' producto.slug %}">Personalizar</a>
+        </div>
+      </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

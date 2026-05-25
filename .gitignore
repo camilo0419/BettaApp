@@ -1,0 +1,43 @@
+# Entornos virtuales
+venv/
+.venv/
+env/
+ENV/
+
+# Base de datos local
+db.sqlite3
+*.sqlite3
+*.db
+
+# Archivos Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# VS Code / editores
+.vscode/
+.idea/
+
+# Django / archivos generados
+staticfiles/
+media/
+*.log
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build / paquetes
+build/
+dist/
+*.egg-info/

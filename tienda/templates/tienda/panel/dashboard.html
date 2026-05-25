@@ -1,0 +1,45 @@
+{% extends 'tienda/panel/base_panel.html' %}
+{% block title %}Dashboard · Betta Diseño{% endblock %}
+{% block header %}Dashboard de solicitudes{% endblock %}
+{% block content %}
+<section class="metric-grid">
+  <article class="metric-card"><span>Total solicitudes</span><strong>{{ total }}</strong></article>
+  <article class="metric-card"><span>Recibidas</span><strong>{{ conteos.recibida|default:0 }}</strong></article>
+  <article class="metric-card"><span>En revisión</span><strong>{{ conteos.revision|default:0 }}</strong></article>
+  <article class="metric-card"><span>Valor estimado</span><strong>{{ valor_total }}</strong></article>
+</section>
+
+<section class="panel-grid-2">
+  <article class="panel-card">
+    <div class="panel-card-head">
+      <h2>Últimas solicitudes</h2>
+      <a href="{% url 'tienda:panel_cotizaciones' %}">Ver todas</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>Cliente</th><th>Producto</th><th>Estado</th><th>Valor</th></tr></thead>
+        <tbody>
+          {% for c in recientes %}
+            <tr>
+              <td><a href="{% url 'tienda:panel_cotizacion_detalle' c.id %}">#{{ c.id }}</a></td>
+              <td>{{ c.nombre_cliente }}<br><small>{{ c.celular }}</small></td>
+              <td>{{ c.producto.nombre }}</td>
+              <td><span class="status {{ c.estado }}">{{ c.get_estado_display }}</span></td>
+              <td>${{ c.precio_estimado|floatformat:0 }}</td>
+            </tr>
+          {% empty %}<tr><td colspan="5">Aún no hay solicitudes.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="panel-card">
+    <h2>Productos con más solicitudes</h2>
+    <div class="rank-list">
+      {% for item in por_producto %}
+        <div><span>{{ item.producto__nombre }}</span><strong>{{ item.total }}</strong></div>
+      {% empty %}<p class="muted">Sin datos todavía.</p>{% endfor %}
+    </div>
+  </article>
+</section>
+{% endblock %}

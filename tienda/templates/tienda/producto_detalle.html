@@ -1,0 +1,74 @@
+{% extends 'tienda/base.html' %}
+{% load static %}
+{% block title %}{{ producto.nombre }} · Betta Diseño{% endblock %}
+
+{% block content %}
+<section class="detail-layout">
+  <aside class="detail-media">
+    <img src="{% static producto.imagen %}" alt="{{ producto.nombre }}">
+    <div class="spec-box">
+      <span class="category">{{ producto.categoria }}</span>
+      <h1>{{ producto.nombre }}</h1>
+      <p>{{ producto.descripcion_corta }}</p>
+      <ul class="clean-list">
+        <li><strong>Cálculo:</strong> {{ producto.get_tipo_calculo_display }}</li>
+        <li><strong>Base:</strong> ${{ producto.precio_base|floatformat:0 }} / {{ producto.unidad_precio }}</li>
+        <li><strong>Mínimo:</strong> {{ producto.minimo_facturable }} {{ producto.unidad_precio }}</li>
+      </ul>
+      {% if producto.requiere_revision %}
+        <div class="notice">Este producto genera precio estimado y requiere validación antes de producción.</div>
+      {% endif %}
+    </div>
+  </aside>
+
+  <section class="form-panel">
+    <p class="eyebrow">Personalización previa</p>
+    <h2>Configurar solicitud</h2>
+    <form method="post" enctype="multipart/form-data" class="quote-form">
+      {% csrf_token %}
+
+      <div class="form-section">
+        <h3>Datos del cliente</h3>
+        <div class="grid-2">
+          <label>Nombre{{ form.nombre_cliente }}</label>
+          <label>Celular{{ form.celular }}</label>
+        </div>
+        <label>Email opcional{{ form.email }}</label>
+      </div>
+
+      <div class="form-section">
+        <h3>Medidas y cantidad</h3>
+        <div class="grid-3">
+          <label>Ancho cm{{ form.ancho_cm }}</label>
+          <label>Alto cm{{ form.alto_cm }}</label>
+          <label>Cantidad{{ form.cantidad }}</label>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h3>Diseño y personalización</h3>
+        <label>Texto / referencia{{ form.texto_personalizado }}</label>
+        <label>Color principal{{ form.color }}</label>
+        <div class="field-title">Estado del diseño</div>
+        <div class="choice-grid choice-grid-3">{{ form.tipo_diseno }}</div>
+        {% if form.material %}<label>Material{{ form.material }}</label>{% endif %}
+        {% if form.acabado %}<label>Acabado{{ form.acabado }}</label>{% endif %}
+        {% if form.iluminacion %}<label>Iluminación{{ form.iluminacion }}</label>{% endif %}
+        {% if form.extra %}<div class="field-title">Extras</div><div class="choice-grid">{{ form.extra }}</div>{% endif %}
+      </div>
+
+      <div class="form-section">
+        <h3>Archivo y observaciones</h3>
+        <label>Subir archivo{{ form.archivo }}</label>
+        <label>Observaciones{{ form.observaciones }}</label>
+      </div>
+
+      {% if form.errors %}
+        <div class="error-box">Revisa los campos marcados. {{ form.errors }}</div>
+      {% endif %}
+
+      <button class="btn btn-primary full" type="submit">Guardar solicitud</button>
+    </form>
+  </section>
+</section>
+{% endblock %}
