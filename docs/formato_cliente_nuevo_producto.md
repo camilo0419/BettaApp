@@ -1,116 +1,77 @@
-# Formato para que el cliente entregue un nuevo producto
+# Formato para crear un producto configurable
 
-Usa este formato cada vez que la empresa de diseño quiera agregar un producto nuevo al cotizador.
-La idea es que el cliente te entregue información clara y tú la puedas convertir fácil en modelo, opciones y fórmula de precio.
+Este formato sirve para que Betta Diseño entregue la información de un producto nuevo y el administrador lo cargue desde **Admin productos** sin tocar código.
 
----
+## 1. Datos generales
 
-## 1. Información básica
-
-| Campo | Respuesta del cliente |
+| Campo | Respuesta |
 |---|---|
-| Nombre comercial del producto |  |
+| Nombre del producto |  |
 | Categoría |  |
-| Descripción corta para la web |  |
-| ¿Se puede cotizar automáticamente? | Sí / No / Solo estimado |
-| ¿Requiere revisión humana antes de producir? | Sí / No |
-| Imagen de referencia | Adjuntar archivo o link |
+| Descripción corta |  |
+| Descripción larga |  |
+| Producto activo | Sí / No |
+| Orden en la página principal |  |
+| Imagen principal | Adjuntar archivo |
+| Fotos adicionales | Adjuntar archivos |
 
----
+## 2. Tipo de precio
 
-## 2. Forma de calcular precio
+Seleccionar una opción:
 
-Marcar una:
+- Manual / requiere revisión
+- Área m²
+- Por unidad
 
-- [ ] Por metro cuadrado
-- [ ] Por unidad
-- [ ] Por metro lineal
-- [ ] Por proyecto / requiere revisión
-- [ ] Otra: ______________________
-
-| Campo | Valor |
-|---|---:|
-| Precio base |  |
-| Unidad del precio | m² / unidad / metro lineal / proyecto |
-| Mínimo facturable |  |
-| IVA incluido | Sí / No |
-
----
-
-## 3. Medidas que debe pedir el formulario
-
-- [ ] Ancho en cm
-- [ ] Alto en cm
-- [ ] Largo en cm
-- [ ] Cantidad
-- [ ] Texto personalizado
-- [ ] Color principal
-- [ ] Archivo / diseño adjunto
-- [ ] Observaciones
-- [ ] Otro: ______________________
-
----
-
-## 4. Materiales disponibles
-
-| Material | Valor adicional | ¿Multiplica por área? |
-|---|---:|---|
-|  |  | Sí / No |
-|  |  | Sí / No |
-|  |  | Sí / No |
-
----
-
-## 5. Acabados disponibles
-
-| Acabado | Valor adicional | ¿Multiplica por área? |
-|---|---:|---|
-|  |  | Sí / No |
-|  |  | Sí / No |
-|  |  | Sí / No |
-
----
-
-## 6. Extras
-
-| Extra | Valor adicional | ¿Multiplica por área? |
-|---|---:|---|
-| Diseño básico |  | Sí / No |
-| Instalación |  | Sí / No |
-| Entrega urgente |  | Sí / No |
-| Domicilio |  | Sí / No |
-
----
-
-## 7. Reglas especiales
-
-Ejemplos:
-
-- Si mide menos de 0.5 m², cobrar mínimo 0.5 m².
-- Si es para exterior, recomendar laminado.
-- Si lleva instalación, siempre requiere revisión.
-- Si el archivo viene en baja calidad, pasar a revisión de diseño.
-
-Reglas del producto:
-
-1. 
-2. 
-3. 
-
----
-
-## 8. Mensaje comercial para mostrar en la página
-
-Texto corto para convencer al cliente:
-
-> 
-
----
-
-## 9. Preguntas frecuentes del producto
-
-| Pregunta | Respuesta |
+| Campo | Respuesta |
 |---|---|
-|  |  |
-|  |  |
-|  |  |
+| Precio base por m² |  |
+| Precio base por unidad |  |
+| ¿Requiere revisión antes de confirmar precio? | Sí / No |
+
+## 3. Preguntas que debe responder el cliente
+
+| Orden | Pregunta visible | Tipo de campo | Obligatorio | Placeholder | Ayuda | ¿Es ancho? | ¿Es alto? | ¿Es cantidad? |
+|---:|---|---|---|---|---|---|---|---|
+| 1 |  | Texto corto / Número / Selección / Archivo / etc. | Sí / No |  |  | Sí / No | Sí / No | Sí / No |
+| 2 |  |  |  |  |  |  |  |  |
+
+Tipos disponibles:
+
+- Texto corto
+- Texto largo
+- Número decimal
+- Número entero
+- Selección única
+- Selección múltiple
+- Checkbox / Sí-No
+- Archivo
+- Imagen de referencia
+- Color
+- Fecha
+
+## 4. Opciones para campos tipo selección
+
+Ejemplo: si la pregunta es **Material**, aquí van las opciones.
+
+| Pregunta | Opción | Orden | Tipo de ajuste | Precio |
+|---|---|---:|---|---:|
+| Material | Vinilo blanco | 1 | No suma precio | 0 |
+| Material | Microperforado | 2 | Valor por m² | 25000 |
+| Acabado | Laminado mate | 1 | Valor por m² | 12000 |
+
+Tipos de ajuste:
+
+- No suma precio
+- Valor fijo
+- Valor por m²
+- Valor por unidad
+- Porcentaje sobre base
+
+## 5. Observaciones de producción
+
+- Archivos requeridos:
+- Restricciones:
+- Tiempo estimado de entrega:
+- Instalación incluida o adicional:
+- Notas comerciales:

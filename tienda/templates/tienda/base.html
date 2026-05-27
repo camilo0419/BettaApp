@@ -5,32 +5,39 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Betta Diseño{% endblock %}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
 </head>
 <body>
-<header class="topbar">
-  <a class="brand" href="{% url 'tienda:home' %}">
-    <img class="brand-logo" src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseño">
-  </a>
-  <nav>
-    <a href="{% url 'tienda:home' %}#productos">Productos</a>
-    <a href="{% url 'tienda:panel_dashboard' %}">Panel</a>
-    <a href="/admin/">Django admin</a>
-  </nav>
-</header>
-
-{% if messages %}
-  <div class="messages">
-    {% for message in messages %}<div class="message">{{ message }}</div>{% endfor %}
+<header class="site-header">
+  <div class="container header-inner">
+    <a href="{% url 'home' %}" class="brand">
+      <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseño">
+    </a>
+    <nav class="nav-actions">
+      <a href="{% url 'panel_login' %}" class="nav-link">Admin productos</a>
+      <a href="https://wa.me/573005551111" class="btn btn-primary">WhatsApp</a>
+    </nav>
   </div>
-{% endif %}
-
-<main>{% block content %}{% endblock %}</main>
-<footer class="footer">
-  <strong>Betta Diseño</strong> · Diseñar, producir e instalar. Solicitudes personalizadas con revisión antes de producción.
+</header>
+<main>
+  {% if messages %}
+  <div class="container messages">
+    {% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}
+  </div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div>
+      <strong>Betta Diseño</strong>
+      <p>Diseñamos, producimos e instalamos soluciones visuales para marcas, locales y empresas.</p>
+    </div>
+    <div>
+      <span>Medellín, Colombia</span><br>
+      <a href="{% url 'panel_login' %}">Admin productos</a>
+    </div>
+  </div>
 </footer>
 </body>
 </html>

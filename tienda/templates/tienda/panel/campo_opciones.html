@@ -1,0 +1,13 @@
+{% extends 'tienda/panel/base_panel.html' %}
+{% block title %}Opciones | {{ campo.etiqueta }}{% endblock %}
+{% block content %}
+<div class="panel-head"><div><span class="eyebrow">{{ campo.producto.nombre }}</span><h1>Opciones: {{ campo.etiqueta }}</h1></div><div class="head-actions"><a href="{% url 'panel_opcion_crear' campo.id %}" class="btn btn-primary">Crear opción</a><a href="{% url 'panel_producto_campos' campo.producto.id %}" class="btn btn-outline">Volver</a></div></div>
+<div class="panel-card">
+  <table class="table">
+    <thead><tr><th>Orden</th><th>Opción</th><th>Ajuste</th><th>Precio</th><th>Activa</th><th></th></tr></thead>
+    <tbody>
+    {% for o in opciones %}<tr><td>{{ o.orden }}</td><td><strong>{{ o.etiqueta }}</strong><br><small>{{ o.valor }}</small></td><td>{{ o.get_ajuste_tipo_display }}</td><td>${{ o.precio|floatformat:0 }}</td><td>{% if o.activa %}Sí{% else %}No{% endif %}</td><td><a href="{% url 'panel_opcion_editar' o.id %}">Editar</a></td></tr>{% empty %}<tr><td colspan="6">No hay opciones.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

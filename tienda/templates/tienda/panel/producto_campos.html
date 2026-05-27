@@ -1,0 +1,16 @@
+{% extends 'tienda/panel/base_panel.html' %}
+{% block title %}Campos | {{ producto.nombre }}{% endblock %}
+{% block content %}
+<div class="panel-head"><div><span class="eyebrow">{{ producto.nombre }}</span><h1>Campos configurables</h1></div><div class="head-actions"><a href="{% url 'panel_campo_crear' producto.id %}" class="btn btn-primary">Crear campo</a><a href="{% url 'panel_productos' %}" class="btn btn-outline">Volver</a></div></div>
+<div class="panel-card">
+  <p class="muted">El orden define cómo se le pregunta al cliente cuando personaliza el producto. Marca ancho, alto y cantidad para que el cálculo de precio funcione por m².</p>
+  <table class="table">
+    <thead><tr><th>Orden</th><th>Etiqueta</th><th>Tipo</th><th>Obligatorio</th><th>Cálculo</th><th>Opciones</th><th>Activo</th><th></th></tr></thead>
+    <tbody>
+    {% for c in campos %}
+      <tr><td>{{ c.orden }}</td><td><strong>{{ c.etiqueta }}</strong><br><small>{{ c.nombre_interno }}</small></td><td>{{ c.get_tipo_display }}</td><td>{% if c.obligatorio %}Sí{% else %}No{% endif %}</td><td>{% if c.afecta_area_ancho %}Ancho{% elif c.afecta_area_alto %}Alto{% elif c.es_cantidad %}Cantidad{% else %}-{% endif %}</td><td>{{ c.opciones.count }}</td><td>{% if c.activo %}Sí{% else %}No{% endif %}</td><td class="table-actions"><a href="{% url 'panel_campo_editar' c.id %}">Editar</a>{% if c.tipo == 'select' or c.tipo == 'multiselect' %}<a href="{% url 'panel_campo_opciones' c.id %}">Opciones</a>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="8">Este producto todavía no tiene campos.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

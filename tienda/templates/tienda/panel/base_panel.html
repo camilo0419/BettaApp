@@ -4,38 +4,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Panel Betta{% endblock %}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <title>{% block title %}Admin productos | Betta Diseño{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
 </head>
 <body class="panel-body">
-<aside class="sidebar">
-  <a class="panel-logo" href="{% url 'tienda:panel_dashboard' %}"><img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseño"></a>
-  <nav class="side-nav">
-    <a href="{% url 'tienda:panel_dashboard' %}">Dashboard</a>
-    <a href="{% url 'tienda:panel_cotizaciones' %}">Solicitudes</a>
-    <a href="{% url 'tienda:home' %}" target="_blank">Ver tienda</a>
-    <a href="/admin/" target="_blank">Django admin</a>
+<aside class="panel-sidebar">
+  <a href="{% url 'panel_dashboard' %}" class="panel-brand">
+    <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseño">
+    <span>Admin productos</span>
+  </a>
+  <nav>
+    <a href="{% url 'panel_dashboard' %}">Dashboard</a>
+    <a href="{% url 'panel_solicitudes' %}">Solicitudes</a>
+    <a href="{% url 'panel_productos' %}">Productos</a>
+    <a href="{% url 'home' %}" target="_blank">Ver tienda</a>
+    <a href="{% url 'panel_logout' %}">Salir</a>
   </nav>
-  <form method="post" action="{% url 'tienda:panel_logout' %}" class="logout-form">
-    {% csrf_token %}
-    <button type="submit">Cerrar sesión</button>
-  </form>
 </aside>
 <main class="panel-main">
-  <header class="panel-header">
-    <div>
-      <p class="eyebrow">Betta Diseño</p>
-      <h1>{% block header %}Panel administrativo{% endblock %}</h1>
-    </div>
-    <span class="user-pill">{{ request.user.username }}</span>
-  </header>
   {% if messages %}
-    <div class="messages panel-messages">
-      {% for message in messages %}<div class="message">{{ message }}</div>{% endfor %}
-    </div>
+    {% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}
   {% endif %}
   {% block content %}{% endblock %}
 </main>

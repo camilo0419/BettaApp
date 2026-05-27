@@ -1,0 +1,12 @@
+{% extends 'tienda/panel/base_panel.html' %}
+{% block title %}{{ titulo }} | Admin productos{% endblock %}
+{% block content %}
+<div class="panel-head"><div><span class="eyebrow">{{ producto.nombre }}</span><h1>{{ titulo }}</h1></div><a href="{% url 'panel_producto_campos' producto.id %}" class="btn btn-outline">Volver</a></div>
+<div class="panel-card">
+  <form method="post" class="dynamic-form admin-form">
+    {% csrf_token %}
+    <div class="form-grid two">{{ form.as_div }}</div>
+    <button class="btn btn-primary">Guardar campo</button>
+  </form>
+</div>
+{% endblock %}

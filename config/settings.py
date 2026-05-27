@@ -3,21 +3,10 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Seguridad / entorno
-SECRET_KEY = os.environ.get(
-    "DJANGO_SECRET_KEY",
-    "dev-key-cambiar-en-produccion"
-)
-
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-key-cambiar-en-produccion")
 DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", ".pythonanywhere.com"]
 
-ALLOWED_HOSTS = [
-    "127.0.0.1",
-    "localhost",
-    ".pythonanywhere.com",
-]
-
-# Apps
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -28,7 +17,6 @@ INSTALLED_APPS = [
     "tienda",
 ]
 
-# Middleware
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -41,7 +29,6 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "config.urls"
 
-# Templates
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -60,7 +47,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
-# Base de datos
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
@@ -68,27 +54,24 @@ DATABASES = {
     }
 }
 
-# Validadores de contraseña
 AUTH_PASSWORD_VALIDATORS = []
 
-# Internacionalización
 LANGUAGE_CODE = "es-co"
 TIME_ZONE = "America/Bogota"
 USE_I18N = True
 USE_TZ = True
 
-# Archivos estáticos
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-# Archivos cargados por usuarios
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-# Campo ID por defecto
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Login / Logout
 LOGIN_URL = "/panel/login/"
 LOGIN_REDIRECT_URL = "/panel/"
 LOGOUT_REDIRECT_URL = "/panel/login/"
+
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = 15 * 1024 * 1024

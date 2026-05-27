@@ -1,0 +1,23 @@
+{% extends 'tienda/panel/base_panel.html' %}
+{% block title %}Imágenes | {{ producto.nombre }}{% endblock %}
+{% block content %}
+<div class="panel-head"><div><span class="eyebrow">{{ producto.nombre }}</span><h1>Imágenes del producto</h1></div><a href="{% url 'panel_productos' %}" class="btn btn-outline">Volver</a></div>
+<div class="split-grid">
+  <div class="panel-card">
+    <h2>Agregar imagen</h2>
+    <form method="post" enctype="multipart/form-data" class="dynamic-form">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button class="btn btn-primary">Agregar</button>
+    </form>
+  </div>
+  <div class="panel-card">
+    <h2>Galería</h2>
+    <div class="admin-gallery">
+      {% for img in imagenes %}
+      <div class="gallery-item"><img src="{{ img.imagen.url }}" alt="{{ img.titulo }}"><strong>{{ img.titulo|default:'Sin título' }}</strong><span>Orden {{ img.orden }}</span><form method="post" action="{% url 'panel_imagen_eliminar' img.id %}">{% csrf_token %}<button class="link-button danger">Eliminar</button></form></div>
+      {% empty %}<p>No hay imágenes adicionales.</p>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

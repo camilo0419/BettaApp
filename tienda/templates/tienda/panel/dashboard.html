@@ -1,45 +1,28 @@
 {% extends 'tienda/panel/base_panel.html' %}
-{% block title %}Dashboard · Betta Diseño{% endblock %}
-{% block header %}Dashboard de solicitudes{% endblock %}
+{% block title %}Dashboard | Admin productos{% endblock %}
 {% block content %}
-<section class="metric-grid">
-  <article class="metric-card"><span>Total solicitudes</span><strong>{{ total }}</strong></article>
-  <article class="metric-card"><span>Recibidas</span><strong>{{ conteos.recibida|default:0 }}</strong></article>
-  <article class="metric-card"><span>En revisión</span><strong>{{ conteos.revision|default:0 }}</strong></article>
-  <article class="metric-card"><span>Valor estimado</span><strong>{{ valor_total }}</strong></article>
-</section>
-
-<section class="panel-grid-2">
-  <article class="panel-card">
-    <div class="panel-card-head">
-      <h2>Últimas solicitudes</h2>
-      <a href="{% url 'tienda:panel_cotizaciones' %}">Ver todas</a>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>ID</th><th>Cliente</th><th>Producto</th><th>Estado</th><th>Valor</th></tr></thead>
-        <tbody>
-          {% for c in recientes %}
-            <tr>
-              <td><a href="{% url 'tienda:panel_cotizacion_detalle' c.id %}">#{{ c.id }}</a></td>
-              <td>{{ c.nombre_cliente }}<br><small>{{ c.celular }}</small></td>
-              <td>{{ c.producto.nombre }}</td>
-              <td><span class="status {{ c.estado }}">{{ c.get_estado_display }}</span></td>
-              <td>${{ c.precio_estimado|floatformat:0 }}</td>
-            </tr>
-          {% empty %}<tr><td colspan="5">Aún no hay solicitudes.</td></tr>{% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </article>
-
-  <article class="panel-card">
-    <h2>Productos con más solicitudes</h2>
-    <div class="rank-list">
-      {% for item in por_producto %}
-        <div><span>{{ item.producto__nombre }}</span><strong>{{ item.total }}</strong></div>
-      {% empty %}<p class="muted">Sin datos todavía.</p>{% endfor %}
-    </div>
-  </article>
-</section>
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">Operación</span>
+    <h1>Dashboard</h1>
+  </div>
+  <a href="{% url 'panel_producto_crear' %}" class="btn btn-primary">Nuevo producto</a>
+</div>
+<div class="kpi-grid">
+  <div class="kpi"><span>Total solicitudes</span><strong>{{ total }}</strong></div>
+  <div class="kpi"><span>Nuevas</span><strong>{{ nuevas }}</strong></div>
+  <div class="kpi"><span>En revisión</span><strong>{{ revision }}</strong></div>
+  <div class="kpi"><span>Productos</span><strong>{{ productos }}</strong></div>
+</div>
+<div class="panel-card">
+  <div class="panel-card-head"><h2>Solicitudes recientes</h2><a href="{% url 'panel_solicitudes' %}">Ver todas</a></div>
+  <table class="table">
+    <thead><tr><th>ID</th><th>Cliente</th><th>Producto</th><th>Estado</th><th>Fecha</th><th></th></tr></thead>
+    <tbody>
+    {% for s in recientes %}
+      <tr><td>#{{ s.id }}</td><td>{{ s.cliente_nombre }}</td><td>{{ s.producto.nombre }}</td><td><span class="badge">{{ s.get_estado_display }}</span></td><td>{{ s.creado|date:'d/m/Y H:i' }}</td><td><a href="{% url 'panel_solicitud_detalle' s.id %}">Abrir</a></td></tr>
+    {% empty %}<tr><td colspan="6">No hay solicitudes todavía.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

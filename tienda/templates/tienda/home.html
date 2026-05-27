@@ -1,46 +1,57 @@
 {% extends 'tienda/base.html' %}
 {% load static %}
-{% block title %}Betta Diseño · Productos configurables{% endblock %}
-
+{% block title %}Betta Diseño | Productos personalizados{% endblock %}
 {% block content %}
-<section class="hero betta-hero">
-  <div>
-    <p class="eyebrow">Cotizador gráfico personalizado</p>
-    <h1>Impulsa tu marca con piezas gráficas hechas a la medida.</h1>
-    <p class="hero-copy">Configura medidas, materiales, acabados y archivos antes de enviar tu solicitud. Betta Diseño revisa cada requerimiento antes de producir para asegurar un resultado profesional.</p>
-    <div class="hero-actions">
-      <a class="btn btn-primary" href="#productos">Cotizar producto</a>
-      <a class="btn btn-secondary" href="{% url 'tienda:panel_dashboard' %}">Entrar al panel</a>
+<section class="hero">
+  <div class="container hero-grid">
+    <div>
+      <span class="eyebrow">Diseño · producción · instalación</span>
+      <h1>Personaliza tus piezas publicitarias antes de cotizar.</h1>
+      <p>Selecciona un producto, define medidas, materiales, acabados, archivos y extras. El equipo Betta recibe la solicitud completa para revisarla y gestionarla.</p>
+      <div class="hero-actions">
+        <a href="#productos" class="btn btn-primary">Ver productos</a>
+        <a href="https://wa.me/573005551111" class="btn btn-outline">Hablar por WhatsApp</a>
+      </div>
     </div>
-  </div>
-  <div class="hero-brand-card">
-    <img src="{% static 'tienda/img/marca/betta-logo-fish.jpeg' %}" alt="Betta Diseño">
-    <span>Diseñar · Producir · Instalar</span>
+    <div class="hero-card">
+      <img src="{% static 'tienda/img/marca/betta-logo-fish.jpeg' %}" alt="Betta Diseño">
+      <div class="hero-note">Configurador dinámico para productos personalizados.</div>
+    </div>
   </div>
 </section>
 
-<section id="productos" class="section">
-  <div class="section-title">
-    <p class="eyebrow">Productos iniciales</p>
-    <h2>Elige qué quieres personalizar</h2>
-    <p>Estos cinco productos funcionan como base del MVP. Todos guardan la solicitud en el panel administrativo.</p>
-  </div>
-  <div class="product-grid">
-    {% for producto in productos %}
-      <article class="product-card">
-        <div class="product-image-wrap"><img src="{% static producto.imagen %}" alt="{{ producto.nombre }}"></div>
+<section class="section" id="productos">
+  <div class="container">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Catálogo inicial</span>
+        <h2>Productos configurables</h2>
+      </div>
+      <p>Estos son productos de ejemplo. Desde el módulo Admin productos puedes modificarlos, activar/desactivar campos, cambiar precios y crear nuevos productos.</p>
+    </div>
+    <div class="product-grid">
+      {% for producto in productos %}
+      <a class="product-card" href="{{ producto.get_absolute_url }}">
+        <div class="product-img">
+          {% if producto.imagen_principal %}
+            <img src="{{ producto.imagen_principal.url }}" alt="{{ producto.nombre }}">
+          {% elif producto.imagen_estatica %}
+            <img src="{% static producto.imagen_estatica %}" alt="{{ producto.nombre }}">
+          {% else %}
+            <div class="placeholder-img">Betta</div>
+          {% endif %}
+        </div>
         <div class="product-body">
-          <span class="category">{{ producto.categoria }}</span>
+          <span>{{ producto.categoria }}</span>
           <h3>{{ producto.nombre }}</h3>
           <p>{{ producto.descripcion_corta }}</p>
-          <div class="price-line">
-            <span>Desde</span>
-            <strong>${{ producto.precio_base|floatformat:0 }} / {{ producto.unidad_precio }}</strong>
-          </div>
-          <a class="btn btn-primary full" href="{% url 'tienda:producto_detalle' producto.slug %}">Personalizar</a>
+          <strong>Personalizar ahora →</strong>
         </div>
-      </article>
-    {% endfor %}
+      </a>
+      {% empty %}
+      <div class="empty-state">No hay productos activos. Ingresa al panel y crea el primer producto.</div>
+      {% endfor %}
+    </div>
   </div>
 </section>
 {% endblock %}

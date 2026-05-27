@@ -1,0 +1,32 @@
+{% extends 'tienda/panel/base_panel.html' %}
+{% block title %}Solicitud #{{ solicitud.id }} | Admin productos{% endblock %}
+{% block content %}
+<div class="panel-head"><div><span class="eyebrow">Solicitud #{{ solicitud.id }}</span><h1>{{ solicitud.producto.nombre }}</h1></div><a href="{% url 'panel_solicitudes' %}" class="btn btn-outline">Volver</a></div>
+<div class="split-grid">
+  <div class="panel-card">
+    <h2>Datos del cliente</h2>
+    <dl class="detail-list">
+      <dt>Nombre</dt><dd>{{ solicitud.cliente_nombre }}</dd>
+      <dt>Celular</dt><dd>{{ solicitud.cliente_celular }}</dd>
+      <dt>Email</dt><dd>{{ solicitud.cliente_email|default:'-' }}</dd>
+      <dt>Estado</dt><dd>{{ solicitud.get_estado_display }}</dd>
+      <dt>Precio estimado</dt><dd>${{ solicitud.precio_estimado|floatformat:0 }}</dd>
+      <dt>Fecha</dt><dd>{{ solicitud.creado|date:'d/m/Y H:i' }}</dd>
+    </dl>
+    <h2>Respuestas</h2>
+    <div class="answers">
+      {% for r in solicitud.respuestas.all %}
+      <div class="answer"><strong>{{ r.etiqueta }}</strong><span>{{ r.valor_texto|default:'-' }}</span>{% if r.archivo %}<a href="{{ r.archivo.url }}" target="_blank">Ver archivo</a>{% endif %}</div>
+      {% empty %}<p>No hay respuestas guardadas.</p>{% endfor %}
+    </div>
+  </div>
+  <div class="panel-card">
+    <h2>Gestionar</h2>
+    <form method="post" class="dynamic-form">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button class="btn btn-primary btn-wide">Guardar cambios</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,18 +1,27 @@
-from django.contrib.auth.views import LogoutView
 from django.urls import path
 from . import views
 
-app_name = 'tienda'
-
 urlpatterns = [
-    path('', views.home, name='home'),
-    path('producto/<slug:slug>/', views.producto_detalle, name='producto_detalle'),
-    path('cotizacion/<int:pk>/exito/', views.cotizacion_exito, name='cotizacion_exito'),
+    path("", views.home, name="home"),
+    path("productos/<slug:slug>/", views.producto_detalle, name="producto_detalle"),
+    path("solicitud/<int:pk>/exito/", views.cotizacion_exito, name="cotizacion_exito"),
 
-    path('panel/login/', views.PanelLoginView.as_view(), name='panel_login'),
-    path('panel/logout/', LogoutView.as_view(), name='panel_logout'),
-    path('panel/', views.panel_dashboard, name='panel_dashboard'),
-    path('panel/solicitudes/', views.panel_cotizaciones, name='panel_cotizaciones'),
-    path('panel/solicitudes/<int:pk>/', views.panel_cotizacion_detalle, name='panel_cotizacion_detalle'),
-    path('panel/solicitudes/<int:pk>/editar/', views.panel_cotizacion_editar, name='panel_cotizacion_editar'),
+    path("panel/login/", views.panel_login, name="panel_login"),
+    path("panel/logout/", views.panel_logout, name="panel_logout"),
+    path("panel/", views.panel_dashboard, name="panel_dashboard"),
+    path("panel/solicitudes/", views.solicitudes_lista, name="panel_solicitudes"),
+    path("panel/solicitudes/<int:pk>/", views.solicitud_detalle, name="panel_solicitud_detalle"),
+
+    path("panel/productos/", views.productos_lista, name="panel_productos"),
+    path("panel/productos/nuevo/", views.producto_crear, name="panel_producto_crear"),
+    path("panel/productos/<int:producto_id>/editar/", views.producto_editar, name="panel_producto_editar"),
+    path("panel/productos/<int:producto_id>/toggle/", views.producto_toggle, name="panel_producto_toggle"),
+    path("panel/productos/<int:producto_id>/campos/", views.producto_campos, name="panel_producto_campos"),
+    path("panel/productos/<int:producto_id>/campos/nuevo/", views.campo_crear, name="panel_campo_crear"),
+    path("panel/campos/<int:campo_id>/editar/", views.campo_editar, name="panel_campo_editar"),
+    path("panel/campos/<int:campo_id>/opciones/", views.campo_opciones, name="panel_campo_opciones"),
+    path("panel/campos/<int:campo_id>/opciones/nueva/", views.opcion_crear, name="panel_opcion_crear"),
+    path("panel/opciones/<int:opcion_id>/editar/", views.opcion_editar, name="panel_opcion_editar"),
+    path("panel/productos/<int:producto_id>/imagenes/", views.producto_imagenes, name="panel_producto_imagenes"),
+    path("panel/imagenes/<int:imagen_id>/eliminar/", views.imagen_eliminar, name="panel_imagen_eliminar"),
 ]

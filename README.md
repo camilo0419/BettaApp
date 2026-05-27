@@ -1,73 +1,35 @@
-# Betta Diseño - MVP Django
+# Betta Diseño - Configurador dinámico Django
 
-MVP funcional para una tienda/cotizador de productos gráficos personalizados.
+Aplicación Django para vender/cotizar productos personalizados de diseño, impresión y señalización.
 
-Inspiración funcional: catálogo de productos configurables antes de enviar solicitud o carrito. La versión Betta queda orientada a revisión comercial y producción real: el cliente configura, adjunta archivo y el equipo administra cada requerimiento desde un panel privado.
+## Funcionalidades
 
-## Incluye
+- Home con productos activos.
+- Personalizador dinámico por producto.
+- Productos configurables desde panel propio, no desde código.
+- Campos configurables por producto.
+- Opciones/variantes por campo con precio fijo, por m², por unidad o porcentaje.
+- Galería de imágenes por producto.
+- Solicitudes con respuestas dinámicas y archivos adjuntos.
+- Dashboard para staff.
+- Gestión de estados y precio final.
+- Admin Django renombrado a **Admin Productos**.
 
-### Tienda pública
+## Rutas principales
 
-- Home profesional con marca Betta Diseño.
-- Logo incorporado en `static/tienda/img/marca/`.
-- Paleta aplicada:
-  - `#4abab8`
-  - `#034860`
-  - `#00a28b`
-  - blanco
-- Cinco productos iniciales:
-  1. Vinilo adhesivo personalizado
-  2. Lona / banner publicitario
-  3. Pendón tipo roll up
-  4. Acrílico / metacrilato personalizado
-  5. Letras corpóreas
-- Página de personalización por producto.
-- Carga de archivo del cliente.
-- Cálculo de precio estimado.
-- Registro de solicitud/cotización en base de datos.
-- Botón para continuar por WhatsApp.
+- Tienda: `/`
+- Producto: `/productos/<slug>/`
+- Panel staff: `/panel/login/`
+- Productos: `/panel/productos/`
+- Solicitudes: `/panel/solicitudes/`
+- Admin técnico Django: `/admin/`
 
-### Panel administrativo propio
+## Instalación local
 
-Rutas principales:
-
-```text
-/panel/login/
-/panel/
-/panel/solicitudes/
-/panel/solicitudes/<id>/
-/panel/solicitudes/<id>/editar/
-```
-
-Funciones:
-
-- Login con usuario de Django.
-- Dashboard con métricas.
-- Listado de solicitudes.
-- Filtro por estado y buscador.
-- Detalle de cada solicitud.
-- Cambio rápido de estado.
-- Edición de datos, precio, estado, observaciones y notas internas.
-- Acceso al archivo adjunto.
-
-Estados disponibles:
-
-```text
-Cotización recibida
-En revisión de diseño
-Pendiente de aprobación
-En producción
-Lista para entrega
-Entregada
-Cancelada
-```
-
-## Instalación local en Windows / PowerShell
-
-```powershell
-cd betta_diseno_mvp
+```bash
+cd betta_diseno_configurable
 python -m venv venv
-.\venv\Scripts\activate
+source venv/bin/activate  # Windows: .\venv\Scripts\activate
 pip install -r requirements.txt
 python manage.py migrate
 python manage.py seed_products
@@ -75,59 +37,53 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Abrir tienda:
+## PythonAnywhere
 
-```text
-http://127.0.0.1:8000/
+```bash
+cd ~
+git clone https://github.com/camilo0419/BettaApp.git
+cd BettaApp
+python3.12 -m venv ~/.virtualenvs/bettaapp-venv
+source ~/.virtualenvs/bettaapp-venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+python manage.py check
+python manage.py migrate
+python manage.py seed_products
+python manage.py collectstatic --noinput
+python manage.py createsuperuser
 ```
 
-Abrir panel:
+Configurar en **Web**:
 
-```text
-http://127.0.0.1:8000/panel/login/
-```
+- Source code: `/home/camilo0419/BettaApp`
+- Working directory: `/home/camilo0419/BettaApp`
+- Virtualenv: `/home/camilo0419/.virtualenvs/bettaapp-venv`
+- Static: `/static/` -> `/home/camilo0419/BettaApp/staticfiles`
+- Media: `/media/` -> `/home/camilo0419/BettaApp/media`
 
-Django admin técnico:
+WSGI:
 
-```text
-http://127.0.0.1:8000/admin/
+```python
+import os
+import sys
+
+path = "/home/camilo0419/BettaApp"
+if path not in sys.path:
+    sys.path.insert(0, path)
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+
+from django.core.wsgi import get_wsgi_application
+application = get_wsgi_application()
 ```
 
 ## Cambiar número de WhatsApp
 
-En `tienda/views.py`, cambia:
+Editar `tienda/views.py`:
 
 ```python
-WHATSAPP_EMPRESA = '573005551111'
+WHATSAPP_EMPRESA = "573005551111"
 ```
 
-por el número real de Betta Diseño en formato internacional, sin `+`.
-
-## Formato para nuevos productos
-
-El archivo para que el cliente diligencie nuevos productos está en:
-
-```text
-docs/formato_cliente_nuevo_producto.md
-```
-
-Ese documento sirve para convertir rápidamente la información comercial del producto en datos del sistema: materiales, acabados, extras, fórmula de cálculo y reglas especiales.
-
-## Notas técnicas
-
-- Base de datos local: SQLite.
-- Framework: Django 5.2.6.
-- Archivos subidos: carpeta `media/cotizaciones/`.
-- Imágenes públicas: `tienda/static/tienda/img/`.
-- Panel propio: vistas protegidas con `login_required`.
-- Django admin sigue disponible para administración técnica de productos y opciones.
-
-## Siguiente fase sugerida
-
-- Crear carrito real.
-- Enviar correos automáticos.
-- Integrar WhatsApp Business API.
-- Historial de cambios por solicitud.
-- Asignar responsables internos.
-- Subida de imágenes reales de trabajos realizados.
-- Publicar en Render con PostgreSQL.
+Después hacer **Reload** en PythonAnywhere.

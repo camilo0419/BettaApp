@@ -1,22 +1,19 @@
 {% extends 'tienda/base.html' %}
-{% block title %}Solicitud recibida · Betta Diseño{% endblock %}
-
+{% block title %}Solicitud recibida | Betta Diseño{% endblock %}
 {% block content %}
-<section class="success-layout">
-  <div class="success-card">
-    <p class="eyebrow">Solicitud recibida</p>
-    <h1>Gracias, {{ cotizacion.nombre_cliente }}.</h1>
-    <p>Registramos la solicitud <strong>#{{ cotizacion.id }}</strong> para <strong>{{ cotizacion.producto.nombre }}</strong>.</p>
-    <div class="summary-box">
-      <div><span>Precio estimado</span><strong>{{ precio_formateado }} COP</strong></div>
-      <div><span>Estado</span><strong>{{ cotizacion.get_estado_display }}</strong></div>
-      <div><span>Revisión</span><strong>{% if cotizacion.requiere_revision %}Requiere validación{% else %}Cotización automática{% endif %}</strong></div>
-    </div>
-    <p class="muted">El valor es estimado. Betta Diseño validará archivo, materiales, medidas, instalación y tiempos antes de producir.</p>
+<section class="section">
+  <div class="container success-card">
+    <span class="eyebrow">Solicitud recibida</span>
+    <h1>Gracias, {{ solicitud.cliente_nombre }}.</h1>
+    <p>Recibimos tu solicitud #{{ solicitud.id }} para <strong>{{ solicitud.producto.nombre }}</strong>.</p>
+    {% if solicitud.requiere_revision %}
+      <div class="alert-soft">El precio final será confirmado por el equipo Betta después de revisar tu información.</div>
+    {% else %}
+      <div class="price-box">Precio estimado: <strong>${{ solicitud.precio_estimado|floatformat:0 }}</strong></div>
+    {% endif %}
     <div class="success-actions">
-      <a class="btn btn-primary" href="{{ whatsapp_url }}" target="_blank">Enviar por WhatsApp</a>
-      <a class="btn btn-secondary" href="{% url 'tienda:home' %}">Volver al catálogo</a>
-      <a class="btn btn-secondary" href="{% url 'tienda:panel_cotizacion_detalle' cotizacion.id %}">Ver en panel</a>
+      <a href="{{ whatsapp_url }}" class="btn btn-primary">Continuar por WhatsApp</a>
+      <a href="{% url 'home' %}" class="btn btn-outline">Volver al catálogo</a>
     </div>
   </div>
 </section>
