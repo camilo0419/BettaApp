@@ -27,20 +27,23 @@
         <span class="eyebrow">Catálogo inicial</span>
         <h2>Productos configurables</h2>
       </div>
-      
     </div>
+
     <div class="product-grid">
       {% for producto in productos %}
       <a class="product-card" href="{{ producto.get_absolute_url }}">
         <div class="product-img">
-          {% if producto.imagen_principal %}
-            <img src="{{ producto.imagen_principal.url }}" alt="{{ producto.nombre }}">
-          {% elif producto.imagen_estatica %}
-            <img src="{% static producto.imagen_estatica %}" alt="{{ producto.nombre }}">
-          {% else %}
-            <div class="placeholder-img">Betta</div>
-          {% endif %}
+          {% with portada=producto.imagenes.first %}
+            {% if portada %}
+              <img src="{{ portada.imagen.url }}" alt="{{ producto.nombre }}">
+            {% elif producto.imagen_estatica %}
+              <img src="{% static producto.imagen_estatica %}" alt="{{ producto.nombre }}">
+            {% else %}
+              <div class="placeholder-img">Betta</div>
+            {% endif %}
+          {% endwith %}
         </div>
+
         <div class="product-body">
           <span>{{ producto.categoria }}</span>
           <h3>{{ producto.nombre }}</h3>

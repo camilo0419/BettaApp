@@ -6,41 +6,66 @@
   <div class="container detail-grid">
     <aside class="detail-side">
       <div class="detail-image">
-        {% if producto.imagen_principal %}
-          <img src="{{ producto.imagen_principal.url }}" alt="{{ producto.nombre }}">
-        {% elif producto.imagen_estatica %}
-          <img src="{% static producto.imagen_estatica %}" alt="{{ producto.nombre }}">
-        {% else %}
-          <div class="placeholder-img">Betta</div>
-        {% endif %}
+        {% with portada=producto.imagenes.first %}
+          {% if portada %}
+            <img src="{{ portada.imagen.url }}" alt="{{ producto.nombre }}">
+          {% elif producto.imagen_estatica %}
+            <img src="{% static producto.imagen_estatica %}" alt="{{ producto.nombre }}">
+          {% else %}
+            <div class="placeholder-img">Betta</div>
+          {% endif %}
+        {% endwith %}
       </div>
+
       {% if galeria %}
       <div class="thumb-grid">
-        {% for img in galeria %}<img src="{{ img.imagen.url }}" alt="{{ img.titulo }}">{% endfor %}
+        {% for img in galeria %}
+          <img src="{{ img.imagen.url }}" alt="{{ img.titulo|default:producto.nombre }}">
+        {% endfor %}
       </div>
       {% endif %}
+
       <div class="info-box">
         <strong>{{ producto.categoria }}</strong>
         <p>{{ producto.descripcion_larga|linebreaksbr }}</p>
       </div>
     </aside>
+
     <div class="form-card">
       <span class="eyebrow">Personalización</span>
       <h1>{{ producto.nombre }}</h1>
       <p>{{ producto.descripcion_corta }}</p>
+
       {% if producto.requiere_revision or producto.tipo_calculo == 'manual' %}
       <div class="alert-soft">Este producto requiere revisión del equipo Betta para confirmar precio final.</div>
       {% endif %}
+
       <form method="post" enctype="multipart/form-data" class="dynamic-form">
         {% csrf_token %}
+
         <div class="form-section">
           <h2>Datos del cliente</h2>
           <div class="form-grid two">
-            <div class="field">{{ form.cliente_nombre.label_tag }}{{ form.cliente_nombre }}{{ form.cliente_nombre.errors }}</div>
-            <div class="field">{{ form.cliente_celular.label_tag }}{{ form.cliente_celular }}{{ form.cliente_celular.errors }}</div>
-            <div class="field full">{{ form.cliente_email.label_tag }}{{ form.cliente_email }}{{ form.cliente_email.errors }}</div>
+            <div class="field">
+              {{ form.cliente_nombre.label_tag }}
+              {{ form.cliente_nombre }}
+              {{ form.cliente_nombre.errors }}
+            </div>
+
+            <div class="field">
+              {{ form.cliente_celular.label_tag }}
+              {{ form.cliente_celular }}
+              {{ form.cliente_celular.errors }}
+            </div>
+
+            <div class="field full">
+              {{ form.cliente_email.label_tag }}
+              {{ form.cliente_email }}
+              {{ form.cliente_email.errors }}
+            </div>
           </div>
         </div>
+
         <div class="form-section">
           <h2>Configuración del producto</h2>
           <div class="form-grid two">
@@ -49,13 +74,16 @@
               <div class="field {% if field.field.widget.input_type == 'checkbox' or field.field.widget.input_type == 'file' %}full{% endif %}">
                 {{ field.label_tag }}
                 {{ field }}
-                {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+                {% if field.help_text %}
+                  <small>{{ field.help_text }}</small>
+                {% endif %}
                 {{ field.errors }}
               </div>
               {% endif %}
             {% endfor %}
           </div>
         </div>
+
         <button type="submit" class="btn btn-primary btn-wide">Enviar solicitud</button>
       </form>
     </div>
