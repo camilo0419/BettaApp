@@ -1,20 +1,28 @@
 {% extends 'tienda/base.html' %}
 {% load static %}
+
 {% block title %}{{ producto.nombre }} | Betta Diseño{% endblock %}
+
 {% block content %}
 <section class="section product-detail">
   <div class="container detail-grid">
     <aside class="detail-side">
       <div class="detail-image">
-        {% with portada=producto.imagenes.first %}
-          {% if portada %}
-            <img src="{{ portada.imagen.url }}" alt="{{ producto.nombre }}">
-          {% elif producto.imagen_estatica %}
-            <img src="{% static producto.imagen_estatica %}" alt="{{ producto.nombre }}">
-          {% else %}
-            <div class="placeholder-img">Betta</div>
-          {% endif %}
-        {% endwith %}
+
+        {% if producto.imagen_principal %}
+          <img src="{{ producto.imagen_principal.url }}" alt="{{ producto.nombre }}">
+        {% else %}
+          {% with portada=producto.imagenes.first %}
+            {% if portada %}
+              <img src="{{ portada.imagen.url }}" alt="{{ producto.nombre }}">
+            {% elif producto.imagen_estatica %}
+              <img src="{% static producto.imagen_estatica %}" alt="{{ producto.nombre }}">
+            {% else %}
+              <div class="placeholder-img">Betta</div>
+            {% endif %}
+          {% endwith %}
+        {% endif %}
+
       </div>
 
       {% if galeria %}
@@ -74,9 +82,11 @@
               <div class="field {% if field.field.widget.input_type == 'checkbox' or field.field.widget.input_type == 'file' %}full{% endif %}">
                 {{ field.label_tag }}
                 {{ field }}
+
                 {% if field.help_text %}
                   <small>{{ field.help_text }}</small>
                 {% endif %}
+
                 {{ field.errors }}
               </div>
               {% endif %}

@@ -1,6 +1,8 @@
 {% extends 'tienda/base.html' %}
 {% load static %}
+
 {% block title %}Betta Diseño | Productos personalizados{% endblock %}
+
 {% block content %}
 <section class="hero">
   <div class="container hero-grid">
@@ -13,6 +15,7 @@
         <a href="https://wa.me/573026491143" class="btn btn-outline">Hablar por WhatsApp</a>
       </div>
     </div>
+
     <div class="hero-card">
       <img src="{% static 'tienda/img/marca/betta-logo-fish.jpeg' %}" alt="Betta Diseño">
       <div class="hero-note">Configurador dinámico para productos personalizados.</div>
@@ -33,15 +36,21 @@
       {% for producto in productos %}
       <a class="product-card" href="{{ producto.get_absolute_url }}">
         <div class="product-img">
-          {% with portada=producto.imagenes.first %}
-            {% if portada %}
-              <img src="{{ portada.imagen.url }}" alt="{{ producto.nombre }}">
-            {% elif producto.imagen_estatica %}
-              <img src="{% static producto.imagen_estatica %}" alt="{{ producto.nombre }}">
-            {% else %}
-              <div class="placeholder-img">Betta</div>
-            {% endif %}
-          {% endwith %}
+
+          {% if producto.imagen_principal %}
+            <img src="{{ producto.imagen_principal.url }}" alt="{{ producto.nombre }}">
+          {% else %}
+            {% with portada=producto.imagenes.first %}
+              {% if portada %}
+                <img src="{{ portada.imagen.url }}" alt="{{ producto.nombre }}">
+              {% elif producto.imagen_estatica %}
+                <img src="{% static producto.imagen_estatica %}" alt="{{ producto.nombre }}">
+              {% else %}
+                <div class="placeholder-img">Betta</div>
+              {% endif %}
+            {% endwith %}
+          {% endif %}
+
         </div>
 
         <div class="product-body">
