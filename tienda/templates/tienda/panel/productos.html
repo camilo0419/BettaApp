@@ -1,23 +1,71 @@
 {% extends 'tienda/panel/base_panel.html' %}
+
 {% block title %}Productos | Admin productos{% endblock %}
+
 {% block content %}
-<div class="panel-head"><div><span class="eyebrow">Configurador</span><h1>Productos</h1></div><a href="{% url 'panel_producto_crear' %}" class="btn btn-primary">Crear producto</a></div>
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">Configurador</span>
+    <h1>Productos</h1>
+  </div>
+
+  <a href="{% url 'panel_producto_crear' %}" class="btn btn-primary">Crear producto</a>
+</div>
+
 <div class="panel-card">
-  <table class="table">
-    <thead><tr><th>Orden</th><th>Producto</th><th>Categoría</th><th>Cálculo</th><th>Campos</th><th>Solicitudes</th><th>Activo</th><th>Acciones</th></tr></thead>
-    <tbody>
-    {% for p in productos %}
-      <tr>
-        <td>{{ p.orden }}</td><td><strong>{{ p.nombre }}</strong><br><small>/productos/{{ p.slug }}/</small></td><td>{{ p.categoria }}</td><td>{{ p.get_tipo_calculo_display }}</td><td>{{ p.num_campos }}</td><td>{{ p.num_solicitudes }}</td><td>{% if p.activo %}Sí{% else %}No{% endif %}</td>
-        <td class="table-actions">
-          <a href="{% url 'panel_producto_editar' p.id %}">Editar</a>
-          <a href="{% url 'panel_producto_campos' p.id %}">Campos</a>
-          <a href="{% url 'panel_producto_imagenes' p.id %}">Imágenes</a>
-          <form method="post" action="{% url 'panel_producto_toggle' p.id %}">{% csrf_token %}<button type="submit" class="link-button">{% if p.activo %}Desactivar{% else %}Activar{% endif %}</button></form>
-        </td>
-      </tr>
-    {% empty %}<tr><td colspan="8">No hay productos.</td></tr>{% endfor %}
-    </tbody>
-  </table>
+  <div class="table-responsive">
+    <table class="table products-table">
+      <thead>
+        <tr>
+          <th>Orden</th>
+          <th>Producto</th>
+          <th>Categoría</th>
+          <th>Cálculo</th>
+          <th>Campos</th>
+          <th>Solicitudes</th>
+          <th>Activo</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for p in productos %}
+        <tr>
+          <td>{{ p.orden }}</td>
+
+          <td>
+            <strong>{{ p.nombre }}</strong><br>
+            <small>/productos/{{ p.slug }}/</small>
+          </td>
+
+          <td>{{ p.categoria }}</td>
+          <td>{{ p.get_tipo_calculo_display }}</td>
+          <td>{{ p.num_campos }}</td>
+          <td>{{ p.num_solicitudes }}</td>
+          <td>{% if p.activo %}Sí{% else %}No{% endif %}</td>
+
+          <td class="actions-column">
+            <div class="table-actions">
+              <a href="{% url 'panel_producto_editar' p.id %}">Editar</a>
+              <a href="{% url 'panel_producto_campos' p.id %}">Campos</a>
+              <a href="{% url 'panel_producto_imagenes' p.id %}">Imágenes</a>
+
+              <form method="post" action="{% url 'panel_producto_toggle' p.id %}">
+                {% csrf_token %}
+                <button type="submit" class="link-button">
+                  {% if p.activo %}Desactivar{% else %}Activar{% endif %}
+                </button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="8">No hay productos.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

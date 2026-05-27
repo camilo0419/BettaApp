@@ -40,3 +40,107 @@ header img {
     height: auto !important;
     object-fit: contain !important;
 }
+
+/* Corrección tabla de productos - acciones */
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+}
+
+.admin-table th,
+.admin-table td {
+    vertical-align: top;
+}
+
+.admin-table th:last-child,
+.admin-table td:last-child {
+    min-width: 280px;
+    width: 280px;
+}
+
+.table-actions,
+.actions-cell {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    align-items: center;
+}
+
+.table-actions a,
+.table-actions button,
+.actions-cell a,
+.actions-cell button {
+    white-space: nowrap;
+}
+
+/* Evita que los botones se vean partidos */
+.link-button,
+.admin-table a {
+    white-space: nowrap;
+}
+
+/* Tabla productos panel */
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.products-table {
+    width: 100%;
+    table-layout: auto;
+}
+
+.products-table th,
+.products-table td {
+    vertical-align: top;
+}
+
+.products-table .actions-column {
+    width: 360px;
+    min-width: 360px;
+}
+
+.table-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 14px;
+    white-space: nowrap;
+}
+
+.table-actions a,
+.table-actions button {
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+}
+
+.table-actions form {
+    display: inline-flex;
+    margin: 0;
+    padding: 0;
+}
+
+.table-actions .link-button {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    color: var(--deep);
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+@media (max-width: 1100px) {
+    .products-table .actions-column {
+        width: 280px;
+        min-width: 280px;
+    }
+
+    .table-actions {
+        flex-wrap: wrap;
+        gap: 8px 12px;
+    }
+}
