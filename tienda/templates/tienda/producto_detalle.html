@@ -79,9 +79,30 @@
           <div class="form-grid two">
             {% for field in form %}
               {% if field.name != 'cliente_nombre' and field.name != 'cliente_celular' and field.name != 'cliente_email' %}
-              <div class="field {% if field.field.widget.input_type == 'checkbox' or field.field.widget.input_type == 'file' %}full{% endif %}">
+
+              <div class="field {% if field.field.widget.input_type == 'checkbox' or field.field.widget.input_type == 'file' or field.field.widget.input_type == 'color' %}full{% endif %}">
                 {{ field.label_tag }}
-                {{ field }}
+
+                {% if field.field.widget.input_type == 'color' %}
+                  <div class="color-picker-card" data-color-wrapper>
+                    <div class="color-picker-main" data-color-trigger>
+                      <div class="color-picker-swatch" data-color-preview-for="{{ field.id_for_label }}"></div>
+
+                      <div class="color-picker-info">
+                        <strong data-color-value-for="{{ field.id_for_label }}">Sin color seleccionado</strong>
+                        <span>Toca para cambiar color</span>
+                      </div>
+
+                      <div class="color-picker-icon">↗</div>
+                    </div>
+
+                    <div class="color-native-input">
+                      {{ field }}
+                    </div>
+                  </div>
+                {% else %}
+                  {{ field }}
+                {% endif %}
 
                 {% if field.help_text %}
                   <small>{{ field.help_text }}</small>
@@ -89,6 +110,7 @@
 
                 {{ field.errors }}
               </div>
+
               {% endif %}
             {% endfor %}
           </div>
@@ -99,4 +121,44 @@
     </div>
   </div>
 </section>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const colorInputs = document.querySelectorAll('input[type="color"]');
+
+  colorInputs.forEach(function (input) {
+    const swatch = document.querySelector(`[data-color-preview-for="${input.id}"]`);
+    const valueText = document.querySelector(`[data-color-value-for="${input.id}"]`);
+    const wrapper = input.closest("[data-color-wrapper]");
+    const trigger = wrapper ? wrapper.querySelector("[data-color-trigger]") : null;
+
+    function updateColorPreview() {
+      const color = input.value || "#FFFFFF";
+
+      if (swatch) {
+        swatch.style.backgroundColor = color;
+      }
+
+      if (valueText) {
+        valueText.textContent = color.toUpperCase();
+      }
+    }
+
+    updateColorPreview();
+
+    input.addEventListener("input", updateColorPreview);
+    input.addEventListener("change", updateColorPreview);
+
+    if (trigger) {
+      trigger.addEventListener("click", function () {
+        if (typeof input.showPicker === "function") {
+          input.showPicker();
+        } else {
+          input.click();
+        }
+      });
+    }
+  });
+});
+</script>
 {% endblock %}
