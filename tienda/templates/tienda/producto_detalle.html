@@ -8,7 +8,6 @@
   <div class="container detail-grid">
     <aside class="detail-side">
       <div class="detail-image">
-
         {% if producto.imagen_principal %}
           <img src="{{ producto.imagen_principal.url }}" alt="{{ producto.nombre }}">
         {% else %}
@@ -22,7 +21,6 @@
             {% endif %}
           {% endwith %}
         {% endif %}
-
       </div>
 
       {% if galeria %}
@@ -53,6 +51,7 @@
 
         <div class="form-section">
           <h2>Datos del cliente</h2>
+
           <div class="form-grid two">
             <div class="field">
               {{ form.cliente_nombre.label_tag }}
@@ -76,6 +75,7 @@
 
         <div class="form-section">
           <h2>Configuración del producto</h2>
+
           <div class="form-grid two">
             {% for field in form %}
               {% if field.name != 'cliente_nombre' and field.name != 'cliente_celular' and field.name != 'cliente_email' %}
@@ -85,16 +85,16 @@
 
                 {% if field.field.widget.input_type == 'color' %}
                   <div class="color-picker-card" data-color-wrapper>
-                    <div class="color-picker-main" data-color-trigger>
-                      <div class="color-picker-swatch" data-color-preview-for="{{ field.id_for_label }}"></div>
+                    <label class="color-picker-main" for="{{ field.id_for_label }}">
+                      <span class="color-picker-swatch" data-color-preview-for="{{ field.id_for_label }}"></span>
 
-                      <div class="color-picker-info">
+                      <span class="color-picker-info">
                         <strong data-color-value-for="{{ field.id_for_label }}">Sin color seleccionado</strong>
-                        <span>Toca para cambiar color</span>
-                      </div>
+                        <small>Toca o haz clic para cambiar color</small>
+                      </span>
 
-                      <div class="color-picker-icon">↗</div>
-                    </div>
+                      <span class="color-picker-icon">Cambiar</span>
+                    </label>
 
                     <div class="color-native-input">
                       {{ field }}
@@ -129,8 +129,6 @@ document.addEventListener("DOMContentLoaded", function () {
   colorInputs.forEach(function (input) {
     const swatch = document.querySelector(`[data-color-preview-for="${input.id}"]`);
     const valueText = document.querySelector(`[data-color-value-for="${input.id}"]`);
-    const wrapper = input.closest("[data-color-wrapper]");
-    const trigger = wrapper ? wrapper.querySelector("[data-color-trigger]") : null;
 
     function updateColorPreview() {
       const color = input.value || "#FFFFFF";
@@ -148,16 +146,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
     input.addEventListener("input", updateColorPreview);
     input.addEventListener("change", updateColorPreview);
-
-    if (trigger) {
-      trigger.addEventListener("click", function () {
-        if (typeof input.showPicker === "function") {
-          input.showPicker();
-        } else {
-          input.click();
-        }
-      });
-    }
   });
 });
 </script>

@@ -145,111 +145,6 @@ header img {
     }
 }
 
-/* Selector de color profesional */
-.color-picker-card {
-    width: 100%;
-}
-
-.color-picker-main {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    width: 100%;
-    min-height: 74px;
-    padding: 14px 16px;
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    background: #fff;
-    box-shadow: 0 10px 28px rgba(3, 72, 96, 0.07);
-    cursor: pointer;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-}
-
-.color-picker-main:hover {
-    border-color: var(--tea);
-    box-shadow: 0 16px 36px rgba(3, 72, 96, 0.12);
-    transform: translateY(-1px);
-}
-
-.color-picker-swatch {
-    width: 48px;
-    height: 48px;
-    min-width: 48px;
-    border-radius: 16px;
-    border: 2px solid rgba(3, 72, 96, 0.18);
-    box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.7), 0 8px 20px rgba(3, 72, 96, 0.18);
-}
-
-.color-picker-info {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-}
-
-.color-picker-info strong {
-    color: var(--deep);
-    font-size: 1rem;
-    letter-spacing: 0.06em;
-    font-weight: 900;
-}
-
-.color-picker-info span {
-    color: var(--muted);
-    font-size: 0.88rem;
-    font-weight: 700;
-}
-
-.color-picker-icon {
-    margin-left: auto;
-    width: 34px;
-    height: 34px;
-    border-radius: 999px;
-    display: grid;
-    place-items: center;
-    color: var(--deep);
-    background: rgba(74, 186, 184, 0.12);
-    font-weight: 900;
-}
-
-.color-native-input {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-    overflow: hidden;
-    pointer-events: none;
-}
-
-.color-native-input input[type="color"] {
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-    border: 0;
-    padding: 0;
-}
-
-@media (max-width: 700px) {
-    .color-picker-main {
-        min-height: 86px;
-        padding: 16px;
-        gap: 14px;
-    }
-
-    .color-picker-swatch {
-        width: 54px;
-        height: 54px;
-        min-width: 54px;
-    }
-
-    .color-picker-info strong {
-        font-size: 1.05rem;
-    }
-
-    .color-picker-info span {
-        font-size: 0.9rem;
-    }
-}
 
 /* Tabla de campos configurables */
 .table-responsive {
@@ -374,5 +269,141 @@ header img {
         color: var(--muted);
         font-size: 0.84rem;
         font-weight: 700;
+    }
+}
+
+/* Selector de color profesional - estable en PC y móvil */
+.color-picker-card {
+    position: relative;
+    width: 100%;
+}
+
+.color-picker-main {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    min-height: 86px;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 10px 28px rgba(3, 72, 96, 0.07);
+    cursor: pointer;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.color-picker-main:hover {
+    border-color: var(--teal);
+    box-shadow: 0 16px 36px rgba(3, 72, 96, 0.12);
+    transform: translateY(-1px);
+}
+
+.color-picker-swatch {
+    display: block;
+    width: 56px;
+    height: 56px;
+    min-width: 56px;
+    flex: 0 0 56px;
+    border-radius: 18px;
+    border: 2px solid rgba(3, 72, 96, 0.18);
+    background: #ffffff;
+    box-shadow:
+        inset 0 0 0 4px rgba(255, 255, 255, 0.75),
+        0 10px 24px rgba(3, 72, 96, 0.18);
+}
+
+.color-picker-info {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.color-picker-info strong {
+    color: var(--deep);
+    font-size: 1.05rem;
+    letter-spacing: 0.06em;
+    font-weight: 900;
+}
+
+.color-picker-info small {
+    color: var(--muted);
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.color-picker-icon {
+    margin-left: auto;
+    min-width: 86px;
+    height: 38px;
+    padding: 0 14px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--deep);
+    background: rgba(74, 186, 184, 0.16);
+    font-weight: 900;
+    font-size: 0.84rem;
+}
+
+/* Input nativo real, oculto visualmente pero funcional */
+.color-native-input {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    width: 86px;
+    height: 38px;
+    opacity: 0.01;
+    z-index: 4;
+    pointer-events: auto;
+}
+
+.color-native-input input[type="color"] {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    opacity: 0.01;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+@media (max-width: 700px) {
+    .color-picker-main {
+        min-height: 96px;
+        padding: 16px;
+        gap: 14px;
+    }
+
+    .color-picker-swatch {
+        width: 62px;
+        height: 62px;
+        min-width: 62px;
+        flex: 0 0 62px;
+        border-radius: 20px;
+    }
+
+    .color-picker-info strong {
+        font-size: 1.08rem;
+    }
+
+    .color-picker-info small {
+        font-size: 0.9rem;
+    }
+
+    .color-picker-icon {
+        min-width: 76px;
+        font-size: 0.78rem;
+    }
+
+    .color-native-input {
+        right: 16px;
+        bottom: 16px;
+        width: 76px;
+        height: 38px;
     }
 }
