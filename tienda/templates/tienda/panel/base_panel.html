@@ -17,9 +17,13 @@
     <a href="{% url 'panel_dashboard' %}">Dashboard</a>
     <a href="{% url 'panel_solicitudes' %}">Solicitudes</a>
     <a href="{% url 'panel_productos' %}">Productos</a>
+    <a href="{% url 'panel_campos_maestros' %}">Campos maestros</a>
     <a href="{% url 'home' %}" target="_blank">Ver tienda</a>
-    <a href="{% url 'panel_logout' %}">Salir</a>
+    <a href="#" onclick="event.preventDefault(); document.getElementById('panel-logout-form').submit();">Salir</a>
   </nav>
+  <form id="panel-logout-form" method="post" action="{% url 'panel_logout' %}" style="display:none;">
+    {% csrf_token %}
+  </form>
 </aside>
 <main class="panel-main">
   {% if messages %}

@@ -1,0 +1,25 @@
+{% load static %}
+<a class="product-card" href="{{ producto.get_absolute_url }}">
+  <div class="product-img">
+    {% if producto.imagen_principal %}
+      <img src="{{ producto.imagen_principal.url }}" alt="{{ producto.nombre }}">
+    {% else %}
+      {% with portada=producto.imagenes.first %}
+        {% if portada %}
+          <img src="{{ portada.imagen.url }}" alt="{{ producto.nombre }}">
+        {% elif producto.imagen_estatica %}
+          <img src="{% static producto.imagen_estatica %}" alt="{{ producto.nombre }}">
+        {% else %}
+          <div class="placeholder-img">Betta</div>
+        {% endif %}
+      {% endwith %}
+    {% endif %}
+  </div>
+
+  <div class="product-body">
+    <span>{{ producto.categoria }}</span>
+    <h3>{{ producto.nombre }}</h3>
+    <p>{{ producto.descripcion_corta }}</p>
+    <strong>Personalizar ahora â†’</strong>
+  </div>
+</a>

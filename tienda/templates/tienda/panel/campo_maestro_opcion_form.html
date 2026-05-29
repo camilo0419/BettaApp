@@ -1,0 +1,22 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}{{ titulo }} | Admin productos{% endblock %}
+
+{% block content %}
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">{{ campo.nombre }}</span>
+    <h1>{{ titulo }}</h1>
+  </div>
+
+  <a href="{% url 'panel_campo_maestro_opciones' campo.id %}" class="btn btn-outline">Volver</a>
+</div>
+
+<div class="panel-card">
+  <form method="post" class="dynamic-form admin-form">
+    {% csrf_token %}
+    <div class="form-grid two">{{ form.as_div }}</div>
+    <button class="btn btn-primary">Guardar opción maestra</button>
+  </form>
+</div>
+{% endblock %}

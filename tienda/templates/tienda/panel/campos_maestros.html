@@ -1,0 +1,73 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}Campos maestros | Admin productos{% endblock %}
+
+{% block content %}
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">Banco reutilizable</span>
+    <h1>Campos maestros</h1>
+  </div>
+
+  <div class="head-actions">
+    <a href="{% url 'panel_campo_maestro_crear' %}" class="btn btn-primary">Crear campo maestro</a>
+    <a href="{% url 'panel_productos' %}" class="btn btn-outline">Productos</a>
+  </div>
+</div>
+
+<div class="panel-card">
+  <p class="muted">
+    Estos campos sirven como base para asignarlos a productos. Cada producto conserva su propia configuracion despues de agregarlos.
+  </p>
+
+  <div class="table-responsive">
+    <table class="table fields-table">
+      <thead>
+        <tr>
+          <th>Orden</th>
+          <th>Campo</th>
+          <th>Tipo</th>
+          <th>Opciones</th>
+          <th>Usos</th>
+          <th>Activo</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for campo in campos %}
+        <tr>
+          <td>{{ campo.orden_base }}</td>
+          <td class="field-name-cell">
+            <strong>{{ campo.nombre }}</strong>
+            <small>{{ campo.slug }}</small>
+          </td>
+          <td>{{ campo.get_tipo_display }}</td>
+          <td>{{ campo.num_opciones }}</td>
+          <td>{{ campo.usos }}</td>
+          <td>
+            {% if campo.activo %}
+              Sí
+            {% else %}
+              No
+            {% endif %}
+          </td>
+          <td class="actions-column">
+            <div class="field-actions">
+              <a href="{% url 'panel_campo_maestro_editar' campo.id %}">Editar</a>
+              {% if campo.tipo == 'select' or campo.tipo == 'multiselect' %}
+                <a href="{% url 'panel_campo_maestro_opciones' campo.id %}">Opciones</a>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7">Todavía no hay campos maestros.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

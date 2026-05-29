@@ -1,0 +1,65 @@
+{% extends 'tienda/base.html' %}
+{% load static %}
+
+{% block title %}Productos | Betta Diseno{% endblock %}
+
+{% block content %}
+<section class="section" id="catalogo">
+  <div class="container">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Catalogo</span>
+        <h1>Productos</h1>
+        <p>Encuentra productos activos por nombre o categoria.</p>
+      </div>
+    </div>
+
+    <form method="get" class="filters">
+      <input type="text" name="q" value="{{ q }}" placeholder="Buscar producto">
+      <select name="categoria">
+        <option value="">Todas las categorias</option>
+        {% for categoria in categorias %}
+          <option value="{{ categoria.slug }}" {% if categoria_slug == categoria.slug %}selected{% endif %}>{{ categoria.nombre }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-primary">Buscar</button>
+    </form>
+
+    {% if mostrar_resultados %}
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">
+            {% if categoria_seleccionada %}{{ categoria_seleccionada.nombre }}{% else %}Resultados{% endif %}
+          </span>
+          <h2>{% if q %}Resultados para "{{ q }}"{% else %}Productos disponibles{% endif %}</h2>
+        </div>
+      </div>
+
+      <div class="product-grid">
+        {% for producto in productos %}
+          {% include 'tienda/partials/product_card.html' %}
+        {% empty %}
+          <div class="empty-state">{% if q %}No encontramos productos con ese nombre.{% else %}No hay productos activos en esta categoria.{% endif %}</div>
+        {% endfor %}
+      </div>
+    {% else %}
+      {% for categoria in categorias_con_productos %}
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">{{ categoria.nombre }}</span>
+            <h2>{{ categoria.nombre }}</h2>
+          </div>
+        </div>
+
+        <div class="product-grid">
+          {% for producto in categoria.productos.all %}
+            {% include 'tienda/partials/product_card.html' %}
+          {% endfor %}
+        </div>
+      {% empty %}
+        <div class="empty-state">No hay productos activos por ahora.</div>
+      {% endfor %}
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

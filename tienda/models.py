@@ -1,7 +1,35 @@
-from decimal import Decimal
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
 from django.utils.text import slugify
+
+
+class Categoria(models.Model):
+    nombre = models.CharField(max_length=120, unique=True)
+    slug = models.SlugField(max_length=140, unique=True, blank=True)
+    orden = models.PositiveIntegerField(default=0)
+    activa = models.BooleanField(default=True)
+    creada = models.DateTimeField(auto_now_add=True)
+    actualizada = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["orden", "nombre"]
+        verbose_name = "Categoría"
+        verbose_name_plural = "Categorías"
+
+    def __str__(self):
+        return self.nombre
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base = slugify(self.nombre) or "categoria"
+            slug = base
+            i = 2
+            while Categoria.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base}-{i}"
+                i += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
 
 
 class Producto(models.Model):
@@ -16,13 +44,13 @@ class Producto(models.Model):
 
     nombre = models.CharField(max_length=160)
     slug = models.SlugField(max_length=180, unique=True, blank=True)
-    categoria = models.CharField(max_length=120, blank=True)
+    categoria = models.ForeignKey(Categoria, on_delete=models.PROTECT, related_name="productos")
     descripcion_corta = models.CharField(max_length=240, blank=True)
     descripcion_larga = models.TextField(blank=True)
     imagen_principal = models.FileField(upload_to="productos/", blank=True, null=True)
     imagen_estatica = models.CharField(max_length=255, blank=True, help_text="Ruta static opcional. Ej: tienda/img/vinilo.svg")
     activo = models.BooleanField(default=True)
-    destacado = models.BooleanField(default=True)
+    destacado = models.BooleanField("Destacado en home", default=True)
     orden = models.PositiveIntegerField(default=0)
     tipo_calculo = models.CharField(max_length=20, choices=CALCULO_CHOICES, default=CALCULO_AREA)
     precio_base_m2 = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -102,6 +130,13 @@ class ProductoCampo(models.Model):
     ]
 
     producto = models.ForeignKey(Producto, on_delete=models.CASCADE, related_name="campos")
+    campo_maestro = models.ForeignKey(
+        "CampoMaestro",
+        on_delete=models.PROTECT,
+        related_name="producto_campos",
+        null=True,
+        blank=True,
+    )
     etiqueta = models.CharField(max_length=160)
     nombre_interno = models.SlugField(max_length=120, blank=True)
     tipo = models.CharField(max_length=30, choices=TIPO_CHOICES, default=TIPO_TEXTO)
@@ -118,13 +153,162 @@ class ProductoCampo(models.Model):
         ordering = ["producto", "orden", "id"]
         verbose_name = "Campo configurable"
         verbose_name_plural = "Campos configurables"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["producto"],
+                condition=models.Q(afecta_area_ancho=True),
+                name="unico_campo_ancho_por_producto",
+            ),
+            models.UniqueConstraint(
+                fields=["producto"],
+                condition=models.Q(afecta_area_alto=True),
+                name="unico_campo_alto_por_producto",
+            ),
+            models.UniqueConstraint(
+                fields=["producto"],
+                condition=models.Q(es_cantidad=True),
+                name="unico_campo_cantidad_por_producto",
+            ),
+            models.UniqueConstraint(
+                fields=["producto", "campo_maestro"],
+                condition=models.Q(campo_maestro__isnull=False),
+                name="unico_campo_maestro_por_producto",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.producto} - {self.etiqueta}"
 
+    def clean(self):
+        super().clean()
+        errors = {}
+        roles = [
+            ("afecta_area_ancho", "ancho"),
+            ("afecta_area_alto", "alto"),
+            ("es_cantidad", "cantidad"),
+        ]
+        roles_marcados = [field for field, _label in roles if getattr(self, field)]
+
+        if len(roles_marcados) > 1:
+            mensaje = "Un campo no puede tener mas de un rol de calculo."
+            for field in roles_marcados:
+                errors[field] = mensaje
+
+        if self.producto_id:
+            if self.campo_maestro_id:
+                if self.tipo != self.campo_maestro.tipo:
+                    errors["tipo"] = "El tipo debe coincidir con el campo maestro asignado."
+
+                campos = ProductoCampo.objects.filter(
+                    producto_id=self.producto_id,
+                    campo_maestro_id=self.campo_maestro_id,
+                )
+                if self.pk:
+                    campos = campos.exclude(pk=self.pk)
+                if campos.exists():
+                    errors["campo_maestro"] = "Este campo maestro ya esta asignado a este producto."
+
+            for field, label in roles:
+                if getattr(self, field):
+                    campos = ProductoCampo.objects.filter(producto_id=self.producto_id, **{field: True})
+                    if self.pk:
+                        campos = campos.exclude(pk=self.pk)
+                    if campos.exists():
+                        errors[field] = f"Este producto ya tiene un campo marcado como {label}."
+
+        if errors:
+            raise ValidationError(errors)
+
     def save(self, *args, **kwargs):
         if not self.nombre_interno:
-            self.nombre_interno = slugify(self.etiqueta).replace("-", "_")[:120]
+            if self.campo_maestro_id:
+                self.nombre_interno = self.campo_maestro.slug.replace("-", "_")[:120]
+            else:
+                self.nombre_interno = slugify(self.etiqueta).replace("-", "_")[:120]
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def desde_maestro(cls, producto, campo_maestro):
+        return cls(
+            producto=producto,
+            campo_maestro=campo_maestro,
+            etiqueta=campo_maestro.etiqueta_base or campo_maestro.nombre,
+            nombre_interno=campo_maestro.slug.replace("-", "_")[:120],
+            tipo=campo_maestro.tipo,
+            obligatorio=campo_maestro.obligatorio_base,
+            ayuda=campo_maestro.ayuda_base,
+            placeholder=campo_maestro.placeholder_base,
+            orden=campo_maestro.orden_base,
+            activo=campo_maestro.activo,
+        )
+
+    def copiar_opciones_maestras(self):
+        if not self.campo_maestro_id:
+            return 0
+
+        creadas = 0
+        opciones = self.campo_maestro.opciones_maestras.filter(activa=True).order_by("orden", "id")
+        for opcion_maestra in opciones:
+            valor = opcion_maestra.valor or slugify(opcion_maestra.etiqueta)[:120]
+            _opcion, creada = CampoOpcion.objects.get_or_create(
+                campo=self,
+                valor=valor,
+                defaults={
+                    "etiqueta": opcion_maestra.etiqueta,
+                    "ajuste_tipo": opcion_maestra.ajuste_tipo,
+                    "precio": opcion_maestra.precio,
+                    "orden": opcion_maestra.orden,
+                    "activa": opcion_maestra.activa,
+                },
+            )
+            if creada:
+                creadas += 1
+        return creadas
+
+
+class CampoMaestro(models.Model):
+    nombre = models.CharField(max_length=160)
+    slug = models.SlugField(max_length=140, unique=True, blank=True)
+    tipo = models.CharField(max_length=30, choices=ProductoCampo.TIPO_CHOICES, default=ProductoCampo.TIPO_TEXTO)
+    etiqueta_base = models.CharField(max_length=160, blank=True)
+    ayuda_base = models.CharField(max_length=255, blank=True)
+    placeholder_base = models.CharField(max_length=160, blank=True)
+    obligatorio_base = models.BooleanField(default=False)
+    activo = models.BooleanField(default=True)
+    orden_base = models.PositiveIntegerField(default=0)
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["orden_base", "nombre"]
+        verbose_name = "Campo maestro"
+        verbose_name_plural = "Campos maestros"
+
+    def __str__(self):
+        return self.nombre
+
+    def clean(self):
+        super().clean()
+        if self.activo and CampoMaestro.objects.filter(
+            activo=True,
+            nombre__iexact=self.nombre,
+            tipo=self.tipo,
+        ).exclude(pk=self.pk).exists():
+            raise ValidationError({"nombre": "Ya existe un campo maestro activo con este nombre y tipo."})
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            base = slugify(self.nombre) or "campo-maestro"
+            slug = base
+            i = 2
+            while CampoMaestro.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base}-{i}"
+                i += 1
+            self.slug = slug
+        if not self.etiqueta_base:
+            self.etiqueta_base = self.nombre
+        self.full_clean()
         super().save(*args, **kwargs)
 
 
@@ -155,13 +339,64 @@ class CampoOpcion(models.Model):
         ordering = ["campo", "orden", "id"]
         verbose_name = "Opción de campo"
         verbose_name_plural = "Opciones de campo"
+        constraints = [
+            models.UniqueConstraint(fields=["campo", "valor"], name="unica_opcion_por_campo_valor"),
+        ]
 
     def __str__(self):
         return f"{self.campo.etiqueta}: {self.etiqueta}"
 
+    def clean(self):
+        super().clean()
+        if self.campo_id and self.valor:
+            opciones = CampoOpcion.objects.filter(campo_id=self.campo_id, valor=self.valor)
+            if self.pk:
+                opciones = opciones.exclude(pk=self.pk)
+            if opciones.exists():
+                raise ValidationError({"valor": "Ya existe una opcion con este valor en este campo."})
+
     def save(self, *args, **kwargs):
         if not self.valor:
             self.valor = slugify(self.etiqueta)[:120]
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
+class CampoMaestroOpcion(models.Model):
+    campo_maestro = models.ForeignKey(CampoMaestro, on_delete=models.CASCADE, related_name="opciones_maestras")
+    etiqueta = models.CharField(max_length=160)
+    valor = models.SlugField(max_length=120, blank=True)
+    ajuste_tipo = models.CharField(max_length=20, choices=CampoOpcion.AJUSTE_CHOICES, default=CampoOpcion.AJUSTE_NINGUNO)
+    precio = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    orden = models.PositiveIntegerField(default=0)
+    activa = models.BooleanField(default=True)
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["campo_maestro", "orden", "id"]
+        verbose_name = "Opción maestra"
+        verbose_name_plural = "Opciones maestras"
+        constraints = [
+            models.UniqueConstraint(fields=["campo_maestro", "valor"], name="unica_opcion_maestra_por_valor"),
+        ]
+
+    def __str__(self):
+        return f"{self.campo_maestro}: {self.etiqueta}"
+
+    def clean(self):
+        super().clean()
+        if self.campo_maestro_id and self.valor:
+            opciones = CampoMaestroOpcion.objects.filter(campo_maestro_id=self.campo_maestro_id, valor=self.valor)
+            if self.pk:
+                opciones = opciones.exclude(pk=self.pk)
+            if opciones.exists():
+                raise ValidationError({"valor": "Ya existe una opcion maestra con este valor en este campo."})
+
+    def save(self, *args, **kwargs):
+        if not self.valor:
+            self.valor = slugify(self.etiqueta)[:120]
+        self.full_clean()
         super().save(*args, **kwargs)
 
 

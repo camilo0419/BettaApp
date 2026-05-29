@@ -1,11 +1,71 @@
 from pathlib import Path
 import os
 
+from django.core.exceptions import ImproperlyConfigured
+
+try:
+    from dotenv import load_dotenv
+except (ImportError, PermissionError):
+    def load_dotenv(path):
+        env_path = Path(path)
+        if not env_path.exists():
+            return False
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        return True
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-key-cambiar-en-produccion")
-DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", ".pythonanywhere.com"]
+load_dotenv(BASE_DIR / ".env")
+
+
+def env_bool(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name, default):
+    value = os.environ.get(name)
+    if value in [None, ""]:
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} debe ser un entero.") from exc
+
+
+def env_list(name, default=None):
+    value = os.environ.get(name)
+    if value in [None, ""]:
+        return default or []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+DEBUG = env_bool("DJANGO_DEBUG", False)
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "django-insecure-local-development-only-change-me"
+    else:
+        raise ImproperlyConfigured("DJANGO_SECRET_KEY es obligatorio cuando DJANGO_DEBUG=False.")
+
+if not DEBUG and SECRET_KEY in {
+    "dev-key-cambiar-en-produccion",
+    "django-insecure-local-development-only-change-me",
+    "change-me",
+    "change-me-in-production",
+}:
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY debe ser un valor real y seguro en produccion.")
+
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["127.0.0.1", "localhost"])
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -54,7 +114,12 @@ DATABASES = {
     }
 }
 
-AUTH_PASSWORD_VALIDATORS = []
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
 
 LANGUAGE_CODE = "es-co"
 TIME_ZONE = "America/Bogota"
@@ -73,5 +138,23 @@ LOGIN_URL = "/panel/login/"
 LOGIN_REDIRECT_URL = "/panel/"
 LOGOUT_REDIRECT_URL = "/panel/login/"
 
-FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
-DATA_UPLOAD_MAX_MEMORY_SIZE = 15 * 1024 * 1024
+SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", False)
+SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", False)
+CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", False)
+SECURE_HSTS_SECONDS = env_int("DJANGO_SECURE_HSTS_SECONDS", 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
+SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", False)
+
+FILE_UPLOAD_MAX_MEMORY_SIZE = env_int("DJANGO_FILE_UPLOAD_MAX_MEMORY_SIZE", 10 * 1024 * 1024)
+DATA_UPLOAD_MAX_MEMORY_SIZE = env_int("DJANGO_DATA_UPLOAD_MAX_MEMORY_SIZE", 15 * 1024 * 1024)
+USER_UPLOAD_MAX_SIZE = env_int("DJANGO_USER_UPLOAD_MAX_SIZE", 10 * 1024 * 1024)
+PRODUCT_IMAGE_UPLOAD_MAX_SIZE = env_int("DJANGO_PRODUCT_IMAGE_UPLOAD_MAX_SIZE", 5 * 1024 * 1024)
+
+ALLOWED_USER_UPLOAD_EXTENSIONS = env_list(
+    "DJANGO_ALLOWED_USER_UPLOAD_EXTENSIONS",
+    [".pdf", ".jpg", ".jpeg", ".png", ".webp", ".zip", ".ai"],
+)
+ALLOWED_IMAGE_UPLOAD_EXTENSIONS = env_list(
+    "DJANGO_ALLOWED_IMAGE_UPLOAD_EXTENSIONS",
+    [".jpg", ".jpeg", ".png", ".webp"],
+)

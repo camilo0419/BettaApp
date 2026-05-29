@@ -11,6 +11,7 @@
 
   <div class="head-actions">
     <a href="{% url 'panel_campo_crear' producto.id %}" class="btn btn-primary">Crear campo</a>
+    <a href="{% url 'panel_campos_maestros' %}" class="btn btn-outline">Campos maestros</a>
     <a href="{% url 'panel_productos' %}" class="btn btn-outline">Volver</a>
   </div>
 </div>
@@ -18,6 +19,7 @@
 <div class="panel-card">
   <p class="muted">
     El orden define cómo se le pregunta al cliente cuando personaliza el producto.
+    Estos campos pertenecen solo a este producto; otros productos pueden tener listas diferentes.
     Marca ancho, alto y cantidad para que el cálculo de precio funcione por m².
   </p>
 
@@ -44,6 +46,11 @@
           <td class="field-name-cell">
             <strong>{{ c.etiqueta }}</strong>
             <small>{{ c.nombre_interno }}</small>
+            {% if c.campo_maestro %}
+              <small>Maestro: {{ c.campo_maestro.nombre }}</small>
+            {% else %}
+              <small>Campo personalizado</small>
+            {% endif %}
           </td>
 
           <td>{{ c.get_tipo_display }}</td>
@@ -84,6 +91,24 @@
 
               {% if c.tipo == 'select' or c.tipo == 'multiselect' %}
                 <a href="{% url 'panel_campo_opciones' c.id %}">Opciones</a>
+                {% if c.campo_maestro %}
+                  <form method="post" action="{% url 'panel_campo_copiar_opciones_maestro' c.id %}">
+                    {% csrf_token %}
+                    <button class="btn btn-outline">Copiar opciones</button>
+                  </form>
+                {% endif %}
+              {% endif %}
+
+              {% if c.activo %}
+                <form method="post" action="{% url 'panel_campo_desactivar' c.id %}">
+                  {% csrf_token %}
+                  <button class="btn btn-outline">Quitar</button>
+                </form>
+              {% else %}
+                <form method="post" action="{% url 'panel_campo_reactivar' c.id %}">
+                  {% csrf_token %}
+                  <button class="btn btn-outline">Reactivar</button>
+                </form>
               {% endif %}
             </div>
           </td>
@@ -91,6 +116,63 @@
         {% empty %}
         <tr>
           <td colspan="8">Este producto todavía no tiene campos.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel-card">
+  <div class="panel-head">
+    <div>
+      <span class="eyebrow">{{ producto.nombre }}</span>
+      <h1>Campos disponibles para agregar</h1>
+    </div>
+  </div>
+
+  <p class="muted">
+    Agrega campos maestros al producto sin crearlos desde cero. Al agregarlos se crea una copia configurable solo para este producto.
+  </p>
+
+  <div class="table-responsive">
+    <table class="table fields-table">
+      <thead>
+        <tr>
+          <th>Orden</th>
+          <th>Campo maestro</th>
+          <th>Tipo</th>
+          <th>Estado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {% for maestro in maestros_disponibles %}
+        <tr>
+          <td>{{ maestro.orden_base }}</td>
+          <td class="field-name-cell">
+            <strong>{{ maestro.nombre }}</strong>
+            <small>{{ maestro.slug }}</small>
+          </td>
+          <td>{{ maestro.get_tipo_display }}</td>
+          <td>
+            {% if maestro.activo %}
+              Sí
+            {% else %}
+              No
+            {% endif %}
+          </td>
+          <td class="actions-column">
+            <form method="post" action="{% url 'panel_campo_asignar_maestro' producto.id maestro.id %}">
+              {% csrf_token %}
+              <button class="btn btn-outline">Agregar</button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="5">No hay campos maestros disponibles para agregar.</td>
         </tr>
         {% endfor %}
       </tbody>

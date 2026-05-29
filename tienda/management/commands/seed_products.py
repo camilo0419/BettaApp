@@ -1,22 +1,118 @@
 from decimal import Decimal
 from django.core.management.base import BaseCommand
-from tienda.models import CampoOpcion, Producto, ProductoCampo
+from django.utils.text import slugify
+from tienda.models import Categoria, CampoMaestro, CampoMaestroOpcion, CampoOpcion, Producto, ProductoCampo
+
+
+def master_slug(etiqueta, tipo):
+    base = (slugify(etiqueta) or "campo").replace("-", "_")
+    return f"{base[:100]}-{tipo}"[:140]
+
+
+def upsert_master(etiqueta, tipo, orden, **kwargs):
+    slug = master_slug(etiqueta, tipo)
+    legacy_slug = f"{(slugify(etiqueta) or 'campo')[:100]}-{tipo}"[:140]
+    defaults = {
+        "nombre": etiqueta,
+        "tipo": tipo,
+        "etiqueta_base": kwargs.get("etiqueta_base", etiqueta),
+        "ayuda_base": kwargs.get("ayuda", ""),
+        "placeholder_base": kwargs.get("placeholder", ""),
+        "obligatorio_base": kwargs.get("obligatorio", False),
+        "orden_base": orden,
+        "activo": kwargs.get("activo", True),
+    }
+    campo = CampoMaestro.objects.filter(slug__in={slug, legacy_slug}).order_by("id").first()
+    if campo:
+        for field, value in defaults.items():
+            setattr(campo, field, value)
+        campo.save()
+    else:
+        campo = CampoMaestro.objects.create(slug=slug, **defaults)
+    return campo
+
+
+def upsert_master_option(campo_maestro, etiqueta, orden, ajuste_tipo="ninguno", precio=0, activa=True):
+    valor = slugify(etiqueta)[:120]
+    CampoMaestroOpcion.objects.update_or_create(
+        campo_maestro=campo_maestro,
+        valor=valor,
+        defaults={
+            "etiqueta": etiqueta,
+            "orden": orden,
+            "ajuste_tipo": ajuste_tipo,
+            "precio": Decimal(str(precio)),
+            "activa": activa,
+        },
+    )
 
 
 def upsert_field(producto, etiqueta, tipo, orden, **kwargs):
-    campo, _ = ProductoCampo.objects.update_or_create(
-        producto=producto,
-        etiqueta=etiqueta,
-        defaults={"tipo": tipo, "orden": orden, **kwargs},
-    )
+    campo = ProductoCampo.objects.filter(producto=producto, etiqueta=etiqueta).order_by("id").first()
+    maestro = campo.campo_maestro if campo and campo.campo_maestro_id else upsert_master(etiqueta, tipo, orden, **kwargs)
+    if campo and campo.campo_maestro_id:
+        maestro_activo = CampoMaestro.objects.filter(
+            nombre__iexact=etiqueta,
+            tipo=tipo,
+            activo=True,
+        ).exclude(pk=maestro.pk).order_by("id").first()
+        if maestro_activo and not ProductoCampo.objects.filter(
+            producto=producto,
+            campo_maestro=maestro_activo,
+        ).exclude(pk=campo.pk).exists():
+            maestro = maestro_activo
+            campo.campo_maestro = maestro
+
+        for field, value in {
+            "nombre": etiqueta,
+            "tipo": tipo,
+            "etiqueta_base": kwargs.get("etiqueta_base", etiqueta),
+            "ayuda_base": kwargs.get("ayuda", ""),
+            "placeholder_base": kwargs.get("placeholder", ""),
+            "obligatorio_base": kwargs.get("obligatorio", False),
+            "orden_base": orden,
+            "activo": kwargs.get("activo", True),
+        }.items():
+            setattr(maestro, field, value)
+        maestro.save()
+
+    if not campo:
+        campo = ProductoCampo.objects.filter(producto=producto, campo_maestro=maestro).first()
+    created = campo is None
+    if not campo:
+        campo = ProductoCampo(producto=producto)
+
+    defaults = {
+        "campo_maestro": maestro,
+        "etiqueta": etiqueta,
+        "nombre_interno": maestro.slug.replace("-", "_")[:120],
+        "tipo": tipo,
+        "orden": orden,
+        "obligatorio": False,
+        "ayuda": kwargs.get("ayuda", ""),
+        "placeholder": kwargs.get("placeholder", ""),
+        "activo": kwargs.get("activo", True),
+        "afecta_area_ancho": False,
+        "afecta_area_alto": False,
+        "es_cantidad": False,
+        **kwargs,
+    }
+    for field, value in defaults.items():
+        setattr(campo, field, value)
+    campo.save()
+    if created:
+        campo.copiar_opciones_maestras()
     return campo
 
 
 def upsert_option(campo, etiqueta, orden, ajuste_tipo="ninguno", precio=0):
+    valor = slugify(etiqueta)[:120]
+    if campo.campo_maestro_id:
+        upsert_master_option(campo.campo_maestro, etiqueta, orden, ajuste_tipo, precio)
     CampoOpcion.objects.update_or_create(
         campo=campo,
-        etiqueta=etiqueta,
-        defaults={"orden": orden, "ajuste_tipo": ajuste_tipo, "precio": Decimal(str(precio)), "activa": True},
+        valor=valor,
+        defaults={"etiqueta": etiqueta, "orden": orden, "ajuste_tipo": ajuste_tipo, "precio": Decimal(str(precio)), "activa": True},
     )
 
 
@@ -24,6 +120,42 @@ class Command(BaseCommand):
     help = "Carga productos configurables de ejemplo para Betta Diseño. Es seguro ejecutarlo varias veces."
 
     def handle(self, *args, **options):
+        for etiqueta, tipo, orden, extra in [
+            ("Texto / referencia", ProductoCampo.TIPO_TEXTO, 1, {"placeholder": "Ej: Restaurante La 80 / Promo / Nombre del aviso"}),
+            ("Color principal", ProductoCampo.TIPO_COLOR, 2, {}),
+            ("Ancho en cm", ProductoCampo.TIPO_NUMERO, 3, {"placeholder": "Ej: 120"}),
+            ("Alto en cm", ProductoCampo.TIPO_NUMERO, 4, {"placeholder": "Ej: 80"}),
+            ("Cantidad", ProductoCampo.TIPO_ENTERO, 5, {"placeholder": "Ej: 1"}),
+            ("Estado del diseño", ProductoCampo.TIPO_SELECT, 6, {}),
+            ("Material", ProductoCampo.TIPO_SELECT, 7, {}),
+            ("Acabado", ProductoCampo.TIPO_SELECT, 8, {}),
+            ("Archivo de diseño o logo", ProductoCampo.TIPO_ARCHIVO, 20, {"ayuda": "Puedes subir PDF, JPG, PNG, AI o archivo de referencia."}),
+            ("Observaciones", ProductoCampo.TIPO_TEXTO_LARGO, 21, {"placeholder": "Cuéntanos ubicación, uso, fecha requerida o detalles importantes."}),
+            ("Talla", ProductoCampo.TIPO_SELECT, 30, {}),
+            ("Tipo de tela", ProductoCampo.TIPO_SELECT, 31, {}),
+            ("Tipo de impresión", ProductoCampo.TIPO_SELECT, 32, {}),
+        ]:
+            maestro = upsert_master(etiqueta, tipo, orden, **extra)
+            if etiqueta == "Estado del diseño":
+                upsert_master_option(maestro, "Tengo mi diseño", 1)
+                upsert_master_option(maestro, "Necesito que me diseñen", 2, "fijo", 35000)
+                upsert_master_option(maestro, "Quiero asesoría antes de producir", 3)
+            elif etiqueta == "Material":
+                for i, label in enumerate(["Vinilo brillante", "Vinilo mate", "Microperforado", "Reflectivo", "Transparente"], 1):
+                    upsert_master_option(maestro, label, i)
+            elif etiqueta == "Acabado":
+                for i, label in enumerate(["Sin laminado", "Laminado brillante", "Laminado mate"], 1):
+                    upsert_master_option(maestro, label, i)
+            elif etiqueta == "Talla":
+                for i, label in enumerate(["XS", "S", "M", "L", "XL", "XXL"], 1):
+                    upsert_master_option(maestro, label, i)
+            elif etiqueta == "Tipo de tela":
+                for i, label in enumerate(["Algodón", "Poliéster", "Mezcla algodón poliéster"], 1):
+                    upsert_master_option(maestro, label, i)
+            elif etiqueta == "Tipo de impresión":
+                for i, label in enumerate(["DTF", "Sublimación", "Vinilo textil", "Serigrafía"], 1):
+                    upsert_master_option(maestro, label, i)
+
         data = [
             {
                 "nombre": "Vinilo adhesivo personalizado",
@@ -83,9 +215,15 @@ class Command(BaseCommand):
         ]
 
         for item in data:
+            item = item.copy()
+            categoria_nombre = item.pop("categoria")
+            categoria, _ = Categoria.objects.update_or_create(
+                slug=slugify(categoria_nombre),
+                defaults={"nombre": categoria_nombre, "orden": item["orden"], "activa": True},
+            )
             producto, _ = Producto.objects.update_or_create(
                 slug=item["slug"],
-                defaults={**item, "activo": True, "destacado": True},
+                defaults={**item, "categoria": categoria, "activo": True, "destacado": True},
             )
             self._campos_base(producto)
 
@@ -147,5 +285,5 @@ class Command(BaseCommand):
             for i, label in enumerate(["Sin iluminación", "Frontal", "Retroiluminada", "RGB"], 1):
                 upsert_option(ilum, label, i)
 
-        upsert_field(producto, "Archivo de diseño o logo", ProductoCampo.TIPO_ARCHIVO, 20, obligatorio=False, ayuda="Puedes subir PDF, JPG, PNG, SVG, AI o archivo de referencia.")
+        upsert_field(producto, "Archivo de diseño o logo", ProductoCampo.TIPO_ARCHIVO, 20, obligatorio=False, ayuda="Puedes subir PDF, JPG, PNG, AI o archivo de referencia.")
         upsert_field(producto, "Observaciones", ProductoCampo.TIPO_TEXTO_LARGO, 21, obligatorio=False, placeholder="Cuéntanos ubicación, uso, fecha requerida o detalles importantes.")

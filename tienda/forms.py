@@ -1,6 +1,84 @@
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from django import forms
-from .models import CampoOpcion, Producto, ProductoCampo, ProductoImagen, Solicitud
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from .models import CampoMaestro, CampoMaestroOpcion, CampoOpcion, Producto, ProductoCampo, ProductoImagen, Solicitud
+
+
+BLOCKED_UPLOAD_EXTENSIONS = {
+    ".bat", ".cmd", ".com", ".dll", ".exe", ".hta", ".html", ".htm",
+    ".js", ".msi", ".php", ".ps1", ".py", ".sh", ".svg", ".vbs",
+}
+BLOCKED_CONTENT_TYPES = {
+    "application/javascript",
+    "application/x-msdownload",
+    "application/x-msdos-program",
+    "application/x-php",
+    "image/svg+xml",
+    "text/html",
+    "text/javascript",
+}
+
+
+def uploaded_file_header(uploaded_file, size=16):
+    try:
+        position = uploaded_file.tell() if hasattr(uploaded_file, "tell") else None
+    except OSError:
+        position = None
+    header = uploaded_file.read(size)
+    if position is not None and hasattr(uploaded_file, "seek"):
+        uploaded_file.seek(position)
+    return header
+
+
+def validate_upload(file_obj, allowed_extensions, max_size, image_only=False):
+    if not file_obj:
+        return file_obj
+
+    extension = Path(file_obj.name).suffix.lower()
+    allowed = {item.lower() if item.startswith(".") else f".{item.lower()}" for item in allowed_extensions}
+    content_type = (getattr(file_obj, "content_type", "") or "").lower()
+
+    if extension in BLOCKED_UPLOAD_EXTENSIONS or content_type in BLOCKED_CONTENT_TYPES:
+        raise ValidationError("Este tipo de archivo no esta permitido.")
+
+    if extension not in allowed:
+        raise ValidationError("Extension de archivo no permitida.")
+
+    if file_obj.size > max_size:
+        raise ValidationError("El archivo supera el tamano maximo permitido.")
+
+    header = uploaded_file_header(file_obj, 16)
+    if image_only or extension in {".jpg", ".jpeg", ".png", ".webp"}:
+        is_jpeg = header.startswith(b"\xff\xd8\xff")
+        is_png = header.startswith(b"\x89PNG\r\n\x1a\n")
+        is_webp = header.startswith(b"RIFF") and header[8:12] == b"WEBP"
+        if not (is_jpeg or is_png or is_webp):
+            raise ValidationError("El contenido del archivo no coincide con una imagen permitida.")
+    elif extension == ".pdf" and not header.startswith(b"%PDF"):
+        raise ValidationError("El contenido del archivo no coincide con un PDF valido.")
+    elif extension == ".zip" and not header.startswith(b"PK"):
+        raise ValidationError("El contenido del archivo no coincide con un ZIP valido.")
+
+    return file_obj
+
+
+def validate_image_upload(file_obj):
+    return validate_upload(
+        file_obj,
+        settings.ALLOWED_IMAGE_UPLOAD_EXTENSIONS,
+        settings.PRODUCT_IMAGE_UPLOAD_MAX_SIZE,
+        image_only=True,
+    )
+
+
+def validate_user_upload(file_obj):
+    return validate_upload(
+        file_obj,
+        settings.ALLOWED_USER_UPLOAD_EXTENSIONS,
+        settings.USER_UPLOAD_MAX_SIZE,
+    )
 
 
 class ProductoForm(forms.ModelForm):
@@ -15,14 +93,27 @@ class ProductoForm(forms.ModelForm):
             "descripcion_larga": forms.Textarea(attrs={"rows": 4}),
         }
 
+    def clean_imagen_principal(self):
+        return validate_image_upload(self.cleaned_data.get("imagen_principal"))
+
 
 class ProductoImagenForm(forms.ModelForm):
     class Meta:
         model = ProductoImagen
         fields = ["imagen", "titulo", "orden", "activa"]
 
+    def clean_imagen(self):
+        return validate_image_upload(self.cleaned_data.get("imagen"))
+
 
 class ProductoCampoForm(forms.ModelForm):
+    def __init__(self, *args, producto=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if producto is not None and not self.instance.pk:
+            self.instance.producto = producto
+        if self.instance.pk and self.instance.campo_maestro_id:
+            self.fields["tipo"].disabled = True
+
     class Meta:
         model = ProductoCampo
         fields = [
@@ -32,9 +123,34 @@ class ProductoCampoForm(forms.ModelForm):
         ]
 
 
+class CampoMaestroForm(forms.ModelForm):
+    class Meta:
+        model = CampoMaestro
+        fields = [
+            "nombre", "slug", "tipo", "etiqueta_base", "ayuda_base",
+            "placeholder_base", "obligatorio_base", "orden_base", "activo",
+        ]
+
+
 class CampoOpcionForm(forms.ModelForm):
+    def __init__(self, *args, campo=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if campo is not None and not self.instance.pk:
+            self.instance.campo = campo
+
     class Meta:
         model = CampoOpcion
+        fields = ["etiqueta", "valor", "ajuste_tipo", "precio", "orden", "activa"]
+
+
+class CampoMaestroOpcionForm(forms.ModelForm):
+    def __init__(self, *args, campo_maestro=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if campo_maestro is not None and not self.instance.pk:
+            self.instance.campo_maestro = campo_maestro
+
+    class Meta:
+        model = CampoMaestroOpcion
         fields = ["etiqueta", "valor", "ajuste_tipo", "precio", "orden", "activa"]
 
 
@@ -79,7 +195,8 @@ class DynamicSolicitudForm(forms.Form):
             elif campo.tipo == ProductoCampo.TIPO_CHECKBOX:
                 field = forms.BooleanField(label=label, required=False, help_text=help_text)
             elif campo.tipo in [ProductoCampo.TIPO_ARCHIVO, ProductoCampo.TIPO_IMAGEN]:
-                field = forms.FileField(label=label, required=required, help_text=help_text)
+                validators = [validate_image_upload] if campo.tipo == ProductoCampo.TIPO_IMAGEN else [validate_user_upload]
+                field = forms.FileField(label=label, required=required, help_text=help_text, validators=validators)
             elif campo.tipo == ProductoCampo.TIPO_COLOR:
                 field = forms.CharField(label=label, required=required, help_text=help_text, widget=forms.TextInput(attrs={"type": "color"}))
             elif campo.tipo == ProductoCampo.TIPO_FECHA:
