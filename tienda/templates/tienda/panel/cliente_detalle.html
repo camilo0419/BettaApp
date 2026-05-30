@@ -1,0 +1,210 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}{{ cliente }} | Admin productos{% endblock %}
+
+{% block content %}
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">Cliente</span>
+    <h1>{{ cliente }}</h1>
+  </div>
+  <div class="head-actions">
+    <a href="{% url 'panel_cliente_editar' cliente.id %}" class="btn btn-primary">Editar cliente</a>
+    <a href="{% url 'panel_proyecto_crear' %}?cliente={{ cliente.id }}" class="btn btn-outline">Crear proyecto</a>
+    <a href="{% url 'panel_clientes' %}" class="btn btn-outline">Volver</a>
+  </div>
+</div>
+
+<div class="kpi-grid production-kpis">
+  <div class="kpi"><span>Proyectos activos</span><strong>{{ metricas.proyectos_activos }}</strong></div>
+  <div class="kpi"><span>Proyectos terminados</span><strong>{{ metricas.proyectos_terminados }}</strong></div>
+  <div class="kpi"><span>Solicitudes</span><strong>{{ metricas.solicitudes }}</strong></div>
+  <div class="kpi"><span>En produccion</span><strong>{{ metricas.solicitudes_produccion }}</strong></div>
+  <div class="kpi"><span>Tareas pendientes</span><strong>{{ metricas.tareas_pendientes }}</strong></div>
+</div>
+
+<div class="split-grid">
+  <div>
+    <div class="panel-card">
+      <h2>Datos generales</h2>
+      <dl class="detail-list">
+        <dt>Tipo</dt><dd>{{ cliente.get_tipo_cliente_display }}</dd>
+        <dt>Nombre</dt><dd>{{ cliente.nombre }}</dd>
+        <dt>Razon social</dt><dd>{{ cliente.razon_social|default:'-' }}</dd>
+        <dt>Identificacion</dt><dd>{{ cliente.tipo_identificacion|upper|default:'-' }} {{ cliente.identificacion|default:'' }}</dd>
+        <dt>Email</dt><dd>{{ cliente.email|default:'-' }}</dd>
+        <dt>Telefono</dt><dd>{{ cliente.telefono|default:'-' }}</dd>
+        <dt>WhatsApp</dt><dd>{{ cliente.whatsapp|default:'-' }}</dd>
+        <dt>Ciudad</dt><dd>{{ cliente.ciudad|default:'-' }}</dd>
+        <dt>Direccion</dt><dd>{{ cliente.direccion|default:'-' }}</dd>
+        <dt>Estado</dt><dd>{% if cliente.activo %}Activo{% else %}Inactivo{% endif %}</dd>
+      </dl>
+      {% if cliente.notas %}<p>{{ cliente.notas }}</p>{% endif %}
+    </div>
+
+    <div class="panel-card">
+      <div class="panel-card-head">
+        <h2>Proyectos</h2>
+      </div>
+      <div class="table-responsive">
+        <table class="table products-table">
+          <thead>
+            <tr>
+              <th>Proyecto</th>
+              <th>Estado</th>
+              <th>Prioridad</th>
+              <th>Responsable</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for proyecto in proyectos %}
+            <tr>
+              <td><strong>{{ proyecto.nombre }}</strong></td>
+              <td>{{ proyecto.get_estado_display }}</td>
+              <td>{{ proyecto.get_prioridad_display }}</td>
+              <td>{{ proyecto.responsable|default:'-' }}</td>
+              <td class="actions-column"><div class="table-actions"><a href="{% url 'panel_proyecto_detalle' proyecto.id %}" class="link-button">Ver</a></div></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5">Este cliente no tiene proyectos asociados.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel-card">
+      <h2>Solicitudes</h2>
+      <div class="table-responsive">
+        <table class="table products-table">
+          <thead>
+            <tr>
+              <th>Solicitud</th>
+              <th>Producto</th>
+              <th>Proyecto</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for solicitud in solicitudes %}
+            <tr>
+              <td><strong>OP-{{ solicitud.id|stringformat:"06d" }}</strong><br><small>{{ solicitud.creado|date:'d/m/Y H:i' }}</small></td>
+              <td>{{ solicitud.producto.nombre }}</td>
+              <td>{{ solicitud.proyecto.nombre|default:'-' }}</td>
+              <td>{{ solicitud.get_estado_produccion_display }}</td>
+              <td class="actions-column"><div class="table-actions"><a href="{% url 'panel_solicitud_detalle' solicitud.id %}" class="link-button">Ver</a></div></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5">Este cliente no tiene solicitudes asociadas.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel-card">
+      <h2>Tareas relacionadas</h2>
+      <div class="table-responsive">
+        <table class="table products-table">
+          <thead>
+            <tr>
+              <th>Tarea</th>
+              <th>Solicitud</th>
+              <th>Responsable</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for tarea in tareas %}
+            <tr>
+              <td><strong>{{ tarea.titulo }}</strong><br><small>{{ tarea.get_area_display }}</small></td>
+              <td>OP-{{ tarea.solicitud.id|stringformat:"06d" }}</td>
+              <td>{{ tarea.responsable|default:'-' }}</td>
+              <td>{{ tarea.get_estado_display }}</td>
+              <td class="actions-column"><div class="table-actions"><a href="{% url 'panel_tarea_editar' tarea.id %}" class="link-button">Editar</a></div></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5">No hay tareas relacionadas.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel-card">
+      <div class="panel-card-head">
+        <h2>Contactos</h2>
+        <a href="{% url 'panel_cliente_contacto_crear' cliente.id %}" class="link-button">Crear contacto</a>
+      </div>
+      <div class="notification-list">
+        {% for contacto in contactos %}
+          <div class="notification-item">
+            <strong>{{ contacto.nombre }}</strong>
+            <span>{{ contacto.cargo|default:'-' }} · {% if contacto.es_principal %}Principal{% else %}Contacto{% endif %}</span>
+            <span>{{ contacto.email|default:'-' }} · {{ contacto.telefono|default:contacto.whatsapp|default:'-' }}</span>
+            <div class="table-actions">
+              <a href="{% url 'panel_cliente_contacto_editar' contacto.id %}" class="link-button">Editar</a>
+              <form method="post" action="{% url 'panel_cliente_contacto_toggle' contacto.id %}">
+                {% csrf_token %}
+                <button class="link-button" type="submit">{% if contacto.activo %}Inactivar{% else %}Reactivar{% endif %}</button>
+              </form>
+            </div>
+          </div>
+        {% empty %}
+          <p>No hay contactos registrados.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel-card">
+      <h2>Asociar solicitud existente</h2>
+      <form method="post" class="dynamic-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="asociar_solicitud">
+        <label for="solicitud_id">Solicitud sin cliente</label>
+        <select id="solicitud_id" name="solicitud_id">
+          {% for solicitud in solicitudes_disponibles %}
+            <option value="{{ solicitud.id }}">OP-{{ solicitud.id|stringformat:"06d" }} · {{ solicitud.cliente_nombre }} · {{ solicitud.producto.nombre }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-primary btn-wide">Asociar solicitud</button>
+      </form>
+    </div>
+
+    <div class="panel-card">
+      <h2>Archivos recientes</h2>
+      <div class="notification-list">
+        {% for respuesta in archivos %}
+          <a href="{{ respuesta.archivo.url }}" class="notification-item" target="_blank" rel="noopener">
+            <strong>{{ respuesta.etiqueta }}</strong>
+            <span>OP-{{ respuesta.solicitud.id|stringformat:"06d" }} · {{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</span>
+          </a>
+        {% empty %}
+          <p>No hay archivos asociados.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel-card">
+      <h2>Novedades recientes</h2>
+      <div class="timeline">
+        {% for novedad in novedades %}
+          <div class="timeline-item">
+            <strong>{{ novedad.get_tipo_display }}</strong>
+            <span>{{ novedad.fecha_creacion|date:'d/m/Y H:i' }} · {{ novedad.usuario|default:'Sistema' }}</span>
+            <small>OP-{{ novedad.solicitud.id|stringformat:"06d" }}{% if novedad.tarea %} · {{ novedad.tarea.titulo }}{% endif %}</small>
+            <p>{{ novedad.comentario }}</p>
+          </div>
+        {% empty %}
+          <p>No hay novedades relacionadas.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

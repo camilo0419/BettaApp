@@ -1,6 +1,8 @@
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.text import slugify
 
 
@@ -114,6 +116,7 @@ class ProductoCampo(models.Model):
     TIPO_IMAGEN = "imagen"
     TIPO_COLOR = "color"
     TIPO_FECHA = "fecha"
+    TIPO_VALOR_FIJO = "valor_fijo"
 
     TIPO_CHOICES = [
         (TIPO_TEXTO, "Texto corto"),
@@ -127,6 +130,7 @@ class ProductoCampo(models.Model):
         (TIPO_IMAGEN, "Imagen de referencia"),
         (TIPO_COLOR, "Color"),
         (TIPO_FECHA, "Fecha"),
+        (TIPO_VALOR_FIJO, "Valor fijo"),
     ]
 
     producto = models.ForeignKey(Producto, on_delete=models.CASCADE, related_name="campos")
@@ -144,6 +148,7 @@ class ProductoCampo(models.Model):
     orden = models.PositiveIntegerField(default=0)
     ayuda = models.CharField(max_length=255, blank=True)
     placeholder = models.CharField(max_length=160, blank=True)
+    valor_fijo = models.CharField(max_length=255, blank=True)
     activo = models.BooleanField(default=True)
     afecta_area_ancho = models.BooleanField(default=False, help_text="Usar este campo como ancho en cm para calcular m²")
     afecta_area_alto = models.BooleanField(default=False, help_text="Usar este campo como alto en cm para calcular m²")
@@ -194,6 +199,12 @@ class ProductoCampo(models.Model):
             for field in roles_marcados:
                 errors[field] = mensaje
 
+        if self.tipo == self.TIPO_VALOR_FIJO:
+            if not self.valor_fijo.strip():
+                errors["valor_fijo"] = "El valor fijo es obligatorio para este tipo de campo."
+            for field in roles_marcados:
+                errors[field] = "Un valor fijo no puede participar en el calculo."
+
         if self.producto_id:
             if self.campo_maestro_id:
                 if self.tipo != self.campo_maestro.tipo:
@@ -239,6 +250,7 @@ class ProductoCampo(models.Model):
             obligatorio=campo_maestro.obligatorio_base,
             ayuda=campo_maestro.ayuda_base,
             placeholder=campo_maestro.placeholder_base,
+            valor_fijo=campo_maestro.valor_fijo_base,
             orden=campo_maestro.orden_base,
             activo=campo_maestro.activo,
         )
@@ -274,6 +286,7 @@ class CampoMaestro(models.Model):
     etiqueta_base = models.CharField(max_length=160, blank=True)
     ayuda_base = models.CharField(max_length=255, blank=True)
     placeholder_base = models.CharField(max_length=160, blank=True)
+    valor_fijo_base = models.CharField(max_length=255, blank=True)
     obligatorio_base = models.BooleanField(default=False)
     activo = models.BooleanField(default=True)
     orden_base = models.PositiveIntegerField(default=0)
@@ -290,12 +303,17 @@ class CampoMaestro(models.Model):
 
     def clean(self):
         super().clean()
+        errors = {}
         if self.activo and CampoMaestro.objects.filter(
             activo=True,
             nombre__iexact=self.nombre,
             tipo=self.tipo,
         ).exclude(pk=self.pk).exists():
-            raise ValidationError({"nombre": "Ya existe un campo maestro activo con este nombre y tipo."})
+            errors["nombre"] = "Ya existe un campo maestro activo con este nombre y tipo."
+        if self.tipo == ProductoCampo.TIPO_VALOR_FIJO and not self.valor_fijo_base.strip():
+            errors["valor_fijo_base"] = "El valor fijo base es obligatorio para este tipo de campo."
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -400,6 +418,194 @@ class CampoMaestroOpcion(models.Model):
         super().save(*args, **kwargs)
 
 
+class Cliente(models.Model):
+    TIPO_PERSONA = "persona"
+    TIPO_EMPRESA = "empresa"
+    TIPO_CHOICES = [
+        (TIPO_PERSONA, "Persona"),
+        (TIPO_EMPRESA, "Empresa"),
+    ]
+
+    ID_CC = "cc"
+    ID_NIT = "nit"
+    ID_CE = "ce"
+    ID_PASAPORTE = "pasaporte"
+    ID_OTRO = "otro"
+    TIPO_IDENTIFICACION_CHOICES = [
+        (ID_CC, "CC"),
+        (ID_NIT, "NIT"),
+        (ID_CE, "CE"),
+        (ID_PASAPORTE, "Pasaporte"),
+        (ID_OTRO, "Otro"),
+    ]
+
+    tipo_cliente = models.CharField(max_length=20, choices=TIPO_CHOICES, default=TIPO_PERSONA)
+    nombre = models.CharField(max_length=180)
+    razon_social = models.CharField(max_length=180, blank=True)
+    identificacion = models.CharField(max_length=60, blank=True)
+    tipo_identificacion = models.CharField(max_length=20, choices=TIPO_IDENTIFICACION_CHOICES, blank=True)
+    email = models.EmailField(blank=True)
+    telefono = models.CharField(max_length=40, blank=True)
+    whatsapp = models.CharField(max_length=40, blank=True)
+    direccion = models.CharField(max_length=255, blank=True)
+    ciudad = models.CharField(max_length=120, blank=True)
+    contacto_principal = models.CharField(max_length=160, blank=True)
+    notas = models.TextField(blank=True)
+    activo = models.BooleanField(default=True)
+    creado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="clientes_creados",
+        null=True,
+        blank=True,
+    )
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["nombre", "razon_social"]
+        verbose_name = "Cliente"
+        verbose_name_plural = "Clientes"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["email"],
+                condition=~models.Q(email=""),
+                name="cliente_email_unico_si_existe",
+            ),
+            models.UniqueConstraint(
+                fields=["identificacion"],
+                condition=~models.Q(identificacion=""),
+                name="cliente_identificacion_unica_si_existe",
+            ),
+        ]
+
+    def __str__(self):
+        return self.razon_social or self.nombre
+
+
+class ClienteContacto(models.Model):
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="contactos")
+    nombre = models.CharField(max_length=160)
+    cargo = models.CharField(max_length=120, blank=True)
+    email = models.EmailField(blank=True)
+    telefono = models.CharField(max_length=40, blank=True)
+    whatsapp = models.CharField(max_length=40, blank=True)
+    es_principal = models.BooleanField(default=False)
+    activo = models.BooleanField(default=True)
+    notas = models.TextField(blank=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-es_principal", "nombre"]
+        verbose_name = "Contacto de cliente"
+        verbose_name_plural = "Contactos de cliente"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cliente"],
+                condition=models.Q(es_principal=True, activo=True),
+                name="unico_contacto_principal_activo_por_cliente",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.cliente} - {self.nombre}"
+
+
+class Proyecto(models.Model):
+    ESTADO_BORRADOR = "borrador"
+    ESTADO_PENDIENTE = "pendiente"
+    ESTADO_PLANEACION = "en_planeacion"
+    ESTADO_PRODUCCION = "en_produccion"
+    ESTADO_PAUSADO = "pausado"
+    ESTADO_TERMINADO = "terminado"
+    ESTADO_ENTREGADO = "entregado"
+    ESTADO_CANCELADO = "cancelado"
+
+    ESTADOS = [
+        (ESTADO_BORRADOR, "Borrador"),
+        (ESTADO_PENDIENTE, "Pendiente"),
+        (ESTADO_PLANEACION, "En planeacion"),
+        (ESTADO_PRODUCCION, "En produccion"),
+        (ESTADO_PAUSADO, "Pausado"),
+        (ESTADO_TERMINADO, "Terminado"),
+        (ESTADO_ENTREGADO, "Entregado"),
+        (ESTADO_CANCELADO, "Cancelado"),
+    ]
+
+    PRIORIDAD_BAJA = "baja"
+    PRIORIDAD_NORMAL = "normal"
+    PRIORIDAD_ALTA = "alta"
+    PRIORIDAD_URGENTE = "urgente"
+
+    PRIORIDADES = [
+        (PRIORIDAD_BAJA, "Baja"),
+        (PRIORIDAD_NORMAL, "Normal"),
+        (PRIORIDAD_ALTA, "Alta"),
+        (PRIORIDAD_URGENTE, "Urgente"),
+    ]
+
+    cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name="proyectos", null=True, blank=True)
+    nombre = models.CharField(max_length=180)
+    cliente_nombre = models.CharField(max_length=160, blank=True)
+    cliente_contacto = models.CharField(max_length=160, blank=True)
+    cliente_telefono = models.CharField(max_length=40, blank=True)
+    cliente_email = models.EmailField(blank=True)
+    descripcion = models.TextField(blank=True)
+    estado = models.CharField(max_length=30, choices=ESTADOS, default=ESTADO_BORRADOR)
+    prioridad = models.CharField(max_length=20, choices=PRIORIDADES, default=PRIORIDAD_NORMAL)
+    fecha_inicio = models.DateField(null=True, blank=True)
+    fecha_compromiso = models.DateField(null=True, blank=True)
+    fecha_cierre = models.DateField(null=True, blank=True)
+    responsable = models.ForeignKey(
+        "EmpleadoPerfil",
+        on_delete=models.PROTECT,
+        related_name="proyectos_responsable",
+        null=True,
+        blank=True,
+    )
+    creado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="proyectos_creados",
+        null=True,
+        blank=True,
+    )
+    activo = models.BooleanField(default=True)
+    observaciones = models.TextField(blank=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-fecha_creacion", "nombre"]
+        verbose_name = "Proyecto"
+        verbose_name_plural = "Proyectos"
+
+    def __str__(self):
+        return self.nombre
+
+    @property
+    def avance_porcentaje(self):
+        tareas = SolicitudTarea.objects.filter(solicitud__proyecto=self, activa=True)
+        total_tareas = tareas.count()
+        if total_tareas:
+            terminadas = tareas.filter(estado__in=[SolicitudTarea.ESTADO_TERMINADA, SolicitudTarea.ESTADO_APROBADA]).count()
+            return round((terminadas / total_tareas) * 100)
+
+        solicitudes = self.solicitudes.all()
+        total_solicitudes = solicitudes.count()
+        if not total_solicitudes:
+            return 0
+        terminadas = solicitudes.filter(
+            estado_produccion__in=[
+                Solicitud.PROD_TERMINADO,
+                Solicitud.PROD_LISTO_ENTREGA,
+                Solicitud.PROD_ENTREGADO,
+            ]
+        ).count()
+        return round((terminadas / total_solicitudes) * 100)
+
+
 class Solicitud(models.Model):
     ESTADO_NUEVA = "nueva"
     ESTADO_REVISION = "revision"
@@ -423,11 +629,36 @@ class Solicitud(models.Model):
         (ESTADO_CANCELADA, "Cancelada"),
     ]
 
+    PROD_PENDIENTE_ASIGNAR = "pendiente_asignar"
+    PROD_ASIGNADO = "asignado"
+    PROD_EN_PROCESO = "en_proceso"
+    PROD_CON_NOVEDAD = "con_novedad"
+    PROD_TERMINADO = "terminado"
+    PROD_CALIDAD = "calidad"
+    PROD_LISTO_ENTREGA = "listo_entrega"
+    PROD_ENTREGADO = "entregado"
+    PROD_CANCELADO = "cancelado"
+
+    ESTADOS_PRODUCCION = [
+        (PROD_PENDIENTE_ASIGNAR, "Pendiente por asignar"),
+        (PROD_ASIGNADO, "Asignado"),
+        (PROD_EN_PROCESO, "En proceso"),
+        (PROD_CON_NOVEDAD, "Con novedad"),
+        (PROD_TERMINADO, "Terminado"),
+        (PROD_CALIDAD, "En control de calidad"),
+        (PROD_LISTO_ENTREGA, "Listo para entrega"),
+        (PROD_ENTREGADO, "Entregado"),
+        (PROD_CANCELADO, "Cancelado"),
+    ]
+
     producto = models.ForeignKey(Producto, on_delete=models.PROTECT, related_name="solicitudes")
+    cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name="solicitudes", null=True, blank=True)
+    proyecto = models.ForeignKey(Proyecto, on_delete=models.SET_NULL, related_name="solicitudes", null=True, blank=True)
     cliente_nombre = models.CharField(max_length=160)
     cliente_celular = models.CharField(max_length=40)
     cliente_email = models.EmailField(blank=True)
     estado = models.CharField(max_length=30, choices=ESTADOS, default=ESTADO_NUEVA)
+    estado_produccion = models.CharField(max_length=30, choices=ESTADOS_PRODUCCION, default=PROD_PENDIENTE_ASIGNAR)
     precio_estimado = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     precio_final = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     requiere_revision = models.BooleanField(default=False)
@@ -460,3 +691,270 @@ class SolicitudRespuesta(models.Model):
 
     def __str__(self):
         return f"{self.solicitud_id} - {self.etiqueta}"
+
+
+class EmpleadoPerfil(models.Model):
+    AREA_PRODUCCION = "produccion"
+    AREA_DISENO = "diseno"
+    AREA_CORTE = "corte"
+    AREA_IMPRESION = "impresion"
+    AREA_CALIDAD = "calidad"
+    AREA_DESPACHO = "despacho"
+    AREA_ADMIN = "admin"
+    AREA_APOYO = "apoyo"
+
+    AREAS = [
+        (AREA_PRODUCCION, "Produccion"),
+        (AREA_DISENO, "Diseno"),
+        (AREA_CORTE, "Corte"),
+        (AREA_IMPRESION, "Impresion"),
+        (AREA_CALIDAD, "Calidad"),
+        (AREA_DESPACHO, "Despacho"),
+        (AREA_ADMIN, "Admin"),
+        (AREA_APOYO, "Apoyo"),
+    ]
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="empleado_perfil")
+    telefono = models.CharField(max_length=40, blank=True)
+    cargo = models.CharField(max_length=120, blank=True)
+    area = models.CharField(max_length=30, choices=AREAS, default=AREA_PRODUCCION)
+    activo = models.BooleanField(default=True)
+    puede_recibir_pedidos = models.BooleanField(default=True)
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["user__first_name", "user__last_name", "user__username"]
+        verbose_name = "Empleado"
+        verbose_name_plural = "Empleados"
+
+    def __str__(self):
+        nombre = self.user.get_full_name().strip()
+        return nombre or self.user.username
+
+
+class SolicitudAsignacion(models.Model):
+    solicitud = models.ForeignKey(Solicitud, on_delete=models.CASCADE, related_name="asignaciones")
+    empleado = models.ForeignKey(EmpleadoPerfil, on_delete=models.PROTECT, related_name="asignaciones")
+    asignado_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="asignaciones_creadas")
+    fecha_asignacion = models.DateTimeField(default=timezone.now)
+    activa = models.BooleanField(default=True)
+    rol_en_trabajo = models.CharField(max_length=120, blank=True)
+    observacion = models.CharField(max_length=255, blank=True)
+    fecha_desasignacion = models.DateTimeField(null=True, blank=True)
+    desasignado_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="asignaciones_desasignadas")
+
+    class Meta:
+        ordering = ["-activa", "fecha_asignacion"]
+        verbose_name = "Asignacion de solicitud"
+        verbose_name_plural = "Asignaciones de solicitud"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["solicitud", "empleado"],
+                condition=models.Q(activa=True),
+                name="unica_asignacion_activa_por_empleado",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Solicitud #{self.solicitud_id} - {self.empleado}"
+
+
+class SolicitudTarea(models.Model):
+    ESTADO_PENDIENTE = "pendiente"
+    ESTADO_ASIGNADA = "asignada"
+    ESTADO_EN_PROCESO = "en_proceso"
+    ESTADO_BLOQUEADA = "bloqueada"
+    ESTADO_TERMINADA = "terminada"
+    ESTADO_APROBADA = "aprobada"
+    ESTADO_CANCELADA = "cancelada"
+
+    ESTADOS = [
+        (ESTADO_PENDIENTE, "Pendiente"),
+        (ESTADO_ASIGNADA, "Asignada"),
+        (ESTADO_EN_PROCESO, "En proceso"),
+        (ESTADO_BLOQUEADA, "Bloqueada"),
+        (ESTADO_TERMINADA, "Terminada"),
+        (ESTADO_APROBADA, "Aprobada"),
+        (ESTADO_CANCELADA, "Cancelada"),
+    ]
+
+    PRIORIDAD_BAJA = "baja"
+    PRIORIDAD_NORMAL = "normal"
+    PRIORIDAD_ALTA = "alta"
+    PRIORIDAD_URGENTE = "urgente"
+
+    PRIORIDADES = [
+        (PRIORIDAD_BAJA, "Baja"),
+        (PRIORIDAD_NORMAL, "Normal"),
+        (PRIORIDAD_ALTA, "Alta"),
+        (PRIORIDAD_URGENTE, "Urgente"),
+    ]
+
+    AREA_DISENO = "diseno"
+    AREA_PREPRENSA = "preprensa"
+    AREA_IMPRESION = "impresion"
+    AREA_LAMINADO = "laminado"
+    AREA_CORTE = "corte"
+    AREA_ENSAMBLE = "ensamble"
+    AREA_CALIDAD = "calidad"
+    AREA_INSTALACION = "instalacion"
+    AREA_DESPACHO = "despacho"
+    AREA_APOYO = "apoyo"
+
+    AREAS = [
+        (AREA_DISENO, "Diseno"),
+        (AREA_PREPRENSA, "Preprensa"),
+        (AREA_IMPRESION, "Impresion"),
+        (AREA_LAMINADO, "Laminado"),
+        (AREA_CORTE, "Corte"),
+        (AREA_ENSAMBLE, "Ensamble"),
+        (AREA_CALIDAD, "Calidad"),
+        (AREA_INSTALACION, "Instalacion"),
+        (AREA_DESPACHO, "Despacho"),
+        (AREA_APOYO, "Apoyo"),
+    ]
+
+    solicitud = models.ForeignKey(Solicitud, on_delete=models.CASCADE, related_name="tareas")
+    titulo = models.CharField(max_length=180)
+    descripcion = models.TextField(blank=True)
+    responsable = models.ForeignKey(
+        EmpleadoPerfil,
+        on_delete=models.PROTECT,
+        related_name="tareas",
+        null=True,
+        blank=True,
+    )
+    asignado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tareas_asignadas",
+    )
+    area = models.CharField(max_length=30, choices=AREAS, default=AREA_APOYO)
+    estado = models.CharField(max_length=30, choices=ESTADOS, default=ESTADO_PENDIENTE)
+    prioridad = models.CharField(max_length=20, choices=PRIORIDADES, default=PRIORIDAD_NORMAL)
+    orden = models.PositiveIntegerField(default=0)
+    fecha_inicio = models.DateField(null=True, blank=True)
+    fecha_limite = models.DateField(null=True, blank=True)
+    fecha_finalizacion = models.DateTimeField(null=True, blank=True)
+    finalizada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tareas_finalizadas",
+    )
+    activa = models.BooleanField(default=True)
+    requiere_evidencia = models.BooleanField(default=False)
+    evidencia_archivo = models.FileField(upload_to="solicitudes/tareas/evidencias/", blank=True, null=True)
+    observaciones = models.TextField(blank=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["solicitud", "orden", "fecha_limite", "id"]
+        verbose_name = "Tarea de produccion"
+        verbose_name_plural = "Tareas de produccion"
+
+    def __str__(self):
+        return f"Solicitud #{self.solicitud_id} - {self.titulo}"
+
+    def save(self, *args, **kwargs):
+        if self.responsable_id and self.estado == self.ESTADO_PENDIENTE:
+            self.estado = self.ESTADO_ASIGNADA
+        super().save(*args, **kwargs)
+
+
+class SolicitudNovedad(models.Model):
+    TIPO_COMENTARIO = "comentario"
+    TIPO_CAMBIO_ESTADO = "cambio_estado"
+    TIPO_ASIGNACION = "asignacion"
+    TIPO_DESASIGNACION = "desasignacion"
+    TIPO_EVIDENCIA = "evidencia"
+    TIPO_SISTEMA = "sistema"
+    TIPO_ALERTA = "alerta"
+    TIPO_TAREA_CREADA = "tarea_creada"
+    TIPO_TAREA_ASIGNADA = "tarea_asignada"
+    TIPO_TAREA_ESTADO = "tarea_estado"
+    TIPO_TAREA_EVIDENCIA = "tarea_evidencia"
+    TIPO_TAREA_COMENTARIO = "tarea_comentario"
+    TIPO_TAREA_FINALIZADA = "tarea_finalizada"
+
+    TIPOS = [
+        (TIPO_COMENTARIO, "Comentario"),
+        (TIPO_CAMBIO_ESTADO, "Cambio de estado"),
+        (TIPO_ASIGNACION, "Asignacion"),
+        (TIPO_DESASIGNACION, "Desasignacion"),
+        (TIPO_EVIDENCIA, "Evidencia"),
+        (TIPO_SISTEMA, "Sistema"),
+        (TIPO_ALERTA, "Alerta"),
+        (TIPO_TAREA_CREADA, "Tarea creada"),
+        (TIPO_TAREA_ASIGNADA, "Tarea asignada"),
+        (TIPO_TAREA_ESTADO, "Estado de tarea"),
+        (TIPO_TAREA_EVIDENCIA, "Evidencia de tarea"),
+        (TIPO_TAREA_COMENTARIO, "Comentario de tarea"),
+        (TIPO_TAREA_FINALIZADA, "Tarea finalizada"),
+    ]
+
+    solicitud = models.ForeignKey(Solicitud, on_delete=models.CASCADE, related_name="novedades")
+    tarea = models.ForeignKey(SolicitudTarea, on_delete=models.SET_NULL, related_name="novedades", null=True, blank=True)
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="novedades_solicitud")
+    tipo = models.CharField(max_length=30, choices=TIPOS, default=TIPO_COMENTARIO)
+    comentario = models.TextField()
+    estado_anterior = models.CharField(max_length=30, blank=True)
+    estado_nuevo = models.CharField(max_length=30, blank=True)
+    archivo_evidencia = models.FileField(upload_to="solicitudes/evidencias/", blank=True, null=True)
+    visible_para_admin = models.BooleanField(default=True)
+    visible_para_produccion = models.BooleanField(default=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-fecha_creacion", "-id"]
+        verbose_name = "Novedad de solicitud"
+        verbose_name_plural = "Novedades de solicitud"
+
+    def __str__(self):
+        return f"Solicitud #{self.solicitud_id} - {self.get_tipo_display()}"
+
+
+class Notificacion(models.Model):
+    TIPO_ASIGNACION = "asignacion"
+    TIPO_DESASIGNACION = "desasignacion"
+    TIPO_ESTADO = "estado"
+    TIPO_NOVEDAD = "novedad"
+    TIPO_TERMINADO = "terminado"
+    TIPO_TAREA = "tarea"
+    TIPO_PROYECTO = "proyecto"
+    TIPO_SISTEMA = "sistema"
+
+    TIPOS = [
+        (TIPO_ASIGNACION, "Asignacion"),
+        (TIPO_DESASIGNACION, "Desasignacion"),
+        (TIPO_ESTADO, "Cambio de estado"),
+        (TIPO_NOVEDAD, "Novedad"),
+        (TIPO_TERMINADO, "Terminado"),
+        (TIPO_TAREA, "Tarea"),
+        (TIPO_PROYECTO, "Proyecto"),
+        (TIPO_SISTEMA, "Sistema"),
+    ]
+
+    usuario_destino = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notificaciones")
+    solicitud = models.ForeignKey(Solicitud, on_delete=models.CASCADE, null=True, blank=True, related_name="notificaciones")
+    tarea = models.ForeignKey(SolicitudTarea, on_delete=models.SET_NULL, null=True, blank=True, related_name="notificaciones")
+    proyecto = models.ForeignKey(Proyecto, on_delete=models.SET_NULL, null=True, blank=True, related_name="notificaciones")
+    titulo = models.CharField(max_length=160)
+    mensaje = models.CharField(max_length=255)
+    tipo = models.CharField(max_length=30, choices=TIPOS, default=TIPO_SISTEMA)
+    leida = models.BooleanField(default=False)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    url_destino = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["-fecha_creacion", "-id"]
+        verbose_name = "Notificacion"
+        verbose_name_plural = "Notificaciones"
+
+    def __str__(self):
+        return f"{self.usuario_destino} - {self.titulo}"

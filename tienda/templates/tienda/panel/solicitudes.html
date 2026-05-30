@@ -9,15 +9,21 @@
       <option value="">Todos los estados</option>
       {% for value,label in estados %}<option value="{{ value }}" {% if estado == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
     </select>
+    <select name="estado_produccion">
+      <option value="">Produccion: todos</option>
+      {% for value,label in estados_produccion %}<option value="{{ value }}" {% if estado_produccion == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
     <button class="btn btn-primary">Filtrar</button>
   </form>
+  <div class="table-responsive">
   <table class="table">
-    <thead><tr><th>ID</th><th>Cliente</th><th>Celular</th><th>Producto</th><th>Estado</th><th>Precio</th><th></th></tr></thead>
+    <thead><tr><th>ID</th><th>Cliente</th><th>Celular</th><th>Producto</th><th>Estado</th><th>Produccion</th><th>Precio</th><th>Acciones</th></tr></thead>
     <tbody>
       {% for s in solicitudes %}
-      <tr><td>#{{ s.id }}</td><td>{{ s.cliente_nombre }}</td><td>{{ s.cliente_celular }}</td><td>{{ s.producto.nombre }}</td><td><span class="badge">{{ s.get_estado_display }}</span></td><td>${{ s.precio_estimado|floatformat:0 }}</td><td><a href="{% url 'panel_solicitud_detalle' s.id %}">Gestionar</a></td></tr>
-      {% empty %}<tr><td colspan="7">No hay solicitudes con esos filtros.</td></tr>{% endfor %}
+      <tr><td>#{{ s.id }}</td><td>{{ s.cliente_nombre }}</td><td>{{ s.cliente_celular }}</td><td>{{ s.producto.nombre }}</td><td><span class="badge">{{ s.get_estado_display }}</span></td><td><span class="badge">{{ s.get_estado_produccion_display }}</span></td><td>${{ s.precio_estimado|floatformat:0 }}</td><td class="actions-column"><div class="table-actions"><a href="{% url 'panel_solicitud_detalle' s.id %}" class="link-button">Gestionar</a></div></td></tr>
+      {% empty %}<tr><td colspan="8">No hay solicitudes con esos filtros.</td></tr>{% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endblock %}

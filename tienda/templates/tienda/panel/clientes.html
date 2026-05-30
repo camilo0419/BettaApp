@@ -1,0 +1,95 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}Clientes | Admin productos{% endblock %}
+
+{% block content %}
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">CRM administrativo</span>
+    <h1>Clientes</h1>
+  </div>
+  <a href="{% url 'panel_cliente_crear' %}" class="btn btn-primary">Crear cliente</a>
+</div>
+
+<div class="panel-card">
+  <form method="get" class="dynamic-form filters-form">
+    <div class="form-grid four">
+      <div class="field">
+        <label for="q">Buscar</label>
+        <input id="q" type="search" name="q" value="{{ q }}" placeholder="Nombre, identificacion, email o telefono">
+      </div>
+      <div class="field">
+        <label for="tipo">Tipo</label>
+        <select id="tipo" name="tipo">
+          <option value="">Todos</option>
+          {% for value,label in tipos %}
+            <option value="{{ value }}" {% if tipo == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="activo">Activo</label>
+        <select id="activo" name="activo">
+          <option value="">Todos</option>
+          <option value="1" {% if activo == '1' %}selected{% endif %}>Activos</option>
+          <option value="0" {% if activo == '0' %}selected{% endif %}>Inactivos</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="ciudad">Ciudad</label>
+        <select id="ciudad" name="ciudad">
+          <option value="">Todas</option>
+          {% for item in ciudades %}
+            <option value="{{ item }}" {% if ciudad == item %}selected{% endif %}>{{ item }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary">Filtrar</button>
+  </form>
+</div>
+
+<div class="panel-card">
+  <div class="table-responsive">
+    <table class="table products-table">
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Identificacion</th>
+          <th>Contacto</th>
+          <th>Ciudad</th>
+          <th>Proyectos</th>
+          <th>Solicitudes</th>
+          <th>Estado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cliente in clientes %}
+        <tr>
+          <td><strong>{{ cliente }}</strong><br><small>{{ cliente.get_tipo_cliente_display }}</small></td>
+          <td>{{ cliente.identificacion|default:'-' }}</td>
+          <td>{{ cliente.email|default:'-' }}<br><small>{{ cliente.telefono|default:cliente.whatsapp|default:'-' }}</small></td>
+          <td>{{ cliente.ciudad|default:'-' }}</td>
+          <td>{{ cliente.num_proyectos }}</td>
+          <td>{{ cliente.num_solicitudes }}</td>
+          <td>{% if cliente.activo %}Activo{% else %}Inactivo{% endif %}</td>
+          <td class="actions-column">
+            <div class="table-actions">
+              <a href="{% url 'panel_cliente_detalle' cliente.id %}" class="link-button">Ver</a>
+              <a href="{% url 'panel_cliente_editar' cliente.id %}" class="link-button">Editar</a>
+              <form method="post" action="{% url 'panel_cliente_toggle' cliente.id %}">
+                {% csrf_token %}
+                <button class="link-button" type="submit">{% if cliente.activo %}Inactivar{% else %}Reactivar{% endif %}</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8">No hay clientes con esos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

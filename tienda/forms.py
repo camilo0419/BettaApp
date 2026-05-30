@@ -2,8 +2,29 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from django import forms
 from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from .models import CampoMaestro, CampoMaestroOpcion, CampoOpcion, Producto, ProductoCampo, ProductoImagen, Solicitud
+from django.db import models
+from .models import (
+    CampoMaestro,
+    CampoMaestroOpcion,
+    CampoOpcion,
+    Categoria,
+    Cliente,
+    ClienteContacto,
+    EmpleadoPerfil,
+    Producto,
+    ProductoCampo,
+    ProductoImagen,
+    Proyecto,
+    Solicitud,
+    SolicitudAsignacion,
+    SolicitudNovedad,
+    SolicitudTarea,
+)
+
+User = get_user_model()
 
 
 BLOCKED_UPLOAD_EXTENSIONS = {
@@ -97,6 +118,12 @@ class ProductoForm(forms.ModelForm):
         return validate_image_upload(self.cleaned_data.get("imagen_principal"))
 
 
+class CategoriaForm(forms.ModelForm):
+    class Meta:
+        model = Categoria
+        fields = ["nombre", "slug", "orden", "activa"]
+
+
 class ProductoImagenForm(forms.ModelForm):
     class Meta:
         model = ProductoImagen
@@ -118,7 +145,7 @@ class ProductoCampoForm(forms.ModelForm):
         model = ProductoCampo
         fields = [
             "etiqueta", "nombre_interno", "tipo", "obligatorio", "orden",
-            "ayuda", "placeholder", "activo", "afecta_area_ancho",
+            "ayuda", "placeholder", "valor_fijo", "activo", "afecta_area_ancho",
             "afecta_area_alto", "es_cantidad",
         ]
 
@@ -128,7 +155,7 @@ class CampoMaestroForm(forms.ModelForm):
         model = CampoMaestro
         fields = [
             "nombre", "slug", "tipo", "etiqueta_base", "ayuda_base",
-            "placeholder_base", "obligatorio_base", "orden_base", "activo",
+            "placeholder_base", "valor_fijo_base", "obligatorio_base", "orden_base", "activo",
         ]
 
 
@@ -161,6 +188,303 @@ class SolicitudEstadoForm(forms.ModelForm):
         widgets = {
             "notas_internas": forms.Textarea(attrs={"rows": 5}),
         }
+
+
+class ClienteForm(forms.ModelForm):
+    class Meta:
+        model = Cliente
+        fields = [
+            "tipo_cliente", "nombre", "razon_social", "tipo_identificacion",
+            "identificacion", "email", "telefono", "whatsapp", "direccion",
+            "ciudad", "contacto_principal", "notas", "activo",
+        ]
+        widgets = {
+            "notas": forms.Textarea(attrs={"rows": 4}),
+        }
+
+
+class ClienteContactoForm(forms.ModelForm):
+    def __init__(self, *args, cliente=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if cliente is not None and not self.instance.pk:
+            self.instance.cliente = cliente
+
+    class Meta:
+        model = ClienteContacto
+        fields = ["nombre", "cargo", "email", "telefono", "whatsapp", "es_principal", "activo", "notas"]
+        widgets = {
+            "notas": forms.Textarea(attrs={"rows": 3}),
+        }
+
+
+class ProyectoForm(forms.ModelForm):
+    class Meta:
+        model = Proyecto
+        fields = [
+            "cliente", "nombre", "cliente_nombre", "cliente_contacto", "cliente_telefono", "cliente_email",
+            "descripcion", "estado", "prioridad", "fecha_inicio", "fecha_compromiso",
+            "fecha_cierre", "responsable", "activo", "observaciones",
+        ]
+        widgets = {
+            "descripcion": forms.Textarea(attrs={"rows": 4}),
+            "observaciones": forms.Textarea(attrs={"rows": 4}),
+            "fecha_inicio": forms.DateInput(attrs={"type": "date"}),
+            "fecha_compromiso": forms.DateInput(attrs={"type": "date"}),
+            "fecha_cierre": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["responsable"].queryset = EmpleadoPerfil.objects.filter(
+            activo=True,
+            user__is_active=True,
+        ).select_related("user")
+        self.fields["responsable"].required = False
+        clientes = Cliente.objects.filter(activo=True)
+        if self.instance.pk and self.instance.cliente_id:
+            clientes = Cliente.objects.filter(models.Q(activo=True) | models.Q(pk=self.instance.cliente_id))
+        self.fields["cliente"].queryset = clientes.order_by("nombre", "razon_social")
+        self.fields["cliente"].required = False
+
+
+class ProyectoSolicitudForm(forms.Form):
+    solicitudes = forms.ModelMultipleChoiceField(
+        label="Solicitudes disponibles",
+        queryset=Solicitud.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+    )
+
+    def __init__(self, *args, proyecto=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.proyecto = proyecto
+        queryset = Solicitud.objects.filter(proyecto__isnull=True).select_related("producto").order_by("-creado")
+        self.fields["solicitudes"].queryset = queryset
+
+
+class SolicitudProyectoForm(forms.ModelForm):
+    class Meta:
+        model = Solicitud
+        fields = ["proyecto"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["proyecto"].queryset = Proyecto.objects.filter(activo=True).order_by("-fecha_creacion", "nombre")
+        self.fields["proyecto"].required = False
+
+
+class SolicitudClienteForm(forms.ModelForm):
+    class Meta:
+        model = Solicitud
+        fields = ["cliente"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        clientes = Cliente.objects.filter(activo=True)
+        if self.instance.pk and self.instance.cliente_id:
+            clientes = Cliente.objects.filter(models.Q(activo=True) | models.Q(pk=self.instance.cliente_id))
+        self.fields["cliente"].queryset = clientes.order_by("nombre", "razon_social")
+        self.fields["cliente"].required = False
+
+
+class EmpleadoPerfilForm(forms.Form):
+    username = forms.CharField(label="Usuario", max_length=150)
+    first_name = forms.CharField(label="Nombre", max_length=150, required=False)
+    last_name = forms.CharField(label="Apellido", max_length=150, required=False)
+    email = forms.EmailField(label="Email", required=False)
+    password1 = forms.CharField(label="Contrasena", required=False, widget=forms.PasswordInput)
+    password2 = forms.CharField(label="Confirmar contrasena", required=False, widget=forms.PasswordInput)
+    is_staff = forms.BooleanField(label="Usuario staff/admin", required=False)
+    user_is_active = forms.BooleanField(label="Usuario activo para login", required=False, initial=True)
+    telefono = forms.CharField(label="Telefono", max_length=40, required=False)
+    cargo = forms.CharField(label="Cargo", max_length=120, required=False)
+    area = forms.ChoiceField(label="Area", choices=EmpleadoPerfil.AREAS)
+    activo = forms.BooleanField(label="Empleado activo", required=False, initial=True)
+    puede_recibir_pedidos = forms.BooleanField(label="Puede recibir pedidos", required=False, initial=True)
+
+    def __init__(self, *args, instance=None, **kwargs):
+        self.instance = instance
+        initial = kwargs.pop("initial", {})
+        if instance is not None:
+            user = instance.user
+            initial.update(
+                {
+                    "username": user.username,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "email": user.email,
+                    "is_staff": user.is_staff,
+                    "user_is_active": user.is_active,
+                    "telefono": instance.telefono,
+                    "cargo": instance.cargo,
+                    "area": instance.area,
+                    "activo": instance.activo,
+                    "puede_recibir_pedidos": instance.puede_recibir_pedidos,
+                }
+            )
+        super().__init__(*args, initial=initial, **kwargs)
+
+    def clean_username(self):
+        username = self.cleaned_data["username"].strip()
+        qs = User.objects.filter(username__iexact=username)
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.user_id)
+        if qs.exists():
+            raise ValidationError("Ya existe un usuario con este nombre.")
+        return username
+
+    def clean_email(self):
+        email = self.cleaned_data.get("email", "").strip()
+        if email:
+            qs = User.objects.filter(email__iexact=email)
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.user_id)
+            if qs.exists():
+                raise ValidationError("Ya existe un usuario con este email.")
+        return email
+
+    def clean(self):
+        cleaned_data = super().clean()
+        password1 = cleaned_data.get("password1")
+        password2 = cleaned_data.get("password2")
+        if self.instance is None and not password1:
+            self.add_error("password1", "La contrasena inicial es obligatoria.")
+        if password1 or password2:
+            if password1 != password2:
+                self.add_error("password2", "Las contrasenas no coinciden.")
+            elif password1:
+                try:
+                    validate_password(password1, self.instance.user if self.instance else None)
+                except ValidationError as exc:
+                    self.add_error("password1", exc)
+        return cleaned_data
+
+    def save(self):
+        data = self.cleaned_data
+        if self.instance is None:
+            user = User(username=data["username"])
+            perfil = EmpleadoPerfil(user=user)
+        else:
+            perfil = self.instance
+            user = perfil.user
+
+        user.username = data["username"]
+        user.first_name = data.get("first_name", "")
+        user.last_name = data.get("last_name", "")
+        user.email = data.get("email", "")
+        user.is_staff = data.get("is_staff", False)
+        user.is_active = data.get("user_is_active", True)
+        if data.get("password1"):
+            user.set_password(data["password1"])
+        user.save()
+
+        perfil.telefono = data.get("telefono", "")
+        perfil.cargo = data.get("cargo", "")
+        perfil.area = data.get("area")
+        perfil.activo = data.get("activo", False)
+        perfil.puede_recibir_pedidos = data.get("puede_recibir_pedidos", False)
+        perfil.save()
+        return perfil
+
+
+class SolicitudAsignacionForm(forms.Form):
+    empleados = forms.ModelMultipleChoiceField(
+        label="Empleados",
+        queryset=EmpleadoPerfil.objects.none(),
+        widget=forms.CheckboxSelectMultiple,
+    )
+    rol_en_trabajo = forms.CharField(label="Rol en el trabajo", max_length=120, required=False)
+    observacion = forms.CharField(label="Observacion", max_length=255, required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["empleados"].queryset = EmpleadoPerfil.objects.filter(
+            activo=True,
+            puede_recibir_pedidos=True,
+            user__is_active=True,
+        ).select_related("user").order_by("user__first_name", "user__last_name", "user__username")
+
+
+class SolicitudTareaForm(forms.ModelForm):
+    class Meta:
+        model = SolicitudTarea
+        fields = [
+            "titulo", "descripcion", "responsable", "area", "estado", "prioridad", "orden",
+            "fecha_inicio", "fecha_limite", "activa", "requiere_evidencia",
+            "evidencia_archivo", "observaciones",
+        ]
+        widgets = {
+            "descripcion": forms.Textarea(attrs={"rows": 4}),
+            "observaciones": forms.Textarea(attrs={"rows": 3}),
+            "fecha_inicio": forms.DateInput(attrs={"type": "date"}),
+            "fecha_limite": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def __init__(self, *args, solicitud=None, **kwargs):
+        self.solicitud = solicitud
+        super().__init__(*args, **kwargs)
+        if solicitud is not None and not self.instance.pk:
+            self.instance.solicitud = solicitud
+        self.fields["responsable"].queryset = EmpleadoPerfil.objects.filter(
+            activo=True,
+            puede_recibir_pedidos=True,
+            user__is_active=True,
+        ).select_related("user").order_by("user__first_name", "user__last_name", "user__username")
+        self.fields["responsable"].required = False
+
+    def clean_evidencia_archivo(self):
+        return validate_user_upload(self.cleaned_data.get("evidencia_archivo"))
+
+
+class AdminProduccionEstadoForm(forms.Form):
+    estado_produccion = forms.ChoiceField(label="Estado de produccion", choices=Solicitud.ESTADOS_PRODUCCION)
+    comentario = forms.CharField(label="Comentario", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+
+class ProduccionEstadoForm(forms.Form):
+    ESTADOS_PERMITIDOS = [
+        (Solicitud.PROD_EN_PROCESO, "En proceso"),
+        (Solicitud.PROD_CON_NOVEDAD, "Con novedad"),
+        (Solicitud.PROD_TERMINADO, "Terminado"),
+    ]
+
+    estado_produccion = forms.ChoiceField(label="Nuevo estado", choices=ESTADOS_PERMITIDOS)
+    comentario = forms.CharField(label="Comentario", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("estado_produccion") == Solicitud.PROD_CON_NOVEDAD and not cleaned_data.get("comentario", "").strip():
+            self.add_error("comentario", "Debes agregar un comentario para marcar una novedad.")
+        return cleaned_data
+
+
+class ProduccionTareaEstadoForm(forms.Form):
+    ESTADOS_PERMITIDOS = [
+        (SolicitudTarea.ESTADO_EN_PROCESO, "En proceso"),
+        (SolicitudTarea.ESTADO_BLOQUEADA, "Bloqueada"),
+        (SolicitudTarea.ESTADO_TERMINADA, "Terminada"),
+    ]
+
+    estado = forms.ChoiceField(label="Nuevo estado", choices=ESTADOS_PERMITIDOS)
+    comentario = forms.CharField(label="Comentario", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("estado") == SolicitudTarea.ESTADO_BLOQUEADA and not cleaned_data.get("comentario", "").strip():
+            self.add_error("comentario", "Debes agregar un comentario para bloquear una tarea.")
+        return cleaned_data
+
+
+class SolicitudNovedadForm(forms.ModelForm):
+    class Meta:
+        model = SolicitudNovedad
+        fields = ["comentario", "archivo_evidencia"]
+        widgets = {
+            "comentario": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def clean_archivo_evidencia(self):
+        return validate_user_upload(self.cleaned_data.get("archivo_evidencia"))
 
 
 class DynamicSolicitudForm(forms.Form):
@@ -201,11 +525,26 @@ class DynamicSolicitudForm(forms.Form):
                 field = forms.CharField(label=label, required=required, help_text=help_text, widget=forms.TextInput(attrs={"type": "color"}))
             elif campo.tipo == ProductoCampo.TIPO_FECHA:
                 field = forms.DateField(label=label, required=required, help_text=help_text, widget=forms.DateInput(attrs={"type": "date"}))
+            elif campo.tipo == ProductoCampo.TIPO_VALOR_FIJO:
+                field = forms.CharField(
+                    label=label,
+                    required=False,
+                    help_text=help_text,
+                    initial=campo.valor_fijo,
+                    widget=forms.TextInput(attrs={"readonly": "readonly"}),
+                )
             else:
                 field = forms.CharField(label=label, required=required, help_text=help_text)
 
             field.campo = campo
             self.fields[name] = field
+
+    def clean(self):
+        cleaned_data = super().clean()
+        for campo in self.producto.campos_activos:
+            if campo.tipo == ProductoCampo.TIPO_VALOR_FIJO:
+                cleaned_data[self.field_name(campo)] = campo.valor_fijo
+        return cleaned_data
 
     @staticmethod
     def field_name(campo):

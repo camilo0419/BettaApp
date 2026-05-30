@@ -23,6 +23,20 @@
     Marca ancho, alto y cantidad para que el cálculo de precio funcione por m².
   </p>
 
+  <form method="get" class="dynamic-form admin-form">
+    <div class="form-grid two">
+      <div class="field">
+        <label for="producto-campos-q">Buscar campos</label>
+        <input id="producto-campos-q" type="search" name="q" value="{{ q }}" placeholder="Etiqueta, maestro o tipo">
+      </div>
+    </div>
+
+    <div class="head-actions">
+      <button type="submit" class="btn btn-primary">Buscar</button>
+      <a href="{% url 'panel_producto_campos' producto.id %}" class="btn btn-outline">Limpiar</a>
+    </div>
+  </form>
+
   <div class="table-responsive">
     <table class="table fields-table">
       <thead>
@@ -30,9 +44,9 @@
           <th>Orden</th>
           <th>Etiqueta</th>
           <th>Tipo</th>
-          <th>Obligatorio</th>
-          <th>Cálculo</th>
-          <th>Opciones</th>
+          <th>Req.</th>
+          <th>Calc.</th>
+          <th>Opc.</th>
           <th>Activo</th>
           <th>Acciones</th>
         </tr>
@@ -91,12 +105,6 @@
 
               {% if c.tipo == 'select' or c.tipo == 'multiselect' %}
                 <a href="{% url 'panel_campo_opciones' c.id %}">Opciones</a>
-                {% if c.campo_maestro %}
-                  <form method="post" action="{% url 'panel_campo_copiar_opciones_maestro' c.id %}">
-                    {% csrf_token %}
-                    <button class="btn btn-outline">Copiar opciones</button>
-                  </form>
-                {% endif %}
               {% endif %}
 
               {% if c.activo %}
@@ -142,7 +150,7 @@
           <th>Orden</th>
           <th>Campo maestro</th>
           <th>Tipo</th>
-          <th>Estado</th>
+          <th>Opciones</th>
           <th>Acciones</th>
         </tr>
       </thead>
@@ -154,20 +162,19 @@
           <td class="field-name-cell">
             <strong>{{ maestro.nombre }}</strong>
             <small>{{ maestro.slug }}</small>
-          </td>
-          <td>{{ maestro.get_tipo_display }}</td>
-          <td>
-            {% if maestro.activo %}
-              Sí
-            {% else %}
-              No
+            {% if maestro.etiqueta_base and maestro.etiqueta_base != maestro.nombre %}
+              <small>{{ maestro.etiqueta_base }}</small>
             {% endif %}
           </td>
+          <td>{{ maestro.get_tipo_display }}</td>
+          <td>{{ maestro.opciones_maestras.count }}</td>
           <td class="actions-column">
-            <form method="post" action="{% url 'panel_campo_asignar_maestro' producto.id maestro.id %}">
-              {% csrf_token %}
-              <button class="btn btn-outline">Agregar</button>
-            </form>
+            <div class="table-actions">
+              <form method="post" action="{% url 'panel_campo_asignar_maestro' producto.id maestro.id %}">
+                {% csrf_token %}
+                <button class="btn btn-outline">Agregar</button>
+              </form>
+            </div>
           </td>
         </tr>
         {% empty %}

@@ -3,7 +3,7 @@
 {% block content %}
 <div class="panel-head">
   <div>
-    <span class="eyebrow">Operación</span>
+    <span class="eyebrow">Operaci&oacute;n</span>
     <h1>Dashboard</h1>
   </div>
   <a href="{% url 'panel_producto_crear' %}" class="btn btn-primary">Nuevo producto</a>
@@ -11,18 +11,27 @@
 <div class="kpi-grid">
   <div class="kpi"><span>Total solicitudes</span><strong>{{ total }}</strong></div>
   <div class="kpi"><span>Nuevas</span><strong>{{ nuevas }}</strong></div>
-  <div class="kpi"><span>En revisión</span><strong>{{ revision }}</strong></div>
+  <div class="kpi"><span>En revisi&oacute;n</span><strong>{{ revision }}</strong></div>
   <div class="kpi"><span>Productos</span><strong>{{ productos }}</strong></div>
+</div>
+<div class="kpi-grid production-kpis">
+  <div class="kpi"><span>Pendientes asignar</span><strong>{{ produccion.pendiente }}</strong></div>
+  <div class="kpi"><span>Asignadas</span><strong>{{ produccion.asignado }}</strong></div>
+  <div class="kpi"><span>En proceso</span><strong>{{ produccion.en_proceso }}</strong></div>
+  <div class="kpi"><span>Con novedad</span><strong>{{ produccion.con_novedad }}</strong></div>
+  <div class="kpi"><span>Terminadas</span><strong>{{ produccion.terminado }}</strong></div>
 </div>
 <div class="panel-card">
   <div class="panel-card-head"><h2>Solicitudes recientes</h2><a href="{% url 'panel_solicitudes' %}">Ver todas</a></div>
-  <table class="table">
-    <thead><tr><th>ID</th><th>Cliente</th><th>Producto</th><th>Estado</th><th>Fecha</th><th></th></tr></thead>
-    <tbody>
-    {% for s in recientes %}
-      <tr><td>#{{ s.id }}</td><td>{{ s.cliente_nombre }}</td><td>{{ s.producto.nombre }}</td><td><span class="badge">{{ s.get_estado_display }}</span></td><td>{{ s.creado|date:'d/m/Y H:i' }}</td><td><a href="{% url 'panel_solicitud_detalle' s.id %}">Abrir</a></td></tr>
-    {% empty %}<tr><td colspan="6">No hay solicitudes todavía.</td></tr>{% endfor %}
-    </tbody>
-  </table>
+  <div class="table-responsive">
+    <table class="table">
+      <thead><tr><th>ID</th><th>Cliente</th><th>Producto</th><th>Estado</th><th>Fecha</th><th>Acciones</th></tr></thead>
+      <tbody>
+      {% for s in recientes %}
+        <tr><td>#{{ s.id }}</td><td>{{ s.cliente_nombre }}</td><td>{{ s.producto.nombre }}</td><td><span class="badge">{{ s.get_estado_display }}</span></td><td>{{ s.creado|date:'d/m/Y H:i' }}</td><td class="actions-column"><div class="table-actions"><a href="{% url 'panel_solicitud_detalle' s.id %}" class="link-button">Abrir</a></div></td></tr>
+      {% empty %}<tr><td colspan="6">No hay solicitudes todav&iacute;a.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

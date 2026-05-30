@@ -1,0 +1,117 @@
+{% extends 'tienda/produccion/base.html' %}
+
+{% block title %}Tarea #{{ tarea.id }} | Produccion{% endblock %}
+
+{% block content %}
+<div class="production-head">
+  <div>
+    <span class="eyebrow">Tarea #{{ tarea.id }} · OP-{{ solicitud.id|stringformat:"06d" }}</span>
+    <h1>{{ tarea.titulo }}</h1>
+  </div>
+  <div class="head-actions">
+    <a href="{% url 'panel_solicitud_orden_produccion' solicitud.id %}" class="btn btn-primary" target="_blank" rel="noopener">Orden de produccion</a>
+    <a href="{% url 'produccion_dashboard' %}" class="btn btn-outline">Volver</a>
+  </div>
+</div>
+
+<div class="split-grid production-detail-grid">
+  <div>
+    <section class="production-card">
+      <div class="order-card-head">
+        <span class="badge">{{ tarea.get_estado_display }}</span>
+        <span class="badge">{{ tarea.get_prioridad_display }}</span>
+      </div>
+      <h2>Resumen de tarea</h2>
+      <dl class="detail-list">
+        <dt>Proyecto</dt><dd>{{ solicitud.proyecto.nombre|default:'-' }}</dd>
+        <dt>Pedido</dt><dd>OP-{{ solicitud.id|stringformat:"06d" }}</dd>
+        <dt>Cliente</dt><dd>{{ solicitud.cliente_nombre }}</dd>
+        <dt>Producto</dt><dd>{{ solicitud.producto.nombre }}</dd>
+        <dt>Area</dt><dd>{{ tarea.get_area_display }}</dd>
+        <dt>Responsable</dt><dd>{{ tarea.responsable|default:'-' }}</dd>
+        <dt>Fecha limite</dt><dd>{{ tarea.fecha_limite|date:'d/m/Y'|default:'-' }}</dd>
+      </dl>
+      {% if tarea.descripcion %}<p>{{ tarea.descripcion }}</p>{% endif %}
+      {% if tarea.evidencia_archivo %}
+        <a href="{{ tarea.evidencia_archivo.url }}" target="_blank" rel="noopener">Ver evidencia actual</a>
+      {% endif %}
+    </section>
+
+    <section class="production-card">
+      <h2>Especificaciones tecnicas</h2>
+      <div class="answers">
+        {% for respuesta in respuestas %}
+          <div class="answer">
+            <strong>{{ respuesta.etiqueta }}</strong>
+            <span>{{ respuesta.valor_texto|default:'-' }}</span>
+            {% if respuesta.archivo %}
+              <a href="{{ respuesta.archivo.url }}" target="_blank" rel="noopener">{{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</a>
+            {% endif %}
+          </div>
+        {% empty %}
+          <p>No hay respuestas tecnicas guardadas.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="production-card">
+      <h2>Archivos</h2>
+      {% if archivos_adjuntos %}
+        <div class="notification-list">
+          {% for archivo in archivos_adjuntos %}
+            <a href="{{ archivo.archivo.url }}" target="_blank" rel="noopener" class="notification-item">
+              <strong>{{ archivo.etiqueta }}</strong>
+              <span>{{ archivo.archivo.name|cut:"solicitudes/archivos/" }}</span>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">No hay archivos adjuntos.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <div>
+    <section class="production-card">
+      <h2>Cambiar estado de tarea</h2>
+      <form method="post" class="dynamic-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="estado">
+        {{ estado_form.as_p }}
+        <button class="btn btn-primary btn-wide">Actualizar</button>
+      </form>
+    </section>
+
+    <section class="production-card">
+      <h2>Agregar novedad</h2>
+      <form method="post" enctype="multipart/form-data" class="dynamic-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="novedad">
+        {{ novedad_form.as_p }}
+        <button class="btn btn-primary btn-wide">Registrar novedad</button>
+      </form>
+    </section>
+
+    <section class="production-card">
+      <h2>Historial de tarea</h2>
+      <div class="timeline">
+        {% for novedad in novedades %}
+          <div class="timeline-item">
+            <strong>{{ novedad.get_tipo_display }}</strong>
+            <span>{{ novedad.fecha_creacion|date:'d/m/Y H:i' }} · {{ novedad.usuario|default:'Sistema' }}</span>
+            <p>{{ novedad.comentario }}</p>
+            {% if novedad.estado_anterior or novedad.estado_nuevo %}
+              <small>{{ novedad.estado_anterior|default:'-' }} &rarr; {{ novedad.estado_nuevo|default:'-' }}</small>
+            {% endif %}
+            {% if novedad.archivo_evidencia %}
+              <a href="{{ novedad.archivo_evidencia.url }}" target="_blank" rel="noopener">Ver evidencia</a>
+            {% endif %}
+          </div>
+        {% empty %}
+          <p>No hay novedades registradas para esta tarea.</p>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

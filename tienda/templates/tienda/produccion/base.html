@@ -1,0 +1,79 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Produccion | Betta Diseno{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
+</head>
+<body class="production-body">
+  <header class="production-topbar">
+    <a href="{% url 'produccion_dashboard' %}" class="production-brand">
+      <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseno">
+      <span>Produccion</span>
+    </a>
+    {% with active=request.resolver_match.url_name %}
+    <nav class="production-nav">
+      <a href="{% url 'produccion_dashboard' %}" class="{% if active == 'produccion_dashboard' or active == 'produccion_pedido_detalle' or active == 'produccion_tarea_detalle' %}active{% endif %}">Mis pedidos y tareas</a>
+      {% if user.is_staff %}<a href="{% url 'panel_dashboard' %}">Panel admin</a>{% endif %}
+      <form method="post" action="{% url 'produccion_logout' %}">
+        {% csrf_token %}
+        <button type="submit" class="link-button">Salir</button>
+      </form>
+    </nav>
+    {% endwith %}
+  </header>
+
+  <main class="production-main">
+    {% if messages %}
+      {% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+  (function () {
+    const endpoint = "{% url 'produccion_notificaciones_check' %}";
+    let lastSeen = Number(window.localStorage.getItem("bettaLastNotificationId") || "0");
+
+    function notify(item) {
+      if (!("Notification" in window) || Notification.permission !== "granted") {
+        return;
+      }
+      const notification = new Notification(item.titulo, { body: item.mensaje });
+      notification.onclick = function () {
+        if (item.url) {
+          window.focus();
+          window.location.href = item.url;
+        }
+      };
+    }
+
+    function checkNotifications() {
+      fetch(endpoint, { credentials: "same-origin" })
+        .then(function (response) { return response.ok ? response.json() : null; })
+        .then(function (data) {
+          if (!data || !data.notifications || !data.notifications.length) {
+            return;
+          }
+          data.notifications.slice().reverse().forEach(function (item) {
+            if (item.id > lastSeen) {
+              notify(item);
+              lastSeen = item.id;
+            }
+          });
+          window.localStorage.setItem("bettaLastNotificationId", String(lastSeen));
+        })
+        .catch(function () {});
+    }
+
+    if ("Notification" in window && Notification.permission === "default") {
+      setTimeout(function () { Notification.requestPermission().catch(function () {}); }, 1200);
+    }
+    checkNotifications();
+    window.setInterval(checkNotifications, 45000);
+  })();
+  </script>
+</body>
+</html>

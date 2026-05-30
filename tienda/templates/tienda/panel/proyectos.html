@@ -1,0 +1,106 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}Proyectos | Admin productos{% endblock %}
+
+{% block content %}
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">Gestion operativa</span>
+    <h1>Proyectos</h1>
+  </div>
+  <a href="{% url 'panel_proyecto_crear' %}" class="btn btn-primary">Crear proyecto</a>
+</div>
+
+<div class="panel-card">
+  <form method="get" class="dynamic-form filters-form">
+    <div class="form-grid four">
+      <div class="field">
+        <label for="q">Buscar</label>
+        <input id="q" type="search" name="q" value="{{ q }}" placeholder="Proyecto, cliente o responsable">
+      </div>
+      <div class="field">
+        <label for="estado">Estado</label>
+        <select id="estado" name="estado">
+          <option value="">Todos</option>
+          {% for value,label in estados %}
+            <option value="{{ value }}" {% if estado == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="prioridad">Prioridad</label>
+        <select id="prioridad" name="prioridad">
+          <option value="">Todas</option>
+          {% for value,label in prioridades %}
+            <option value="{{ value }}" {% if prioridad == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="activo">Activo</label>
+        <select id="activo" name="activo">
+          <option value="">Todos</option>
+          <option value="1" {% if activo == '1' %}selected{% endif %}>Activos</option>
+          <option value="0" {% if activo == '0' %}selected{% endif %}>Inactivos</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="cliente">Cliente</label>
+        <select id="cliente" name="cliente">
+          <option value="">Todos</option>
+          {% for cliente in clientes %}
+            <option value="{{ cliente.id }}" {% if cliente_id == cliente.id|stringformat:'s' %}selected{% endif %}>{{ cliente }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary">Filtrar</button>
+  </form>
+</div>
+
+<div class="panel-card">
+  <div class="table-responsive">
+    <table class="table products-table">
+      <thead>
+        <tr>
+          <th>Proyecto</th>
+          <th>Cliente legacy</th>
+          <th>Cliente</th>
+          <th>Estado</th>
+          <th>Prioridad</th>
+          <th>Responsable</th>
+          <th>Solicitudes</th>
+          <th>Tareas</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for proyecto in proyectos %}
+        <tr>
+          <td><strong>{{ proyecto.nombre }}</strong><br><small>{% if proyecto.activo %}Activo{% else %}Inactivo{% endif %}</small></td>
+          <td>{% if proyecto.cliente %}<a href="{% url 'panel_cliente_detalle' proyecto.cliente.id %}">{{ proyecto.cliente }}</a>{% else %}-{% endif %}</td>
+          <td>{{ proyecto.cliente_nombre|default:'-' }}</td>
+          <td>{{ proyecto.get_estado_display }}</td>
+          <td>{{ proyecto.get_prioridad_display }}</td>
+          <td>{{ proyecto.responsable|default:'-' }}</td>
+          <td>{{ proyecto.num_solicitudes }}</td>
+          <td>{{ proyecto.num_tareas }}</td>
+          <td class="actions-column">
+            <div class="table-actions">
+              <a href="{% url 'panel_proyecto_detalle' proyecto.id %}" class="link-button">Ver</a>
+              <a href="{% url 'panel_proyecto_editar' proyecto.id %}" class="link-button">Editar</a>
+              <form method="post" action="{% url 'panel_proyecto_toggle' proyecto.id %}">
+                {% csrf_token %}
+                <button type="submit" class="link-button">{% if proyecto.activo %}Inactivar{% else %}Reactivar{% endif %}</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="9">No hay proyectos con esos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

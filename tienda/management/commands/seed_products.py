@@ -18,6 +18,7 @@ def upsert_master(etiqueta, tipo, orden, **kwargs):
         "etiqueta_base": kwargs.get("etiqueta_base", etiqueta),
         "ayuda_base": kwargs.get("ayuda", ""),
         "placeholder_base": kwargs.get("placeholder", ""),
+        "valor_fijo_base": kwargs.get("valor_fijo", kwargs.get("valor_fijo_base", "")),
         "obligatorio_base": kwargs.get("obligatorio", False),
         "orden_base": orden,
         "activo": kwargs.get("activo", True),
@@ -69,6 +70,7 @@ def upsert_field(producto, etiqueta, tipo, orden, **kwargs):
             "etiqueta_base": kwargs.get("etiqueta_base", etiqueta),
             "ayuda_base": kwargs.get("ayuda", ""),
             "placeholder_base": kwargs.get("placeholder", ""),
+            "valor_fijo_base": kwargs.get("valor_fijo", kwargs.get("valor_fijo_base", "")),
             "obligatorio_base": kwargs.get("obligatorio", False),
             "orden_base": orden,
             "activo": kwargs.get("activo", True),
@@ -78,7 +80,6 @@ def upsert_field(producto, etiqueta, tipo, orden, **kwargs):
 
     if not campo:
         campo = ProductoCampo.objects.filter(producto=producto, campo_maestro=maestro).first()
-    created = campo is None
     if not campo:
         campo = ProductoCampo(producto=producto)
 
@@ -91,6 +92,7 @@ def upsert_field(producto, etiqueta, tipo, orden, **kwargs):
         "obligatorio": False,
         "ayuda": kwargs.get("ayuda", ""),
         "placeholder": kwargs.get("placeholder", ""),
+        "valor_fijo": kwargs.get("valor_fijo", kwargs.get("valor_fijo_base", "")),
         "activo": kwargs.get("activo", True),
         "afecta_area_ancho": False,
         "afecta_area_alto": False,
@@ -100,7 +102,7 @@ def upsert_field(producto, etiqueta, tipo, orden, **kwargs):
     for field, value in defaults.items():
         setattr(campo, field, value)
     campo.save()
-    if created:
+    if campo.tipo in [ProductoCampo.TIPO_SELECT, ProductoCampo.TIPO_MULTISELECT] and campo.campo_maestro_id:
         campo.copiar_opciones_maestras()
     return campo
 
@@ -134,6 +136,9 @@ class Command(BaseCommand):
             ("Talla", ProductoCampo.TIPO_SELECT, 30, {}),
             ("Tipo de tela", ProductoCampo.TIPO_SELECT, 31, {}),
             ("Tipo de impresión", ProductoCampo.TIPO_SELECT, 32, {}),
+            ("Tamaño fijo", ProductoCampo.TIPO_VALOR_FIJO, 40, {"valor_fijo": "5 cm x 5 cm"}),
+            ("Material fijo", ProductoCampo.TIPO_VALOR_FIJO, 41, {"valor_fijo": "PVC blanco 0.76 mm"}),
+            ("Producción", ProductoCampo.TIPO_VALOR_FIJO, 42, {"valor_fijo": "Medida estándar no modificable"}),
         ]:
             maestro = upsert_master(etiqueta, tipo, orden, **extra)
             if etiqueta == "Estado del diseño":

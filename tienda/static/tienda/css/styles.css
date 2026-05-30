@@ -454,3 +454,529 @@ header img {
         max-height: 340px;
     }
 }
+
+/* Modulo de produccion */
+.production-body {
+    min-height: 100vh;
+    background: var(--bg);
+}
+
+.production-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(255,255,255,.94);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px min(32px, 5vw);
+}
+
+.production-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--deep);
+    font-weight: 900;
+}
+
+.production-brand img {
+    width: 130px;
+    max-height: 48px;
+    object-fit: contain;
+}
+
+.production-nav {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    font-weight: 800;
+}
+
+.production-nav form {
+    margin: 0;
+}
+
+.production-main {
+    width: min(1180px, 94vw);
+    margin: 0 auto;
+    padding: 24px 0 42px;
+}
+
+.production-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 18px;
+}
+
+.production-head h1 {
+    font-size: clamp(30px, 5vw, 48px);
+    margin: 6px 0 0;
+}
+
+.production-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+    margin-bottom: 16px;
+}
+
+.production-card,
+.production-order-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    box-shadow: 0 12px 34px rgba(3,72,96,.08);
+    padding: 18px;
+}
+
+.production-card {
+    margin-bottom: 16px;
+}
+
+.production-orders {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.production-order-card h2 {
+    font-size: 22px;
+    margin-top: 12px;
+}
+
+.order-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.mini-detail {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 6px 10px;
+    margin: 12px 0;
+}
+
+.mini-detail dt {
+    font-weight: 900;
+    color: var(--deep);
+}
+
+.mini-detail dd {
+    margin: 0;
+    color: var(--muted);
+}
+
+.production-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.production-filters {
+    display: grid;
+    grid-template-columns: 1fr 220px auto;
+    gap: 12px;
+    align-items: end;
+}
+
+.notification-list {
+    display: grid;
+    gap: 10px;
+}
+
+.notification-item {
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 12px;
+    background: #fbffff;
+}
+
+.notification-item strong,
+.notification-item span {
+    display: block;
+}
+
+.notification-item span {
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+.assignment-pill {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 12px;
+    background: #fbffff;
+    margin-bottom: 10px;
+}
+
+.assignment-pill strong,
+.assignment-pill span {
+    display: block;
+}
+
+.assignment-pill span {
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+.timeline {
+    display: grid;
+    gap: 10px;
+}
+
+.timeline-item {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 12px;
+    background: #fbffff;
+}
+
+.timeline-item strong,
+.timeline-item span,
+.timeline-item small,
+.timeline-item a {
+    display: block;
+}
+
+.timeline-item span,
+.timeline-item small {
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+.timeline-item p {
+    margin: 8px 0 0;
+}
+
+.form-grid.four {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.production-filters {
+    grid-template-columns: repeat(5, minmax(150px, 1fr)) auto;
+}
+
+.task-card .mini-detail {
+    grid-template-columns: 90px 1fr;
+}
+
+@media (max-width: 900px) {
+    .production-kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .production-orders,
+    .production-detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .production-filters,
+    .form-grid.four,
+    .filters {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 680px) {
+    .production-topbar,
+    .production-head {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .production-nav,
+    .production-actions,
+    .head-actions,
+    .table-actions,
+    .field-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .production-actions .btn,
+    .head-actions .btn {
+        width: 100%;
+    }
+
+    .production-kpi-grid,
+    .kpi-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .panel-main {
+        padding: 16px;
+    }
+
+    .detail-list,
+    .mini-detail {
+        grid-template-columns: 1fr;
+    }
+
+    .products-table .actions-column,
+    .fields-table .actions-column {
+        width: 220px;
+        min-width: 220px;
+    }
+
+    .panel-card,
+    .production-card,
+    .production-order-card {
+        border-radius: 18px;
+        padding: 16px;
+    }
+}
+
+/* Ajustes finales de usabilidad para panel y produccion */
+.panel-sidebar nav a.active,
+.production-nav a.active {
+    background: rgba(255, 255, 255, 0.16);
+    box-shadow: inset 4px 0 0 rgba(255, 255, 255, 0.7);
+}
+
+.panel-main .filters {
+    grid-template-columns: minmax(240px, 1fr) minmax(170px, 220px) minmax(170px, 220px) auto;
+    align-items: end;
+    gap: 14px;
+}
+
+.panel-main .filters .btn,
+.panel-main .filters button,
+.panel-main .filters-form > .btn,
+.production-main .production-filters > .btn,
+.panel-main .dynamic-form.admin-form > .head-actions .btn {
+    width: auto;
+    min-width: max-content;
+    justify-self: start;
+    align-self: end;
+    flex: 0 0 auto;
+}
+
+.panel-main .filters-form > .btn,
+.panel-main .dynamic-form.admin-form > .head-actions {
+    margin-top: 16px;
+}
+
+.panel-main .dynamic-form.admin-form > .head-actions {
+    align-items: center;
+    gap: 12px;
+}
+
+.panel-main .field,
+.production-main .field,
+.panel-main .form-grid > *,
+.production-main .form-grid > * {
+    min-width: 0;
+}
+
+.panel-main .dynamic-form input,
+.panel-main .dynamic-form select,
+.panel-main .dynamic-form textarea,
+.production-main .dynamic-form input,
+.production-main .dynamic-form select,
+.production-main .dynamic-form textarea {
+    max-width: 100%;
+}
+
+.panel-main .table-responsive,
+.production-main .table-responsive,
+.panel-main .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.panel-main .table,
+.production-main .table,
+.panel-main .table-wrap table {
+    min-width: 720px;
+}
+
+.panel-main .table-wrap table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.panel-main .table-wrap th,
+.panel-main .table-wrap td {
+    text-align: left;
+    padding: 13px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+}
+
+.panel-main .btn-secondary {
+    background: #fff;
+    color: var(--deep);
+    border-color: var(--line);
+}
+
+.panel-main .table-action {
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.panel-main .products-table {
+    min-width: 780px;
+}
+
+.panel-main .fields-table {
+    min-width: 940px;
+}
+
+.panel-main .products-table .actions-column,
+.panel-main .fields-table .actions-column,
+.panel-main .table .actions-column,
+.production-main .table .actions-column {
+    width: auto;
+    min-width: 170px;
+}
+
+.panel-main .actions-column,
+.production-main .actions-column {
+    display: table-cell;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.panel-main .actions-column .table-actions,
+.panel-main .actions-column .field-actions,
+.production-main .actions-column .table-actions,
+.production-main .actions-column .field-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    white-space: normal;
+}
+
+.panel-main .actions-column > a,
+.panel-main .actions-column > form,
+.panel-main .actions-column .table-actions > a,
+.panel-main .actions-column .table-actions > form,
+.panel-main .actions-column .field-actions > a,
+.panel-main .actions-column .field-actions > form,
+.production-main .actions-column > a,
+.production-main .actions-column > form,
+.production-main .actions-column .table-actions > a,
+.production-main .actions-column .table-actions > form {
+    display: inline-flex;
+    margin: 0;
+}
+
+.panel-main .actions-column a,
+.panel-main .actions-column button,
+.panel-main .table-actions a,
+.panel-main .table-actions button,
+.panel-main .field-actions a,
+.panel-main .field-actions button,
+.production-main .actions-column a,
+.production-main .actions-column button {
+    white-space: nowrap;
+    line-height: 1.2;
+    min-height: 32px;
+    align-items: center;
+}
+
+@media (max-width: 1050px) {
+    .panel-sidebar nav {
+        grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    }
+
+    .panel-main .filters {
+        grid-template-columns: repeat(2, minmax(190px, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .panel-head,
+    .panel-card-head,
+    .production-head {
+        align-items: flex-start;
+    }
+
+    .panel-main .filters,
+    .panel-main .filters-form,
+    .panel-main .production-filters,
+    .production-main .production-filters {
+        grid-template-columns: 1fr !important;
+        gap: 14px;
+    }
+
+    .panel-main .filters .btn,
+    .panel-main .filters button,
+    .panel-main .filters-form > .btn,
+    .production-main .production-filters > .btn,
+    .panel-main .dynamic-form.admin-form > .head-actions .btn {
+        width: 100%;
+        min-width: 0;
+        justify-self: stretch;
+    }
+
+    .panel-main .dynamic-form.admin-form > .head-actions,
+    .panel-main .head-actions,
+    .production-main .head-actions {
+        width: 100%;
+        align-items: stretch;
+    }
+
+    .panel-main .head-actions .btn,
+    .production-main .head-actions .btn {
+        width: 100%;
+    }
+
+    .panel-main .actions-column .table-actions,
+    .panel-main .actions-column .field-actions,
+    .production-main .actions-column .table-actions,
+    .production-main .actions-column .field-actions {
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .panel-main .actions-column,
+    .production-main .actions-column {
+        display: table-cell;
+        vertical-align: top;
+    }
+
+    .panel-main .actions-column a,
+    .panel-main .actions-column button,
+    .production-main .actions-column a,
+    .production-main .actions-column button {
+        min-height: 36px;
+    }
+
+    .panel-main .table th:nth-child(3),
+    .panel-main .table td:nth-child(3),
+    .production-main .table th:nth-child(3),
+    .production-main .table td:nth-child(3) {
+        display: table-cell;
+    }
+
+    .panel-main .table,
+    .production-main .table {
+        font-size: 14px;
+    }
+
+    .panel-main .table th,
+    .panel-main .table td,
+    .production-main .table th,
+    .production-main .table td {
+        padding: 11px;
+    }
+
+    .panel-main .panel-card,
+    .production-main .production-card,
+    .production-main .production-order-card {
+        padding: 16px;
+    }
+}

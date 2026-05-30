@@ -20,6 +20,7 @@
     Estas opciones se copian a cada producto cuando se asigna o reactiva este campo maestro.
   </p>
 
+  <div class="table-responsive">
   <table class="table">
     <thead>
       <tr>
@@ -28,7 +29,7 @@
         <th>Ajuste</th>
         <th>Precio</th>
         <th>Activa</th>
-        <th></th>
+        <th>Acciones</th>
       </tr>
     </thead>
 
@@ -43,7 +44,7 @@
         <td>{{ o.get_ajuste_tipo_display }}</td>
         <td>${{ o.precio|floatformat:0 }}</td>
         <td>{% if o.activa %}Sí{% else %}No{% endif %}</td>
-        <td><a href="{% url 'panel_campo_maestro_opcion_editar' o.id %}">Editar</a></td>
+        <td class="actions-column"><div class="table-actions"><a href="{% url 'panel_campo_maestro_opcion_editar' o.id %}" class="link-button">Editar</a></div></td>
       </tr>
       {% empty %}
       <tr>
@@ -52,5 +53,6 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endblock %}

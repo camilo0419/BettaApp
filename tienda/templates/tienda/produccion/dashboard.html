@@ -1,0 +1,143 @@
+{% extends 'tienda/produccion/base.html' %}
+
+{% block title %}Mis pedidos y tareas | Produccion{% endblock %}
+
+{% block content %}
+<div class="production-head">
+  <div>
+    <span class="eyebrow">Dashboard personal</span>
+    <h1>Mis pedidos y tareas</h1>
+  </div>
+</div>
+
+<section class="production-kpi-grid">
+  <div class="kpi"><span>Pedidos asignados</span><strong>{{ metricas.asignados }}</strong></div>
+  <div class="kpi"><span>Pedidos en proceso</span><strong>{{ metricas.en_proceso }}</strong></div>
+  <div class="kpi"><span>Con novedad</span><strong>{{ metricas.con_novedad }}</strong></div>
+  <div class="kpi"><span>Tareas asignadas</span><strong>{{ metricas_tareas.asignadas }}</strong></div>
+  <div class="kpi"><span>Tareas vencidas</span><strong>{{ metricas_tareas.vencidas }}</strong></div>
+  <div class="kpi"><span>Tareas hoy</span><strong>{{ metricas_tareas.terminadas_hoy }}</strong></div>
+</section>
+
+{% if notificaciones %}
+<section class="production-card">
+  <div class="panel-card-head">
+    <h2>Notificaciones</h2>
+    <form method="post" action="{% url 'produccion_notificaciones_marcar_leidas' %}">
+      {% csrf_token %}
+      <button class="link-button">Marcar leidas</button>
+    </form>
+  </div>
+  <div class="notification-list">
+    {% for n in notificaciones %}
+      <a href="{{ n.url_destino|default:'#' }}" class="notification-item">
+        <strong>{{ n.titulo }}</strong>
+        <span>{{ n.mensaje }}</span>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="production-card">
+  <form method="get" class="dynamic-form production-filters">
+    <div class="field">
+      <label for="q">Buscar</label>
+      <input id="q" type="search" name="q" value="{{ q }}" placeholder="Cliente, producto, proyecto o solicitud">
+    </div>
+    <div class="field">
+      <label for="estado">Estado pedido</label>
+      <select id="estado" name="estado">
+        <option value="">Todos</option>
+        {% for value,label in estados %}
+          <option value="{{ value }}" {% if estado == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="tarea_estado">Estado tarea</label>
+      <select id="tarea_estado" name="tarea_estado">
+        <option value="">Todas</option>
+        {% for value,label in estados_tarea %}
+          <option value="{{ value }}" {% if tarea_estado == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="proyecto">Proyecto</label>
+      <select id="proyecto" name="proyecto">
+        <option value="">Todos</option>
+        {% for proyecto in proyectos %}
+          <option value="{{ proyecto.id }}" {% if proyecto_id == proyecto.id|stringformat:'s' %}selected{% endif %}>{{ proyecto.nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="fecha_limite">Fecha limite</label>
+      <input id="fecha_limite" type="date" name="fecha_limite" value="{{ fecha_limite }}">
+    </div>
+    <button type="submit" class="btn btn-primary">Filtrar</button>
+  </form>
+</section>
+
+<section class="production-card">
+  <div class="panel-card-head">
+    <h2>Tareas asignadas</h2>
+  </div>
+  <div class="production-orders">
+    {% for tarea in tareas %}
+      <article class="production-order-card task-card">
+        <div class="order-card-head">
+          <span class="badge">{{ tarea.get_estado_display }}</span>
+          <span class="badge">{{ tarea.get_prioridad_display }}</span>
+        </div>
+        <h2>{{ tarea.titulo }}</h2>
+        <p>
+          {% if tarea.solicitud.proyecto %}{{ tarea.solicitud.proyecto.nombre }} · {% endif %}
+          OP-{{ tarea.solicitud.id|stringformat:"06d" }} · {{ tarea.solicitud.producto.nombre }}
+        </p>
+        <dl class="mini-detail">
+          <dt>Area</dt><dd>{{ tarea.get_area_display }}</dd>
+          <dt>Limite</dt><dd>{{ tarea.fecha_limite|date:'d/m/Y'|default:'-' }}</dd>
+          <dt>Cliente</dt><dd>{{ tarea.solicitud.cliente_nombre }}</dd>
+        </dl>
+        <div class="production-actions">
+          <a href="{% url 'produccion_tarea_detalle' tarea.id %}" class="btn btn-primary">Ver tarea</a>
+          <a href="{% url 'panel_solicitud_orden_produccion' tarea.solicitud.id %}" class="btn btn-outline" target="_blank" rel="noopener">Orden</a>
+        </div>
+      </article>
+    {% empty %}
+      <div class="empty-state">No tienes tareas asignadas con esos filtros.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="production-card">
+  <div class="panel-card-head">
+    <h2>Pedidos asignados</h2>
+  </div>
+  <div class="production-orders">
+    {% for asignacion in asignaciones %}
+      <article class="production-order-card">
+        <div class="order-card-head">
+          <span class="badge">OP-{{ asignacion.solicitud.id|stringformat:"06d" }}</span>
+          <span class="badge">{{ asignacion.solicitud.get_estado_produccion_display }}</span>
+        </div>
+        <h2>{{ asignacion.solicitud.producto.nombre }}</h2>
+        <p>{{ asignacion.solicitud.cliente_nombre }} · {{ asignacion.solicitud.creado|date:'d/m/Y H:i' }}</p>
+        <dl class="mini-detail">
+          <dt>Proyecto</dt><dd>{{ asignacion.solicitud.proyecto.nombre|default:'-' }}</dd>
+          <dt>Rol</dt><dd>{{ asignacion.rol_en_trabajo|default:'-' }}</dd>
+          <dt>Asignado</dt><dd>{{ asignacion.fecha_asignacion|date:'d/m/Y H:i' }}</dd>
+        </dl>
+        <div class="production-actions">
+          <a href="{% url 'produccion_pedido_detalle' asignacion.solicitud.id %}" class="btn btn-primary">Ver detalle</a>
+          <a href="{% url 'panel_solicitud_orden_produccion' asignacion.solicitud.id %}" class="btn btn-outline" target="_blank" rel="noopener">Orden</a>
+        </div>
+      </article>
+    {% empty %}
+      <div class="empty-state">No tienes pedidos asignados con esos filtros.</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

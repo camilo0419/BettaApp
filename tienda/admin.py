@@ -1,5 +1,23 @@
 from django.contrib import admin
-from .models import Categoria, CampoMaestro, CampoMaestroOpcion, CampoOpcion, Producto, ProductoCampo, ProductoImagen, Solicitud, SolicitudRespuesta
+from .models import (
+    Categoria,
+    CampoMaestro,
+    CampoMaestroOpcion,
+    CampoOpcion,
+    Cliente,
+    ClienteContacto,
+    EmpleadoPerfil,
+    Notificacion,
+    Producto,
+    ProductoCampo,
+    ProductoImagen,
+    Proyecto,
+    Solicitud,
+    SolicitudAsignacion,
+    SolicitudNovedad,
+    SolicitudRespuesta,
+    SolicitudTarea,
+)
 
 admin.site.site_header = "Admin Productos | Betta Diseño"
 admin.site.site_title = "Admin Productos"
@@ -18,6 +36,11 @@ class ProductoImagenInline(admin.TabularInline):
 
 class CampoMaestroOpcionInline(admin.TabularInline):
     model = CampoMaestroOpcion
+    extra = 0
+
+
+class ClienteContactoInline(admin.TabularInline):
+    model = ClienteContacto
     extra = 0
 
 
@@ -44,6 +67,21 @@ class CampoMaestroOpcionAdmin(admin.ModelAdmin):
     list_display = ["campo_maestro", "etiqueta", "valor", "ajuste_tipo", "precio", "orden", "activa"]
     list_filter = ["activa", "ajuste_tipo", "campo_maestro"]
     search_fields = ["etiqueta", "valor", "campo_maestro__nombre"]
+
+
+@admin.register(Cliente)
+class ClienteAdmin(admin.ModelAdmin):
+    list_display = ["nombre", "razon_social", "tipo_cliente", "identificacion", "email", "telefono", "ciudad", "activo"]
+    list_filter = ["tipo_cliente", "activo", "ciudad"]
+    search_fields = ["nombre", "razon_social", "identificacion", "email", "telefono", "whatsapp", "ciudad"]
+    inlines = [ClienteContactoInline]
+
+
+@admin.register(ClienteContacto)
+class ClienteContactoAdmin(admin.ModelAdmin):
+    list_display = ["cliente", "nombre", "cargo", "email", "telefono", "es_principal", "activo"]
+    list_filter = ["activo", "es_principal"]
+    search_fields = ["cliente__nombre", "cliente__razon_social", "nombre", "email", "telefono", "whatsapp"]
 
 
 @admin.register(Producto)
@@ -74,12 +112,70 @@ class SolicitudRespuestaInline(admin.TabularInline):
     extra = 0
 
 
+class SolicitudAsignacionInline(admin.TabularInline):
+    model = SolicitudAsignacion
+    extra = 0
+
+
+class SolicitudTareaInline(admin.TabularInline):
+    model = SolicitudTarea
+    extra = 0
+
+
+class SolicitudNovedadInline(admin.TabularInline):
+    model = SolicitudNovedad
+    extra = 0
+
+
+@admin.register(Proyecto)
+class ProyectoAdmin(admin.ModelAdmin):
+    list_display = ["nombre", "cliente", "cliente_nombre", "estado", "prioridad", "responsable", "activo", "fecha_compromiso"]
+    list_filter = ["estado", "prioridad", "activo", "cliente", "fecha_compromiso"]
+    search_fields = ["nombre", "cliente__nombre", "cliente__razon_social", "cliente_nombre", "cliente_contacto", "responsable__user__username"]
+    readonly_fields = ["fecha_creacion", "fecha_actualizacion"]
+
+
 @admin.register(Solicitud)
 class SolicitudAdmin(admin.ModelAdmin):
-    list_display = ["id", "cliente_nombre", "producto", "estado", "precio_estimado", "creado"]
-    list_filter = ["estado", "producto", "creado"]
-    search_fields = ["cliente_nombre", "cliente_celular", "producto__nombre"]
-    inlines = [SolicitudRespuestaInline]
+    list_display = ["id", "cliente_nombre", "cliente", "producto", "proyecto", "estado", "estado_produccion", "precio_estimado", "creado"]
+    list_filter = ["estado", "estado_produccion", "cliente", "proyecto", "producto", "creado"]
+    search_fields = ["cliente_nombre", "cliente_celular", "cliente__nombre", "cliente__razon_social", "producto__nombre", "proyecto__nombre"]
+    inlines = [SolicitudRespuestaInline, SolicitudAsignacionInline, SolicitudTareaInline, SolicitudNovedadInline]
+
+
+@admin.register(EmpleadoPerfil)
+class EmpleadoPerfilAdmin(admin.ModelAdmin):
+    list_display = ["user", "area", "cargo", "activo", "puede_recibir_pedidos", "actualizado"]
+    list_filter = ["area", "activo", "puede_recibir_pedidos"]
+    search_fields = ["user__username", "user__first_name", "user__last_name", "user__email", "cargo"]
+
+
+@admin.register(SolicitudAsignacion)
+class SolicitudAsignacionAdmin(admin.ModelAdmin):
+    list_display = ["solicitud", "empleado", "rol_en_trabajo", "activa", "fecha_asignacion", "asignado_por"]
+    list_filter = ["activa", "empleado__area", "fecha_asignacion"]
+    search_fields = ["solicitud__cliente_nombre", "solicitud__producto__nombre", "empleado__user__username"]
+
+
+@admin.register(SolicitudTarea)
+class SolicitudTareaAdmin(admin.ModelAdmin):
+    list_display = ["solicitud", "titulo", "responsable", "area", "estado", "prioridad", "fecha_limite", "activa"]
+    list_filter = ["estado", "prioridad", "area", "activa", "fecha_limite"]
+    search_fields = ["titulo", "descripcion", "solicitud__cliente_nombre", "solicitud__producto__nombre", "responsable__user__username"]
+
+
+@admin.register(SolicitudNovedad)
+class SolicitudNovedadAdmin(admin.ModelAdmin):
+    list_display = ["solicitud", "tarea", "tipo", "usuario", "fecha_creacion"]
+    list_filter = ["tipo", "fecha_creacion"]
+    search_fields = ["solicitud__cliente_nombre", "comentario", "usuario__username"]
+
+
+@admin.register(Notificacion)
+class NotificacionAdmin(admin.ModelAdmin):
+    list_display = ["usuario_destino", "titulo", "tipo", "leida", "fecha_creacion"]
+    list_filter = ["tipo", "leida", "fecha_creacion"]
+    search_fields = ["usuario_destino__username", "titulo", "mensaje"]
 
 
 admin.site.register(ProductoImagen)

@@ -12,6 +12,34 @@ urlpatterns = [
     path("panel/", views.panel_dashboard, name="panel_dashboard"),
     path("panel/solicitudes/", views.solicitudes_lista, name="panel_solicitudes"),
     path("panel/solicitudes/<int:pk>/", views.solicitud_detalle, name="panel_solicitud_detalle"),
+    path("panel/solicitudes/<int:pk>/orden-produccion/", views.solicitud_orden_produccion, name="panel_solicitud_orden_produccion"),
+
+    path("panel/empleados/", views.empleados_lista, name="panel_empleados"),
+    path("panel/empleados/crear/", views.empleado_crear, name="panel_empleado_crear"),
+    path("panel/empleados/<int:empleado_id>/editar/", views.empleado_editar, name="panel_empleado_editar"),
+    path("panel/empleados/<int:empleado_id>/toggle/", views.empleado_toggle, name="panel_empleado_toggle"),
+
+    path("panel/clientes/", views.clientes_lista, name="panel_clientes"),
+    path("panel/clientes/crear/", views.cliente_crear, name="panel_cliente_crear"),
+    path("panel/clientes/<int:cliente_id>/", views.cliente_detalle, name="panel_cliente_detalle"),
+    path("panel/clientes/<int:cliente_id>/editar/", views.cliente_editar, name="panel_cliente_editar"),
+    path("panel/clientes/<int:cliente_id>/toggle/", views.cliente_toggle, name="panel_cliente_toggle"),
+    path("panel/clientes/<int:cliente_id>/contactos/crear/", views.cliente_contacto_crear, name="panel_cliente_contacto_crear"),
+    path("panel/clientes/contactos/<int:contacto_id>/editar/", views.cliente_contacto_editar, name="panel_cliente_contacto_editar"),
+    path("panel/clientes/contactos/<int:contacto_id>/toggle/", views.cliente_contacto_toggle, name="panel_cliente_contacto_toggle"),
+
+    path("panel/proyectos/", views.proyectos_lista, name="panel_proyectos"),
+    path("panel/proyectos/crear/", views.proyecto_crear, name="panel_proyecto_crear"),
+    path("panel/proyectos/<int:proyecto_id>/", views.proyecto_detalle, name="panel_proyecto_detalle"),
+    path("panel/proyectos/<int:proyecto_id>/editar/", views.proyecto_editar, name="panel_proyecto_editar"),
+    path("panel/proyectos/<int:proyecto_id>/toggle/", views.proyecto_toggle, name="panel_proyecto_toggle"),
+    path("panel/tareas/<int:tarea_id>/editar/", views.tarea_editar, name="panel_tarea_editar"),
+    path("panel/tareas/<int:tarea_id>/toggle/", views.tarea_toggle, name="panel_tarea_toggle"),
+
+    path("panel/categorias/", views.categorias_lista, name="panel_categorias"),
+    path("panel/categorias/nueva/", views.categoria_crear, name="panel_categoria_crear"),
+    path("panel/categorias/<int:categoria_id>/editar/", views.categoria_editar, name="panel_categoria_editar"),
+    path("panel/categorias/<int:categoria_id>/toggle/", views.categoria_toggle, name="panel_categoria_toggle"),
 
     path("panel/campos-maestros/", views.campos_maestros_lista, name="panel_campos_maestros"),
     path("panel/campos-maestros/nuevo/", views.campo_maestro_crear, name="panel_campo_maestro_crear"),
@@ -36,4 +64,12 @@ urlpatterns = [
     path("panel/opciones/<int:opcion_id>/editar/", views.opcion_editar, name="panel_opcion_editar"),
     path("panel/productos/<int:producto_id>/imagenes/", views.producto_imagenes, name="panel_producto_imagenes"),
     path("panel/imagenes/<int:imagen_id>/eliminar/", views.imagen_eliminar, name="panel_imagen_eliminar"),
+
+    path("produccion/login/", views.produccion_login, name="produccion_login"),
+    path("produccion/logout/", views.produccion_logout, name="produccion_logout"),
+    path("produccion/", views.produccion_dashboard, name="produccion_dashboard"),
+    path("produccion/pedidos/<int:solicitud_id>/", views.produccion_pedido_detalle, name="produccion_pedido_detalle"),
+    path("produccion/tareas/<int:tarea_id>/", views.produccion_tarea_detalle, name="produccion_tarea_detalle"),
+    path("produccion/notificaciones/check/", views.produccion_notificaciones_check, name="produccion_notificaciones_check"),
+    path("produccion/notificaciones/marcar-leidas/", views.produccion_notificaciones_marcar_leidas, name="produccion_notificaciones_marcar_leidas"),
 ]
