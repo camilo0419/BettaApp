@@ -1456,6 +1456,30 @@ def asignaciones_visibles_para_usuario(user):
     return qs
 
 
+def identificacion_produccion_usuario(user):
+    perfil = getattr(user, "empleado_perfil", None)
+    nombre = ""
+    detalle = ""
+
+    if perfil:
+        nombre = str(perfil)
+        detalle_partes = []
+        if perfil.cargo:
+            detalle_partes.append(perfil.cargo)
+        area = perfil.get_area_display()
+        if area and area not in detalle_partes:
+            detalle_partes.append(area)
+        detalle = " - ".join(detalle_partes)
+
+    if not nombre:
+        nombre = user.get_full_name().strip() or user.username
+
+    if user.is_staff:
+        detalle = "Vista global como administrador"
+
+    return nombre, detalle
+
+
 @produccion_required
 def produccion_dashboard(request):
     q = request.GET.get("q", "").strip()
@@ -1511,10 +1535,14 @@ def produccion_dashboard(request):
     }
     proyectos = Proyecto.objects.filter(solicitudes__tareas__in=tareas_base).distinct().order_by("nombre")
     notificaciones = request.user.notificaciones.filter(leida=False).select_related("solicitud", "tarea", "proyecto")[:6]
+    usuario_nombre, usuario_detalle = identificacion_produccion_usuario(request.user)
     return render(
         request,
         "tienda/produccion/dashboard.html",
         {
+            "produccion_usuario_nombre": usuario_nombre,
+            "produccion_usuario_detalle": usuario_detalle,
+            "produccion_modo_staff": request.user.is_staff,
             "asignaciones": asignaciones.order_by("solicitud__estado_produccion", "-fecha_asignacion"),
             "tareas": tareas.order_by("fecha_limite", "estado", "orden")[:40],
             "metricas": metricas,

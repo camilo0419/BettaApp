@@ -520,6 +520,26 @@ header img {
     margin: 6px 0 0;
 }
 
+.production-user-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-weight: 800;
+}
+
+.production-user-summary strong {
+    color: var(--deep);
+}
+
+.production-user-summary span::before {
+    content: "-";
+    margin-right: 6px;
+    color: var(--muted);
+}
+
 .production-kpi-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);

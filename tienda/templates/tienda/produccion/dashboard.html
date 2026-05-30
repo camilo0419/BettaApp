@@ -5,8 +5,12 @@
 {% block content %}
 <div class="production-head">
   <div>
-    <span class="eyebrow">Dashboard personal</span>
-    <h1>Mis pedidos y tareas</h1>
+    <span class="eyebrow">{% if produccion_modo_staff %}Dashboard produccion{% else %}Dashboard personal{% endif %}</span>
+    <h1>{% if produccion_modo_staff %}Dashboard produccion{% else %}Mis pedidos y tareas{% endif %}</h1>
+    <p class="production-user-summary">
+      <strong>{{ produccion_usuario_nombre }}</strong>
+      {% if produccion_usuario_detalle %}<span>{{ produccion_usuario_detalle }}</span>{% endif %}
+    </p>
   </div>
 </div>
 
