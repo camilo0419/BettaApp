@@ -158,3 +158,18 @@ ALLOWED_IMAGE_UPLOAD_EXTENSIONS = env_list(
     "DJANGO_ALLOWED_IMAGE_UPLOAD_EXTENSIONS",
     [".jpg", ".jpeg", ".png", ".webp"],
 )
+
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "").strip()
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "").strip()
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "smtp.gmail.com").strip()
+EMAIL_PORT = env_int("EMAIL_PORT", 587)
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
+EMAIL_BACKEND = os.environ.get("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend").strip()
+if EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend" and (not EMAIL_HOST_USER or not EMAIL_HOST_PASSWORD):
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "webmaster@localhost").strip()
+SERVER_EMAIL = os.environ.get("SERVER_EMAIL", DEFAULT_FROM_EMAIL).strip()
+BETTA_EMAIL_FROM_NAME = os.environ.get("BETTA_EMAIL_FROM_NAME", "Betta Diseno").strip()
+SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000").strip().rstrip("/")

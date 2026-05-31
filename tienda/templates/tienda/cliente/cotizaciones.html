@@ -1,0 +1,54 @@
+{% extends 'tienda/cliente/base.html' %}
+
+{% block title %}Mis cotizaciones | Portal cliente{% endblock %}
+
+{% block content %}
+<div class="client-head">
+  <div>
+    <span class="eyebrow">Cotizaciones</span>
+    <h1>Mis cotizaciones</h1>
+  </div>
+</div>
+
+<section class="client-card">
+  <form method="get" class="filters client-filters">
+    <label>Buscar
+      <input type="search" name="q" value="{{ q }}" placeholder="Numero, titulo o proyecto">
+    </label>
+    <label>Estado
+      <select name="estado">
+        <option value="">Todos</option>
+        {% for value,label in estados %}
+          {% if value != 'borrador' and value != 'anulada' %}
+            <option value="{{ value }}" {% if estado == value %}selected{% endif %}>{{ label }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </label>
+    <button class="btn btn-primary">Filtrar</button>
+    <a href="{% url 'cliente_cotizaciones' %}" class="btn btn-outline">Limpiar</a>
+  </form>
+</section>
+
+<section class="client-card">
+  <div class="table-responsive">
+    <table class="table client-table">
+      <thead><tr><th>Numero</th><th>Titulo</th><th>Proyecto</th><th>Estado</th><th>Total</th><th>Acciones</th></tr></thead>
+      <tbody>
+        {% for cotizacion in cotizaciones %}
+        <tr>
+          <td><strong>{{ cotizacion.numero }}</strong><br><small>{% if cotizacion.fecha_emision %}{{ cotizacion.fecha_emision|date:'d/m/Y' }}{% else %}{{ cotizacion.fecha_creacion|date:'d/m/Y' }}{% endif %}</small></td>
+          <td>{{ cotizacion.titulo }}</td>
+          <td>{{ cotizacion.proyecto.nombre|default:'-' }}</td>
+          <td>{{ cotizacion.get_estado_display }}</td>
+          <td>${{ cotizacion.total|floatformat:0 }}</td>
+          <td class="actions-column"><div class="table-actions"><a href="{% url 'cliente_cotizacion_detalle' cotizacion.id %}" class="link-button">Ver</a></div></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6">No hay cotizaciones visibles.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

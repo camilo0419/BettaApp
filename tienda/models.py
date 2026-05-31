@@ -1,3 +1,5 @@
+from decimal import Decimal, ROUND_HALF_UP
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -450,6 +452,10 @@ class Cliente(models.Model):
     direccion = models.CharField(max_length=255, blank=True)
     ciudad = models.CharField(max_length=120, blank=True)
     contacto_principal = models.CharField(max_length=160, blank=True)
+    nombre_comercial = models.CharField(max_length=180, blank=True)
+    sector = models.CharField(max_length=120, blank=True)
+    sitio_web = models.URLField(blank=True)
+    preferencia_contacto = models.CharField(max_length=80, blank=True)
     notas = models.TextField(blank=True)
     activo = models.BooleanField(default=True)
     creado_por = models.ForeignKey(
@@ -510,6 +516,46 @@ class ClienteContacto(models.Model):
 
     def __str__(self):
         return f"{self.cliente} - {self.nombre}"
+
+
+class ClienteUsuario(models.Model):
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="usuarios_portal")
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cliente_usuario")
+    contacto = models.ForeignKey(ClienteContacto, on_delete=models.SET_NULL, related_name="usuarios_portal", null=True, blank=True)
+    activo = models.BooleanField(default=True)
+    puede_ver_proyectos = models.BooleanField(default=True)
+    puede_ver_solicitudes = models.BooleanField(default=True)
+    puede_ver_facturacion = models.BooleanField(default=False)
+    puede_descargar_archivos = models.BooleanField(default=True)
+    recibe_notificaciones = models.BooleanField(default=True)
+    fecha_ultimo_acceso = models.DateTimeField(null=True, blank=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["cliente", "user__email", "user__username"]
+        verbose_name = "Usuario de portal cliente"
+        verbose_name_plural = "Usuarios de portal cliente"
+
+    def __str__(self):
+        return f"{self.cliente} - {self.user.email or self.user.username}"
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.user_id:
+            if self.user.is_staff:
+                errors["user"] = "Un usuario staff no puede ser usuario de portal cliente."
+            if hasattr(self.user, "empleado_perfil"):
+                errors["user"] = "Un usuario de produccion no puede ser usuario de portal cliente."
+        if self.contacto_id and self.cliente_id and self.contacto.cliente_id != self.cliente_id:
+            errors["contacto"] = "El contacto debe pertenecer al cliente seleccionado."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
 
 
 class Proyecto(models.Model):
@@ -651,6 +697,18 @@ class Solicitud(models.Model):
         (PROD_CANCELADO, "Cancelado"),
     ]
 
+    FACT_PENDIENTE = "pendiente"
+    FACT_FACTURADO = "facturado"
+    FACT_PAGADO = "pagado"
+    FACT_ANULADO = "anulado"
+
+    ESTADOS_FACTURACION = [
+        (FACT_PENDIENTE, "Pendiente"),
+        (FACT_FACTURADO, "Facturado"),
+        (FACT_PAGADO, "Pagado"),
+        (FACT_ANULADO, "Anulado"),
+    ]
+
     producto = models.ForeignKey(Producto, on_delete=models.PROTECT, related_name="solicitudes")
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name="solicitudes", null=True, blank=True)
     proyecto = models.ForeignKey(Proyecto, on_delete=models.SET_NULL, related_name="solicitudes", null=True, blank=True)
@@ -661,6 +719,10 @@ class Solicitud(models.Model):
     estado_produccion = models.CharField(max_length=30, choices=ESTADOS_PRODUCCION, default=PROD_PENDIENTE_ASIGNAR)
     precio_estimado = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     precio_final = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    valor_facturado = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    estado_facturacion = models.CharField(max_length=20, choices=ESTADOS_FACTURACION, default=FACT_PENDIENTE)
+    numero_factura = models.CharField(max_length=80, blank=True)
+    fecha_factura = models.DateField(null=True, blank=True)
     requiere_revision = models.BooleanField(default=False)
     notas_internas = models.TextField(blank=True)
     creado = models.DateTimeField(auto_now_add=True)
@@ -675,6 +737,169 @@ class Solicitud(models.Model):
         return f"Solicitud #{self.id} - {self.producto}"
 
 
+def money(value):
+    return Decimal(value or 0).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+class Cotizacion(models.Model):
+    ESTADO_BORRADOR = "borrador"
+    ESTADO_ENVIADA = "enviada"
+    ESTADO_VISTA = "vista"
+    ESTADO_APROBADA = "aprobada"
+    ESTADO_RECHAZADA = "rechazada"
+    ESTADO_VENCIDA = "vencida"
+    ESTADO_CONVERTIDA = "convertida"
+    ESTADO_ANULADA = "anulada"
+
+    ESTADOS = [
+        (ESTADO_BORRADOR, "Borrador"),
+        (ESTADO_ENVIADA, "Enviada"),
+        (ESTADO_VISTA, "Vista"),
+        (ESTADO_APROBADA, "Aprobada"),
+        (ESTADO_RECHAZADA, "Rechazada"),
+        (ESTADO_VENCIDA, "Vencida"),
+        (ESTADO_CONVERTIDA, "Convertida"),
+        (ESTADO_ANULADA, "Anulada"),
+    ]
+
+    MONEDA_COP = "COP"
+    MONEDAS = [(MONEDA_COP, "COP")]
+
+    numero = models.CharField(max_length=30, unique=True, blank=True)
+    cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name="cotizaciones")
+    contacto = models.ForeignKey(ClienteContacto, on_delete=models.SET_NULL, related_name="cotizaciones", null=True, blank=True)
+    proyecto = models.ForeignKey(Proyecto, on_delete=models.SET_NULL, related_name="cotizaciones", null=True, blank=True)
+    solicitud = models.ForeignKey(Solicitud, on_delete=models.SET_NULL, related_name="cotizaciones", null=True, blank=True)
+    titulo = models.CharField(max_length=180)
+    descripcion = models.TextField(blank=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_emision = models.DateField(null=True, blank=True)
+    fecha_vencimiento = models.DateField(null=True, blank=True)
+    estado = models.CharField(max_length=30, choices=ESTADOS, default=ESTADO_BORRADOR)
+    moneda = models.CharField(max_length=10, choices=MONEDAS, default=MONEDA_COP)
+    subtotal = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    descuento_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    impuesto_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    observaciones_cliente = models.TextField(blank=True)
+    condiciones_comerciales = models.TextField(blank=True)
+    tiempo_entrega = models.CharField(max_length=160, blank=True)
+    forma_pago = models.CharField(max_length=160, blank=True)
+    garantia = models.CharField(max_length=160, blank=True)
+    validez_dias = models.PositiveIntegerField(default=15)
+    enviada_a_email = models.EmailField(blank=True)
+    fecha_envio = models.DateTimeField(null=True, blank=True)
+    creada_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name="cotizaciones_creadas", null=True, blank=True)
+    actualizada_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name="cotizaciones_actualizadas", null=True, blank=True)
+    activa = models.BooleanField(default=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-fecha_creacion", "-id"]
+        verbose_name = "Cotizacion"
+        verbose_name_plural = "Cotizaciones"
+
+    def __str__(self):
+        return f"{self.numero or 'Cotizacion'} - {self.cliente}"
+
+    def save(self, *args, **kwargs):
+        if not self.numero:
+            ultimo_id = Cotizacion.objects.order_by("-id").values_list("id", flat=True).first() or 0
+            siguiente = ultimo_id + 1
+            numero = f"COT-{siguiente:06d}"
+            while Cotizacion.objects.filter(numero=numero).exists():
+                siguiente += 1
+                numero = f"COT-{siguiente:06d}"
+            self.numero = numero
+        super().save(*args, **kwargs)
+
+    def recalcular_totales(self):
+        items = self.items.filter(activo=True)
+        subtotal = sum((item.subtotal for item in items), Decimal("0"))
+        descuento = sum((item.descuento_calculado for item in items), Decimal("0"))
+        impuesto = sum((item.impuesto_calculado for item in items), Decimal("0"))
+        total = sum((item.total for item in items), Decimal("0"))
+        self.subtotal = money(subtotal)
+        self.descuento_total = money(descuento)
+        self.impuesto_total = money(impuesto)
+        self.total = money(total)
+        self.save(update_fields=["subtotal", "descuento_total", "impuesto_total", "total", "fecha_actualizacion"])
+
+    @property
+    def visible_para_cliente(self):
+        return self.estado in [
+            self.ESTADO_ENVIADA,
+            self.ESTADO_VISTA,
+            self.ESTADO_APROBADA,
+            self.ESTADO_RECHAZADA,
+            self.ESTADO_VENCIDA,
+            self.ESTADO_CONVERTIDA,
+        ] and self.activa
+
+
+class CotizacionItem(models.Model):
+    cotizacion = models.ForeignKey(Cotizacion, on_delete=models.CASCADE, related_name="items")
+    producto = models.ForeignKey(Producto, on_delete=models.SET_NULL, related_name="cotizacion_items", null=True, blank=True)
+    descripcion = models.CharField(max_length=240)
+    detalle = models.TextField(blank=True)
+    cantidad = models.DecimalField(max_digits=12, decimal_places=2, default=1)
+    unidad = models.CharField(max_length=40, default="und")
+    valor_unitario = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    descuento_porcentaje = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    descuento_valor = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    impuesto_porcentaje = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    subtotal = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    descuento_calculado = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    impuesto_calculado = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    orden = models.PositiveIntegerField(default=0)
+    activo = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["orden", "id"]
+        verbose_name = "Item de cotizacion"
+        verbose_name_plural = "Items de cotizacion"
+
+    def __str__(self):
+        return f"{self.cotizacion.numero} - {self.descripcion}"
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.cantidad <= 0:
+            errors["cantidad"] = "La cantidad debe ser mayor a cero."
+        if self.valor_unitario < 0:
+            errors["valor_unitario"] = "El valor unitario no puede ser negativo."
+        if self.descuento_porcentaje < 0 or self.descuento_porcentaje > 100:
+            errors["descuento_porcentaje"] = "El descuento porcentual debe estar entre 0 y 100."
+        if self.descuento_valor < 0:
+            errors["descuento_valor"] = "El descuento en valor no puede ser negativo."
+        if self.impuesto_porcentaje < 0 or self.impuesto_porcentaje > 100:
+            errors["impuesto_porcentaje"] = "El impuesto debe estar entre 0 y 100."
+        if errors:
+            raise ValidationError(errors)
+
+    def calcular_totales(self):
+        subtotal = money(self.cantidad * self.valor_unitario)
+        descuento_porcentaje_valor = money(subtotal * (self.descuento_porcentaje / Decimal("100")))
+        descuento = money(descuento_porcentaje_valor + self.descuento_valor)
+        if descuento > subtotal:
+            descuento = subtotal
+        base = money(subtotal - descuento)
+        impuesto = money(base * (self.impuesto_porcentaje / Decimal("100")))
+        total = money(base + impuesto)
+        self.subtotal = subtotal
+        self.descuento_calculado = descuento
+        self.impuesto_calculado = impuesto
+        self.total = total
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        self.calcular_totales()
+        super().save(*args, **kwargs)
+        self.cotizacion.recalcular_totales()
+
+
 class SolicitudRespuesta(models.Model):
     solicitud = models.ForeignKey(Solicitud, on_delete=models.CASCADE, related_name="respuestas")
     campo = models.ForeignKey(ProductoCampo, on_delete=models.SET_NULL, null=True, blank=True)
@@ -682,6 +907,7 @@ class SolicitudRespuesta(models.Model):
     tipo = models.CharField(max_length=30)
     valor_texto = models.TextField(blank=True)
     archivo = models.FileField(upload_to="solicitudes/archivos/", blank=True, null=True)
+    visible_para_cliente = models.BooleanField(default=True)
     orden = models.PositiveIntegerField(default=0)
 
     class Meta:
@@ -908,6 +1134,7 @@ class SolicitudNovedad(models.Model):
     archivo_evidencia = models.FileField(upload_to="solicitudes/evidencias/", blank=True, null=True)
     visible_para_admin = models.BooleanField(default=True)
     visible_para_produccion = models.BooleanField(default=True)
+    visible_para_cliente = models.BooleanField(default=False)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -958,3 +1185,40 @@ class Notificacion(models.Model):
 
     def __str__(self):
         return f"{self.usuario_destino} - {self.titulo}"
+
+
+class NotificacionCliente(models.Model):
+    TIPO_SISTEMA = "sistema"
+    TIPO_PEDIDO = "pedido"
+    TIPO_PROYECTO = "proyecto"
+    TIPO_FACTURACION = "facturacion"
+    TIPO_DOCUMENTO = "documento"
+    TIPO_NOVEDAD = "novedad"
+
+    TIPOS = [
+        (TIPO_SISTEMA, "Sistema"),
+        (TIPO_PEDIDO, "Pedido"),
+        (TIPO_PROYECTO, "Proyecto"),
+        (TIPO_FACTURACION, "Facturacion"),
+        (TIPO_DOCUMENTO, "Documento"),
+        (TIPO_NOVEDAD, "Novedad"),
+    ]
+
+    cliente_usuario = models.ForeignKey(ClienteUsuario, on_delete=models.CASCADE, related_name="notificaciones")
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="notificaciones_cliente")
+    solicitud = models.ForeignKey(Solicitud, on_delete=models.CASCADE, null=True, blank=True, related_name="notificaciones_cliente")
+    proyecto = models.ForeignKey(Proyecto, on_delete=models.SET_NULL, null=True, blank=True, related_name="notificaciones_cliente")
+    titulo = models.CharField(max_length=160)
+    mensaje = models.CharField(max_length=255)
+    tipo = models.CharField(max_length=30, choices=TIPOS, default=TIPO_SISTEMA)
+    leida = models.BooleanField(default=False)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    url_destino = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["-fecha_creacion", "-id"]
+        verbose_name = "Notificacion de cliente"
+        verbose_name_plural = "Notificaciones de cliente"
+
+    def __str__(self):
+        return f"{self.cliente_usuario} - {self.titulo}"

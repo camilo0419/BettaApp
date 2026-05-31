@@ -1,0 +1,45 @@
+{% extends 'tienda/cliente/base.html' %}
+
+{% block title %}Mi perfil | Portal cliente{% endblock %}
+
+{% block content %}
+<div class="client-head">
+  <div>
+    <span class="eyebrow">Perfil</span>
+    <h1>{{ cliente_usuario.cliente }}</h1>
+    <p>{{ cliente_usuario.user.email }}</p>
+  </div>
+  <div class="client-head-actions">
+    <a href="{% url 'cliente_password_reset' %}" class="btn btn-outline">Cambiar contrasena</a>
+  </div>
+</div>
+
+<div class="client-grid two">
+  <section class="client-card">
+    <h2>Datos registrados</h2>
+    <dl class="detail-list">
+      <dt>Tipo</dt><dd>{{ cliente_usuario.cliente.get_tipo_cliente_display }}</dd>
+      <dt>Nombre</dt><dd>{{ cliente_usuario.cliente.nombre }}</dd>
+      <dt>Razon social</dt><dd>{{ cliente_usuario.cliente.razon_social|default:'-' }}</dd>
+      <dt>Identificacion</dt><dd>{{ cliente_usuario.cliente.tipo_identificacion|upper|default:'-' }} {{ cliente_usuario.cliente.identificacion|default:'' }}</dd>
+      <dt>Email principal</dt><dd>{{ cliente_usuario.cliente.email|default:cliente_usuario.user.email }}</dd>
+    </dl>
+    <p>Para cambiar identificacion, razon social o correo principal, contacta al equipo Betta.</p>
+  </section>
+
+  <section class="client-card">
+    <h2>Actualizar datos de contacto</h2>
+    <form method="post" class="dynamic-form">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="field">
+          {{ field.label_tag }}
+          {{ field }}
+          {{ field.errors }}
+        </div>
+      {% endfor %}
+      <button class="btn btn-primary btn-wide">Guardar cambios</button>
+    </form>
+  </section>
+</div>
+{% endblock %}

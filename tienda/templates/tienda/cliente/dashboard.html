@@ -1,0 +1,116 @@
+{% extends 'tienda/cliente/base.html' %}
+
+{% block title %}Mi cuenta | Portal cliente{% endblock %}
+
+{% block content %}
+<div class="client-head">
+  <div>
+    <span class="eyebrow">Dashboard cliente</span>
+    <h1>Hola, {{ cliente.contacto_principal|default:cliente }}</h1>
+    <p>{{ cliente.email|default:'Cuenta cliente Betta' }}</p>
+  </div>
+  <div class="client-head-actions">
+    <a href="{% url 'cliente_pedidos' %}" class="btn btn-primary">Mis pedidos</a>
+    <a href="{% url 'cliente_perfil' %}" class="btn btn-outline">Mi perfil</a>
+  </div>
+</div>
+
+<div class="client-kpi-grid">
+  <div class="client-kpi"><span>Proyectos activos</span><strong>{{ metricas.proyectos_activos }}</strong></div>
+  <div class="client-kpi"><span>Pedidos en produccion</span><strong>{{ metricas.pedidos_produccion }}</strong></div>
+  <div class="client-kpi"><span>Pedidos terminados</span><strong>{{ metricas.pedidos_terminados }}</strong></div>
+  {% if cliente_usuario.puede_ver_facturacion %}
+  <div class="client-kpi"><span>Valor visible</span><strong>${{ metricas.valor_facturado|floatformat:0 }}</strong></div>
+  <div class="client-kpi"><span>Cotizaciones</span><strong>{{ metricas.cotizaciones }}</strong></div>
+  {% endif %}
+  <div class="client-kpi"><span>Notificaciones</span><strong>{{ metricas.sin_leer }}</strong></div>
+</div>
+
+<div class="client-grid two">
+  <section class="client-card">
+    <div class="client-card-head">
+      <h2>Pedidos recientes</h2>
+      <a href="{% url 'cliente_pedidos' %}" class="link-button">Ver todos</a>
+    </div>
+    <div class="client-list">
+      {% for solicitud in solicitudes %}
+        <a href="{% url 'cliente_pedido_detalle' solicitud.id %}" class="client-list-item">
+          <strong>OP-{{ solicitud.id|stringformat:"06d" }} · {{ solicitud.producto.nombre }}</strong>
+          <span>{{ solicitud.get_estado_produccion_display }} · {{ solicitud.creado|date:'d/m/Y' }}</span>
+        </a>
+      {% empty %}
+        <p>No hay pedidos asociados a tu cuenta.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="client-card">
+    <div class="client-card-head">
+      <h2>Proyectos</h2>
+      <a href="{% url 'cliente_proyectos' %}" class="link-button">Ver todos</a>
+    </div>
+    <div class="client-list">
+      {% for proyecto in proyectos %}
+        <a href="{% url 'cliente_proyecto_detalle' proyecto.id %}" class="client-list-item">
+          <strong>{{ proyecto.nombre }}</strong>
+          <span>{{ proyecto.get_estado_display }} · Avance {{ proyecto.avance_porcentaje }}%</span>
+        </a>
+      {% empty %}
+        <p>No hay proyectos asociados a tu cuenta.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="client-card">
+    <div class="client-card-head">
+      <h2>Novedades visibles</h2>
+    </div>
+    <div class="timeline client-timeline">
+      {% for novedad in novedades %}
+        <div class="timeline-item">
+          <strong>OP-{{ novedad.solicitud.id|stringformat:"06d" }}</strong>
+          <span>{{ novedad.fecha_creacion|date:'d/m/Y H:i' }}</span>
+          <p>{{ novedad.comentario }}</p>
+        </div>
+      {% empty %}
+        <p>No hay novedades visibles recientes.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="client-card">
+    <div class="client-card-head">
+      <h2>Documentos recientes</h2>
+    </div>
+    <div class="client-list">
+      {% for respuesta in archivos %}
+        <a href="{{ respuesta.archivo.url }}" target="_blank" rel="noopener" class="client-list-item">
+          <strong>{{ respuesta.etiqueta }}</strong>
+          <span>OP-{{ respuesta.solicitud.id|stringformat:"06d" }} · {{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</span>
+        </a>
+      {% empty %}
+        <p>No hay documentos visibles recientes.</p>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if cliente_usuario.puede_ver_facturacion %}
+  <section class="client-card">
+    <div class="client-card-head">
+      <h2>Cotizaciones</h2>
+      <a href="{% url 'cliente_cotizaciones' %}" class="link-button">Ver todas</a>
+    </div>
+    <div class="client-list">
+      {% for cotizacion in cotizaciones %}
+        <a href="{% url 'cliente_cotizacion_detalle' cotizacion.id %}" class="client-list-item">
+          <strong>{{ cotizacion.numero }} · ${{ cotizacion.total|floatformat:0 }}</strong>
+          <span>{{ cotizacion.get_estado_display }} · {{ cotizacion.titulo }}</span>
+        </a>
+      {% empty %}
+        <p>No hay cotizaciones visibles.</p>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

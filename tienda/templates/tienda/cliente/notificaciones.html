@@ -1,0 +1,40 @@
+{% extends 'tienda/cliente/base.html' %}
+
+{% block title %}Notificaciones | Portal cliente{% endblock %}
+
+{% block content %}
+<div class="client-head">
+  <div>
+    <span class="eyebrow">Notificaciones</span>
+    <h1>Actividad de tu cuenta</h1>
+  </div>
+  <form method="post" class="client-head-actions">
+    {% csrf_token %}
+    <button class="btn btn-outline">Marcar todas como leidas</button>
+  </form>
+</div>
+
+<section class="client-card">
+  <div class="client-list">
+    {% for notificacion in notificaciones %}
+      <div class="client-list-item {% if not notificacion.leida %}unread{% endif %}">
+        <strong>{{ notificacion.titulo }}</strong>
+        <span>{{ notificacion.fecha_creacion|date:'d/m/Y H:i' }} · {{ notificacion.get_tipo_display }}</span>
+        <p>{{ notificacion.mensaje }}</p>
+        <div class="table-actions">
+          {% if notificacion.url_destino %}<a href="{{ notificacion.url_destino }}" class="link-button">Abrir</a>{% endif %}
+          {% if not notificacion.leida %}
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="notificacion_id" value="{{ notificacion.id }}">
+            <button class="link-button" type="submit">Marcar leida</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    {% empty %}
+      <p>No tienes notificaciones.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

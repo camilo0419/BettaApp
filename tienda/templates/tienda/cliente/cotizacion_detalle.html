@@ -1,0 +1,73 @@
+{% extends 'tienda/cliente/base.html' %}
+
+{% block title %}{{ cotizacion.numero }} | Portal cliente{% endblock %}
+
+{% block content %}
+<div class="client-head">
+  <div>
+    <span class="eyebrow">Cotizacion</span>
+    <h1>{{ cotizacion.numero }}</h1>
+    <p>{{ cotizacion.titulo }}</p>
+  </div>
+  <div class="client-head-actions">
+    <a href="{% url 'cliente_cotizaciones' %}" class="btn btn-outline">Volver</a>
+  </div>
+</div>
+
+<div class="client-grid two">
+  <section class="client-card">
+    <h2>Resumen</h2>
+    <dl class="detail-list">
+      <dt>Estado</dt><dd>{{ cotizacion.get_estado_display }}</dd>
+      <dt>Emision</dt><dd>{{ cotizacion.fecha_emision|date:'d/m/Y'|default:'-' }}</dd>
+      <dt>Vencimiento</dt><dd>{{ cotizacion.fecha_vencimiento|date:'d/m/Y'|default:'-' }}</dd>
+      <dt>Proyecto</dt><dd>{% if cotizacion.proyecto %}<a href="{% url 'cliente_proyecto_detalle' cotizacion.proyecto.id %}">{{ cotizacion.proyecto.nombre }}</a>{% else %}-{% endif %}</dd>
+      <dt>Solicitud</dt><dd>{% if cotizacion.solicitud %}<a href="{% url 'cliente_pedido_detalle' cotizacion.solicitud.id %}">OP-{{ cotizacion.solicitud.id|stringformat:"06d" }}</a>{% else %}-{% endif %}</dd>
+    </dl>
+  </section>
+  <section class="client-card">
+    <h2>Total</h2>
+    <dl class="detail-list">
+      <dt>Subtotal</dt><dd>${{ cotizacion.subtotal|floatformat:0 }}</dd>
+      <dt>Descuento</dt><dd>${{ cotizacion.descuento_total|floatformat:0 }}</dd>
+      <dt>Impuestos</dt><dd>${{ cotizacion.impuesto_total|floatformat:0 }}</dd>
+      <dt>Total</dt><dd><strong>${{ cotizacion.total|floatformat:0 }} {{ cotizacion.moneda }}</strong></dd>
+    </dl>
+  </section>
+</div>
+
+<section class="client-card">
+  <h2>Items cotizados</h2>
+  <div class="table-responsive">
+    <table class="table client-table">
+      <thead><tr><th>Descripcion</th><th>Cantidad</th><th>Unitario</th><th>Descuento</th><th>Impuesto</th><th>Total</th></tr></thead>
+      <tbody>
+        {% for item in items %}
+        <tr>
+          <td><strong>{{ item.descripcion }}</strong>{% if item.detalle %}<br><small>{{ item.detalle|linebreaksbr }}</small>{% endif %}</td>
+          <td>{{ item.cantidad }} {{ item.unidad }}</td>
+          <td>${{ item.valor_unitario|floatformat:0 }}</td>
+          <td>${{ item.descuento_calculado|floatformat:0 }}</td>
+          <td>${{ item.impuesto_calculado|floatformat:0 }}</td>
+          <td><strong>${{ item.total|floatformat:0 }}</strong></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6">No hay items visibles.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="client-card">
+  <h2>Condiciones comerciales</h2>
+  <dl class="detail-list">
+    <dt>Tiempo entrega</dt><dd>{{ cotizacion.tiempo_entrega|default:'Por confirmar' }}</dd>
+    <dt>Forma pago</dt><dd>{{ cotizacion.forma_pago|default:'Por confirmar' }}</dd>
+    <dt>Garantia</dt><dd>{{ cotizacion.garantia|default:'Segun condiciones' }}</dd>
+    <dt>Validez</dt><dd>{{ cotizacion.validez_dias }} dias</dd>
+  </dl>
+  {% if cotizacion.observaciones_cliente %}<p>{{ cotizacion.observaciones_cliente|linebreaksbr }}</p>{% endif %}
+  {% if cotizacion.condiciones_comerciales %}<p>{{ cotizacion.condiciones_comerciales|linebreaksbr }}</p>{% endif %}
+</section>
+{% endblock %}

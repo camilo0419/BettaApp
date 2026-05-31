@@ -1,0 +1,33 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}{{ titulo }} | Admin productos{% endblock %}
+
+{% block content %}
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">Cliente</span>
+    <h1>{{ titulo }}</h1>
+    <p>{{ cliente }}</p>
+  </div>
+  <div class="head-actions">
+    <a href="{% url 'panel_cliente_detalle' cliente.id %}" class="btn btn-outline">Volver al cliente</a>
+  </div>
+</div>
+
+<div class="panel-card">
+  <form method="post" class="dynamic-form admin-form">
+    {% csrf_token %}
+    <div class="form-grid two">
+      {% for field in form %}
+        <div class="field {% if field.name == 'puede_ver_proyectos' or field.name == 'puede_ver_solicitudes' or field.name == 'puede_ver_facturacion' or field.name == 'puede_descargar_archivos' or field.name == 'recibe_notificaciones' or field.name == 'activo' %}checkbox-field{% endif %}">
+          {{ field.label_tag }}
+          {{ field }}
+          {{ field.errors }}
+        </div>
+      {% endfor %}
+    </div>
+    {{ form.non_field_errors }}
+    <button class="btn btn-primary btn-wide">Guardar acceso</button>
+  </form>
+</div>
+{% endblock %}

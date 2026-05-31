@@ -1,0 +1,32 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}{{ titulo }} | Admin productos{% endblock %}
+
+{% block content %}
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">{{ cotizacion.numero }}</span>
+    <h1>{{ titulo }}</h1>
+  </div>
+  <div class="head-actions">
+    <a href="{% url 'panel_cotizacion_detalle' cotizacion.id %}" class="btn btn-outline">Volver</a>
+  </div>
+</div>
+
+<div class="panel-card">
+  <form method="post" class="dynamic-form admin-form">
+    {% csrf_token %}
+    <div class="form-grid two">
+      {% for field in form %}
+        <div class="field {% if field.name == 'detalle' %}full{% endif %}">
+          {{ field.label_tag }}
+          {{ field }}
+          {{ field.errors }}
+        </div>
+      {% endfor %}
+    </div>
+    {{ form.non_field_errors }}
+    <button class="btn btn-primary btn-wide">Guardar item</button>
+  </form>
+</div>
+{% endblock %}

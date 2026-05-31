@@ -1,0 +1,38 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Portal cliente | Betta Dise&ntilde;o{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
+</head>
+<body class="client-body">
+  <header class="client-topbar">
+    <a href="{% url 'cliente_dashboard' %}" class="client-brand">
+      <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Dise&ntilde;o">
+      <span>Portal cliente</span>
+    </a>
+    {% with active=request.resolver_match.url_name %}
+    <nav class="client-nav">
+      <a href="{% url 'cliente_dashboard' %}" class="{% if active == 'cliente_dashboard' %}active{% endif %}">Inicio</a>
+      <a href="{% url 'cliente_pedidos' %}" class="{% if active == 'cliente_pedidos' or active == 'cliente_pedido_detalle' %}active{% endif %}">Pedidos</a>
+      <a href="{% url 'cliente_proyectos' %}" class="{% if active == 'cliente_proyectos' or active == 'cliente_proyecto_detalle' %}active{% endif %}">Proyectos</a>
+      {% if request.user.cliente_usuario.puede_ver_facturacion %}<a href="{% url 'cliente_cotizaciones' %}" class="{% if active == 'cliente_cotizaciones' or active == 'cliente_cotizacion_detalle' %}active{% endif %}">Cotizaciones</a>{% endif %}
+      <a href="{% url 'cliente_notificaciones' %}" class="{% if active == 'cliente_notificaciones' %}active{% endif %}">Notificaciones</a>
+      <a href="{% url 'cliente_perfil' %}" class="{% if active == 'cliente_perfil' %}active{% endif %}">Perfil</a>
+      <form method="post" action="{% url 'cliente_logout' %}">
+        {% csrf_token %}
+        <button type="submit">Salir</button>
+      </form>
+    </nav>
+    {% endwith %}
+  </header>
+  <main class="client-main">
+    {% if messages %}
+      {% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

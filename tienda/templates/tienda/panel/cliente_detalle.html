@@ -21,6 +21,8 @@
   <div class="kpi"><span>Solicitudes</span><strong>{{ metricas.solicitudes }}</strong></div>
   <div class="kpi"><span>En produccion</span><strong>{{ metricas.solicitudes_produccion }}</strong></div>
   <div class="kpi"><span>Tareas pendientes</span><strong>{{ metricas.tareas_pendientes }}</strong></div>
+  <div class="kpi"><span>Cotizaciones</span><strong>{{ metricas.cotizaciones }}</strong></div>
+  <div class="kpi"><span>Total cotizado</span><strong>${{ metricas.total_cotizado|floatformat:0 }}</strong></div>
 </div>
 
 <div class="split-grid">
@@ -31,10 +33,14 @@
         <dt>Tipo</dt><dd>{{ cliente.get_tipo_cliente_display }}</dd>
         <dt>Nombre</dt><dd>{{ cliente.nombre }}</dd>
         <dt>Razon social</dt><dd>{{ cliente.razon_social|default:'-' }}</dd>
+        <dt>Nombre comercial</dt><dd>{{ cliente.nombre_comercial|default:'-' }}</dd>
+        <dt>Sector</dt><dd>{{ cliente.sector|default:'-' }}</dd>
         <dt>Identificacion</dt><dd>{{ cliente.tipo_identificacion|upper|default:'-' }} {{ cliente.identificacion|default:'' }}</dd>
         <dt>Email</dt><dd>{{ cliente.email|default:'-' }}</dd>
         <dt>Telefono</dt><dd>{{ cliente.telefono|default:'-' }}</dd>
         <dt>WhatsApp</dt><dd>{{ cliente.whatsapp|default:'-' }}</dd>
+        <dt>Sitio web</dt><dd>{{ cliente.sitio_web|default:'-' }}</dd>
+        <dt>Preferencia contacto</dt><dd>{{ cliente.preferencia_contacto|default:'-' }}</dd>
         <dt>Ciudad</dt><dd>{{ cliente.ciudad|default:'-' }}</dd>
         <dt>Direccion</dt><dd>{{ cliente.direccion|default:'-' }}</dd>
         <dt>Estado</dt><dd>{% if cliente.activo %}Activo{% else %}Inactivo{% endif %}</dd>
@@ -68,6 +74,39 @@
             </tr>
             {% empty %}
             <tr><td colspan="5">Este cliente no tiene proyectos asociados.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel-card">
+      <div class="panel-card-head">
+        <h2>Cotizaciones</h2>
+        <a href="{% url 'panel_cotizacion_crear' %}?cliente={{ cliente.id }}" class="link-button">Crear cotizacion</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table products-table">
+          <thead>
+            <tr>
+              <th>Numero</th>
+              <th>Proyecto</th>
+              <th>Estado</th>
+              <th>Total</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cotizacion in cotizaciones %}
+            <tr>
+              <td><strong>{{ cotizacion.numero }}</strong><br><small>{{ cotizacion.fecha_creacion|date:'d/m/Y' }}</small></td>
+              <td>{{ cotizacion.proyecto.nombre|default:'-' }}</td>
+              <td>{{ cotizacion.get_estado_display }}</td>
+              <td>${{ cotizacion.total|floatformat:0 }}</td>
+              <td class="actions-column"><div class="table-actions"><a href="{% url 'panel_cotizacion_detalle' cotizacion.id %}" class="link-button">Ver</a></div></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5">Este cliente no tiene cotizaciones.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -157,6 +196,35 @@
           </div>
         {% empty %}
           <p>No hay contactos registrados.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel-card">
+      <div class="panel-card-head">
+        <h2>Usuarios portal</h2>
+        <a href="{% url 'panel_cliente_portal_crear' cliente.id %}" class="link-button">Crear acceso</a>
+      </div>
+      <div class="notification-list">
+        {% for usuario_portal in usuarios_portal %}
+          <div class="notification-item">
+            <strong>{{ usuario_portal.user.email|default:usuario_portal.user.username }}</strong>
+            <span>{% if usuario_portal.activo %}Activo{% else %}Inactivo{% endif %} · {% if usuario_portal.puede_ver_facturacion %}Ve facturacion{% else %}Sin facturacion{% endif %}</span>
+            <span>Ultimo acceso: {{ usuario_portal.fecha_ultimo_acceso|date:'d/m/Y H:i'|default:'-' }}</span>
+            <div class="table-actions">
+              <a href="{% url 'panel_cliente_portal_editar' usuario_portal.id %}" class="link-button">Editar</a>
+              <form method="post" action="{% url 'panel_cliente_portal_toggle' usuario_portal.id %}">
+                {% csrf_token %}
+                <button class="link-button" type="submit">{% if usuario_portal.activo %}Inactivar{% else %}Reactivar{% endif %}</button>
+              </form>
+              <form method="post" action="{% url 'panel_cliente_portal_password_reset' usuario_portal.id %}">
+                {% csrf_token %}
+                <button class="link-button" type="submit">Enviar reset</button>
+              </form>
+            </div>
+          </div>
+        {% empty %}
+          <p>Este cliente no tiene usuarios de portal.</p>
         {% endfor %}
       </div>
     </div>

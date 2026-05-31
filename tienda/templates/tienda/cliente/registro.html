@@ -1,0 +1,37 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Registro cliente | Betta Dise&ntilde;o</title>
+  <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
+</head>
+<body class="client-auth-body">
+  <main class="client-auth client-auth-wide">
+    <section class="client-auth-card">
+      <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Dise&ntilde;o">
+      <span class="eyebrow">Portal cliente</span>
+      <h1>Crear cuenta</h1>
+      <form method="post" class="dynamic-form admin-form">
+        {% csrf_token %}
+        <div class="form-grid two">
+          {% for field in form %}
+            <div class="field {% if field.name == 'direccion' or field.name == 'notas' or field.name == 'acepta_terminos' %}full{% endif %}">
+              {{ field.label_tag }}
+              {{ field }}
+              {{ field.errors }}
+            </div>
+          {% endfor %}
+        </div>
+        {{ form.non_field_errors }}
+        <button class="btn btn-primary btn-wide">Crear cuenta</button>
+      </form>
+      <div class="client-auth-links">
+        <a href="{% url 'cliente_login' %}">Ya tengo cuenta</a>
+        <a href="{% url 'home' %}">Volver a la tienda</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

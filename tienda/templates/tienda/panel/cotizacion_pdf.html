@@ -1,0 +1,119 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ cotizacion.numero }} | Cotizacion</title>
+  <style>
+    :root{--teal:#4abab8;--deep:#034860;--green:#00a28b;--ink:#092f3d;--muted:#5f747b;--line:#dce8e8;--bg:#f4f8f8}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,Segoe UI,Arial,sans-serif}
+    .quote-page{width:min(980px,94vw);margin:24px auto;background:#fff;border:1px solid var(--line);border-radius:24px;box-shadow:0 18px 50px rgba(3,72,96,.12);overflow:hidden}
+    .quote-top{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center;background:linear-gradient(135deg,var(--deep),var(--green));color:#fff;padding:26px}
+    .brand{display:flex;align-items:center;gap:14px}.brand img{height:58px;background:#fff;border-radius:12px;padding:5px}.brand strong{display:block;font-size:22px}.brand span{opacity:.9}
+    .quote-title{text-align:right}.quote-title h1{margin:0;font-size:34px;letter-spacing:.06em}.quote-title strong{font-size:20px}
+    .content{padding:24px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.box{border:1px solid var(--line);border-radius:16px;padding:16px;background:#fbffff;margin-bottom:16px}
+    h2{margin:0 0 10px;color:var(--deep);font-size:18px}.detail{display:grid;grid-template-columns:140px 1fr;gap:7px 12px}.detail dt{font-weight:800;color:var(--deep)}.detail dd{margin:0;color:var(--muted)}
+    table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}th{font-size:12px;text-transform:uppercase;color:var(--deep);letter-spacing:.06em}.num{text-align:right;white-space:nowrap}
+    .totals{width:min(360px,100%);margin-left:auto}.totals .line{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)}.totals .total{font-size:22px;font-weight:900;color:var(--deep)}
+    .actions{display:flex;gap:10px;justify-content:flex-end;margin:18px auto;width:min(980px,94vw)}.btn{border:0;border-radius:999px;padding:12px 18px;font-weight:800;cursor:pointer}.btn-primary{background:linear-gradient(135deg,var(--green),var(--teal));color:#fff}.btn-outline{background:#fff;border:1px solid var(--line);color:var(--deep)}
+    .footer{padding:18px 24px;background:#f7fbfb;color:var(--muted);font-size:13px}
+    @page{size:A4;margin:10mm}
+    @media print{body{background:#fff;font-size:11px}.no-print{display:none!important}.quote-page{width:100%;margin:0;border:0;border-radius:0;box-shadow:none}.quote-top{padding:16px}.brand img{height:42px}.quote-title h1{font-size:24px}.content{padding:14px}.box{padding:10px;margin-bottom:10px}.grid{gap:10px}th,td{padding:6px}.totals .total{font-size:17px}}
+    @media(max-width:720px){.quote-top,.grid{grid-template-columns:1fr}.quote-title{text-align:left}.detail{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="actions no-print">
+    <a href="{% url 'panel_cotizacion_detalle' cotizacion.id %}" class="btn btn-outline">Volver</a>
+    <button class="btn btn-primary" onclick="window.print()">Imprimir / Guardar PDF</button>
+  </div>
+  <main class="quote-page">
+    <header class="quote-top">
+      <div class="brand">
+        <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseno">
+        <div><strong>Betta Diseno</strong><span>Soluciones graficas y produccion personalizada</span></div>
+      </div>
+      <div class="quote-title">
+        <h1>COTIZACION</h1>
+        <strong>{{ cotizacion.numero }}</strong><br>
+        <span>{{ cotizacion.get_estado_display }}</span>
+      </div>
+    </header>
+    <section class="content">
+      <div class="grid">
+        <div class="box">
+          <h2>Cliente</h2>
+          <dl class="detail">
+            <dt>Nombre</dt><dd>{{ cotizacion.cliente }}</dd>
+            <dt>Identificacion</dt><dd>{{ cotizacion.cliente.tipo_identificacion|upper|default:'-' }} {{ cotizacion.cliente.identificacion|default:'' }}</dd>
+            <dt>Contacto</dt><dd>{% if cotizacion.contacto %}{{ cotizacion.contacto.nombre }}{% else %}{{ cotizacion.cliente.contacto_principal|default:'-' }}{% endif %}</dd>
+            <dt>Telefono</dt><dd>{% if cotizacion.cliente.telefono %}{{ cotizacion.cliente.telefono }}{% elif cotizacion.cliente.whatsapp %}{{ cotizacion.cliente.whatsapp }}{% else %}-{% endif %}</dd>
+            <dt>Email</dt><dd>{% if cotizacion.contacto and cotizacion.contacto.email %}{{ cotizacion.contacto.email }}{% else %}{{ cotizacion.cliente.email|default:'-' }}{% endif %}</dd>
+            <dt>Ciudad</dt><dd>{{ cotizacion.cliente.ciudad|default:'-' }}</dd>
+          </dl>
+        </div>
+        <div class="box">
+          <h2>Referencia</h2>
+          <dl class="detail">
+            <dt>Emision</dt><dd>{% if cotizacion.fecha_emision %}{{ cotizacion.fecha_emision|date:'d/m/Y' }}{% else %}{{ cotizacion.fecha_creacion|date:'d/m/Y' }}{% endif %}</dd>
+            <dt>Vencimiento</dt><dd>{{ cotizacion.fecha_vencimiento|date:'d/m/Y'|default:'-' }}</dd>
+            <dt>Proyecto</dt><dd>{{ cotizacion.proyecto.nombre|default:'-' }}</dd>
+            <dt>Solicitud</dt><dd>{% if cotizacion.solicitud %}OP-{{ cotizacion.solicitud.id|stringformat:"06d" }}{% else %}-{% endif %}</dd>
+            <dt>Asesor</dt><dd>{% if cotizacion.creada_por %}{% if cotizacion.creada_por.get_full_name %}{{ cotizacion.creada_por.get_full_name }}{% else %}{{ cotizacion.creada_por.username }}{% endif %}{% else %}-{% endif %}</dd>
+            <dt>Moneda</dt><dd>{{ cotizacion.moneda }}</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="box">
+        <h2>{{ cotizacion.titulo }}</h2>
+        {% if cotizacion.descripcion %}<p>{{ cotizacion.descripcion|linebreaksbr }}</p>{% endif %}
+        <table>
+          <thead>
+            <tr><th>#</th><th>Producto / descripcion</th><th>Cantidad</th><th class="num">Unitario</th><th class="num">Desc.</th><th class="num">Imp.</th><th class="num">Total</th></tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+            <tr>
+              <td>{{ forloop.counter }}</td>
+              <td><strong>{{ item.descripcion }}</strong>{% if item.detalle %}<br><small>{{ item.detalle|linebreaksbr }}</small>{% endif %}</td>
+              <td>{{ item.cantidad }} {{ item.unidad }}</td>
+              <td class="num">${{ item.valor_unitario|floatformat:0 }}</td>
+              <td class="num">${{ item.descuento_calculado|floatformat:0 }}</td>
+              <td class="num">${{ item.impuesto_calculado|floatformat:0 }}</td>
+              <td class="num"><strong>${{ item.total|floatformat:0 }}</strong></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7">Sin items.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="totals">
+        <div class="line"><span>Subtotal</span><strong>${{ cotizacion.subtotal|floatformat:0 }}</strong></div>
+        <div class="line"><span>Descuento</span><strong>${{ cotizacion.descuento_total|floatformat:0 }}</strong></div>
+        <div class="line"><span>Impuestos</span><strong>${{ cotizacion.impuesto_total|floatformat:0 }}</strong></div>
+        <div class="line total"><span>Total</span><strong>${{ cotizacion.total|floatformat:0 }}</strong></div>
+      </div>
+      <div class="grid">
+        <div class="box">
+          <h2>Condiciones</h2>
+          <dl class="detail">
+            <dt>Validez</dt><dd>{{ cotizacion.validez_dias }} dias</dd>
+            <dt>Entrega</dt><dd>{{ cotizacion.tiempo_entrega|default:'Por confirmar' }}</dd>
+            <dt>Pago</dt><dd>{{ cotizacion.forma_pago|default:'Por confirmar' }}</dd>
+            <dt>Garantia</dt><dd>{{ cotizacion.garantia|default:'Segun condiciones del producto' }}</dd>
+          </dl>
+        </div>
+        <div class="box">
+          <h2>Observaciones</h2>
+          <p>{{ cotizacion.observaciones_cliente|default:'Gracias por confiar en Betta Diseno.'|linebreaksbr }}</p>
+          {% if cotizacion.condiciones_comerciales %}<p>{{ cotizacion.condiciones_comerciales|linebreaksbr }}</p>{% endif %}
+        </div>
+      </div>
+    </section>
+    <footer class="footer">Esta cotizacion es comercial y no reemplaza una orden de produccion. Valores sujetos a las condiciones indicadas.</footer>
+  </main>
+</body>
+</html>

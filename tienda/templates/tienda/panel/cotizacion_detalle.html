@@ -1,41 +1,139 @@
 {% extends 'tienda/panel/base_panel.html' %}
-{% block title %}Solicitud #{{ cotizacion.id }} · Betta Diseño{% endblock %}
-{% block header %}Solicitud #{{ cotizacion.id }}{% endblock %}
-{% block content %}
-<section class="detail-admin-grid">
-  <article class="panel-card">
-    <div class="panel-card-head">
-      <h2>{{ cotizacion.producto.nombre }}</h2>
-      <a class="btn btn-secondary" href="{% url 'tienda:panel_cotizacion_editar' cotizacion.id %}">Editar solicitud</a>
-    </div>
-    <div class="info-grid">
-      <div><span>Cliente</span><strong>{{ cotizacion.nombre_cliente }}</strong></div>
-      <div><span>Celular</span><strong>{{ cotizacion.celular }}</strong></div>
-      <div><span>Email</span><strong>{{ cotizacion.email|default:'-' }}</strong></div>
-      <div><span>Estado</span><strong><span class="status {{ cotizacion.estado }}">{{ cotizacion.get_estado_display }}</span></strong></div>
-      <div><span>Medidas</span><strong>{{ cotizacion.ancho_cm|default:'-' }} x {{ cotizacion.alto_cm|default:'-' }} cm</strong></div>
-      <div><span>Cantidad</span><strong>{{ cotizacion.cantidad }}</strong></div>
-      <div><span>Área</span><strong>{{ cotizacion.area_m2|floatformat:2 }} m²</strong></div>
-      <div><span>Precio estimado</span><strong>${{ cotizacion.precio_estimado|floatformat:0 }}</strong></div>
-    </div>
-    <hr>
-    <h3>Personalización</h3>
-    <p><strong>Texto / referencia:</strong> {{ cotizacion.texto_personalizado|default:'-' }}</p>
-    <p><strong>Color:</strong> {{ cotizacion.color|default:'-' }}</p>
-    <p><strong>Observaciones:</strong><br>{{ cotizacion.observaciones|default:'-'|linebreaksbr }}</p>
-    <p><strong>Notas internas:</strong><br>{{ cotizacion.notas_internas|default:'-'|linebreaksbr }}</p>
-    {% if cotizacion.archivo %}<p><a class="btn btn-primary" href="{{ cotizacion.archivo.url }}" target="_blank">Abrir archivo adjunto</a></p>{% endif %}
-  </article>
 
-  <aside class="panel-card">
-    <h2>Mover estado</h2>
-    <p class="muted">Actualiza el avance operativo de la solicitud.</p>
-    <form method="post" class="state-list">
-      {% csrf_token %}
-      {% for value,label in estados %}
-        <button name="estado" value="{{ value }}" class="state-button {% if cotizacion.estado == value %}active{% endif %}" type="submit">{{ label }}</button>
-      {% endfor %}
-    </form>
-  </aside>
-</section>
+{% block title %}{{ cotizacion.numero }} | Admin productos{% endblock %}
+
+{% block content %}
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">Cotizacion</span>
+    <h1>{{ cotizacion.numero }}</h1>
+    <p>{{ cotizacion.titulo }}</p>
+  </div>
+  <div class="head-actions">
+    <a href="{% url 'panel_cotizacion_pdf' cotizacion.id %}" class="btn btn-primary" target="_blank" rel="noopener">PDF</a>
+    <a href="{% url 'panel_cotizacion_editar' cotizacion.id %}" class="btn btn-outline">Editar</a>
+    <a href="{% url 'panel_cotizaciones' %}" class="btn btn-outline">Volver</a>
+  </div>
+</div>
+
+<div class="kpi-grid production-kpis">
+  <div class="kpi"><span>Subtotal</span><strong>${{ cotizacion.subtotal|floatformat:0 }}</strong></div>
+  <div class="kpi"><span>Descuento</span><strong>${{ cotizacion.descuento_total|floatformat:0 }}</strong></div>
+  <div class="kpi"><span>Impuestos</span><strong>${{ cotizacion.impuesto_total|floatformat:0 }}</strong></div>
+  <div class="kpi"><span>Total</span><strong>${{ cotizacion.total|floatformat:0 }}</strong></div>
+</div>
+
+<div class="split-grid">
+  <div>
+    <div class="panel-card">
+      <div class="panel-card-head">
+        <h2>Datos comerciales</h2>
+      </div>
+      <dl class="detail-list">
+        <dt>Cliente</dt><dd><a href="{% url 'panel_cliente_detalle' cotizacion.cliente.id %}">{{ cotizacion.cliente }}</a></dd>
+        <dt>Contacto</dt><dd>{{ cotizacion.contacto|default:'-' }}</dd>
+        <dt>Proyecto</dt><dd>{% if cotizacion.proyecto %}<a href="{% url 'panel_proyecto_detalle' cotizacion.proyecto.id %}">{{ cotizacion.proyecto.nombre }}</a>{% else %}-{% endif %}</dd>
+        <dt>Solicitud</dt><dd>{% if cotizacion.solicitud %}<a href="{% url 'panel_solicitud_detalle' cotizacion.solicitud.id %}">OP-{{ cotizacion.solicitud.id|stringformat:"06d" }}</a>{% else %}-{% endif %}</dd>
+        <dt>Estado</dt><dd>{{ cotizacion.get_estado_display }}</dd>
+        <dt>Emision</dt><dd>{{ cotizacion.fecha_emision|date:'d/m/Y'|default:'-' }}</dd>
+        <dt>Vencimiento</dt><dd>{{ cotizacion.fecha_vencimiento|date:'d/m/Y'|default:'-' }}</dd>
+        <dt>Moneda</dt><dd>{{ cotizacion.moneda }}</dd>
+        <dt>Email envio</dt><dd>{{ cotizacion.enviada_a_email|default:'-' }}</dd>
+      </dl>
+      {% if cotizacion.descripcion %}<p>{{ cotizacion.descripcion }}</p>{% endif %}
+    </div>
+
+    <div class="panel-card">
+      <div class="panel-card-head">
+        <h2>Items</h2>
+        <a href="{% url 'panel_cotizacion_item_crear' cotizacion.id %}" class="link-button">Agregar item</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table products-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Descripcion</th>
+              <th>Cant.</th>
+              <th>Unitario</th>
+              <th>Desc.</th>
+              <th>Imp.</th>
+              <th>Total</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in items %}
+            <tr>
+              <td>{{ item.orden }}</td>
+              <td><strong>{{ item.descripcion }}</strong><br><small>{{ item.detalle|linebreaksbr }}</small></td>
+              <td>{{ item.cantidad }} {{ item.unidad }}</td>
+              <td>${{ item.valor_unitario|floatformat:0 }}</td>
+              <td>${{ item.descuento_calculado|floatformat:0 }}</td>
+              <td>${{ item.impuesto_calculado|floatformat:0 }}</td>
+              <td><strong>${{ item.total|floatformat:0 }}</strong></td>
+              <td class="actions-column">
+                <div class="table-actions">
+                  <a href="{% url 'panel_cotizacion_item_editar' item.id %}" class="link-button">Editar</a>
+                  <form method="post" action="{% url 'panel_cotizacion_item_toggle' item.id %}">
+                    {% csrf_token %}
+                    <button class="link-button" type="submit">{% if item.activo %}Inactivar{% else %}Reactivar{% endif %}</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="8">Esta cotizacion aun no tiene items.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel-card">
+      <h2>Condiciones</h2>
+      <dl class="detail-list">
+        <dt>Tiempo entrega</dt><dd>{{ cotizacion.tiempo_entrega|default:'-' }}</dd>
+        <dt>Forma pago</dt><dd>{{ cotizacion.forma_pago|default:'-' }}</dd>
+        <dt>Garantia</dt><dd>{{ cotizacion.garantia|default:'-' }}</dd>
+        <dt>Validez</dt><dd>{{ cotizacion.validez_dias }} dias</dd>
+      </dl>
+      {% if cotizacion.observaciones_cliente %}<p><strong>Observaciones:</strong><br>{{ cotizacion.observaciones_cliente|linebreaksbr }}</p>{% endif %}
+      {% if cotizacion.condiciones_comerciales %}<p><strong>Condiciones comerciales:</strong><br>{{ cotizacion.condiciones_comerciales|linebreaksbr }}</p>{% endif %}
+    </div>
+  </div>
+
+  <div>
+    <div class="panel-card">
+      <h2>Cambiar estado</h2>
+      <form method="post" action="{% url 'panel_cotizacion_cambiar_estado' cotizacion.id %}" class="dynamic-form">
+        {% csrf_token %}
+        {{ estado_form.as_p }}
+        <button class="btn btn-primary btn-wide">Actualizar estado</button>
+      </form>
+    </div>
+
+    <div class="panel-card">
+      <h2>Acciones comerciales</h2>
+      <div class="notification-list">
+        <form method="post" action="{% url 'panel_cotizacion_enviar' cotizacion.id %}" class="dynamic-form">
+          {% csrf_token %}
+          <label for="email">Email destino</label>
+          <input id="email" type="email" name="email" value="{% if cotizacion.contacto and cotizacion.contacto.email %}{{ cotizacion.contacto.email }}{% else %}{{ cotizacion.cliente.email }}{% endif %}">
+          <button class="btn btn-primary btn-wide">Enviar cotizacion</button>
+        </form>
+        <form method="post" action="{% url 'panel_cotizacion_duplicar' cotizacion.id %}">
+          {% csrf_token %}
+          <button class="btn btn-outline btn-wide">Duplicar cotizacion</button>
+        </form>
+        {% if cotizacion.estado == 'aprobada' %}
+        <form method="post" action="{% url 'panel_cotizacion_convertir' cotizacion.id %}">
+          {% csrf_token %}
+          <button class="btn btn-outline btn-wide">Convertir</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

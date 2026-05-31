@@ -2,10 +2,12 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from django import forms
 from django.conf import settings
+from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import PasswordResetForm
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from .models import (
     CampoMaestro,
     CampoMaestroOpcion,
@@ -13,6 +15,9 @@ from .models import (
     Categoria,
     Cliente,
     ClienteContacto,
+    ClienteUsuario,
+    Cotizacion,
+    CotizacionItem,
     EmpleadoPerfil,
     Producto,
     ProductoCampo,
@@ -184,8 +189,12 @@ class CampoMaestroOpcionForm(forms.ModelForm):
 class SolicitudEstadoForm(forms.ModelForm):
     class Meta:
         model = Solicitud
-        fields = ["estado", "precio_final", "notas_internas"]
+        fields = [
+            "estado", "precio_final", "valor_facturado", "estado_facturacion",
+            "numero_factura", "fecha_factura", "notas_internas",
+        ]
         widgets = {
+            "fecha_factura": forms.DateInput(attrs={"type": "date"}),
             "notas_internas": forms.Textarea(attrs={"rows": 5}),
         }
 
@@ -196,7 +205,8 @@ class ClienteForm(forms.ModelForm):
         fields = [
             "tipo_cliente", "nombre", "razon_social", "tipo_identificacion",
             "identificacion", "email", "telefono", "whatsapp", "direccion",
-            "ciudad", "contacto_principal", "notas", "activo",
+            "ciudad", "contacto_principal", "nombre_comercial", "sector",
+            "sitio_web", "preferencia_contacto", "notas", "activo",
         ]
         widgets = {
             "notas": forms.Textarea(attrs={"rows": 4}),
@@ -215,6 +225,352 @@ class ClienteContactoForm(forms.ModelForm):
         widgets = {
             "notas": forms.Textarea(attrs={"rows": 3}),
         }
+
+
+class ClienteRegistroForm(forms.Form):
+    email = forms.EmailField(label="Correo electronico")
+    password1 = forms.CharField(label="Contrasena", widget=forms.PasswordInput)
+    password2 = forms.CharField(label="Confirmar contrasena", widget=forms.PasswordInput)
+    tipo_cliente = forms.ChoiceField(label="Tipo de cliente", choices=Cliente.TIPO_CHOICES)
+    nombre = forms.CharField(label="Nombre completo", max_length=180, required=False)
+    razon_social = forms.CharField(label="Razon social", max_length=180, required=False)
+    nombre_comercial = forms.CharField(label="Nombre comercial", max_length=180, required=False)
+    tipo_identificacion = forms.ChoiceField(
+        label="Tipo de identificacion",
+        choices=[("", "Seleccionar")] + list(Cliente.TIPO_IDENTIFICACION_CHOICES),
+        required=False,
+    )
+    identificacion = forms.CharField(label="Numero de identificacion", max_length=60, required=False)
+    telefono = forms.CharField(label="Telefono", max_length=40, required=False)
+    whatsapp = forms.CharField(label="WhatsApp", max_length=40, required=False)
+    ciudad = forms.CharField(label="Ciudad", max_length=120, required=False)
+    direccion = forms.CharField(label="Direccion", max_length=255, required=False)
+    contacto_principal = forms.CharField(label="Contacto principal", max_length=160, required=False)
+    cargo_contacto = forms.CharField(label="Cargo del contacto", max_length=120, required=False)
+    sector = forms.CharField(label="Sector / industria", max_length=120, required=False)
+    sitio_web = forms.URLField(label="Sitio web", required=False)
+    preferencia_contacto = forms.CharField(label="Preferencia de contacto", max_length=80, required=False)
+    observaciones = forms.CharField(label="Observaciones iniciales", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+    acepta_terminos = forms.BooleanField(label="Acepto el tratamiento de mis datos para gestionar mi cuenta y solicitudes")
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+        if User.objects.filter(models.Q(username__iexact=email) | models.Q(email__iexact=email)).exists():
+            raise ValidationError("Ya existe una cuenta con este correo.")
+        if Cliente.objects.filter(email__iexact=email).exists():
+            raise ValidationError("Ya existe un cliente registrado con este correo. Contacta a Betta para activar tu acceso.")
+        return email
+
+    def clean_identificacion(self):
+        identificacion = self.cleaned_data.get("identificacion", "").strip()
+        if identificacion and Cliente.objects.filter(identificacion__iexact=identificacion).exists():
+            raise ValidationError("Ya existe un cliente con esta identificacion.")
+        return identificacion
+
+    def clean(self):
+        cleaned_data = super().clean()
+        tipo = cleaned_data.get("tipo_cliente")
+        nombre = cleaned_data.get("nombre", "").strip()
+        razon_social = cleaned_data.get("razon_social", "").strip()
+        password1 = cleaned_data.get("password1")
+        password2 = cleaned_data.get("password2")
+
+        if tipo == Cliente.TIPO_EMPRESA and not razon_social:
+            self.add_error("razon_social", "La razon social es obligatoria para empresas.")
+        if tipo == Cliente.TIPO_PERSONA and not nombre:
+            self.add_error("nombre", "El nombre es obligatorio.")
+        if password1 != password2:
+            self.add_error("password2", "Las contrasenas no coinciden.")
+        elif password1:
+            try:
+                validate_password(password1)
+            except ValidationError as exc:
+                self.add_error("password1", exc)
+        return cleaned_data
+
+    def save(self):
+        data = self.cleaned_data
+        email = data["email"]
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=email,
+                email=email,
+                password=data["password1"],
+                first_name=data.get("nombre", "")[:150],
+                is_staff=False,
+                is_active=True,
+            )
+            cliente = Cliente.objects.create(
+                tipo_cliente=data["tipo_cliente"],
+                nombre=data.get("nombre") or data.get("razon_social") or email,
+                razon_social=data.get("razon_social", ""),
+                nombre_comercial=data.get("nombre_comercial", ""),
+                tipo_identificacion=data.get("tipo_identificacion", ""),
+                identificacion=data.get("identificacion", ""),
+                email=email,
+                telefono=data.get("telefono", ""),
+                whatsapp=data.get("whatsapp", ""),
+                direccion=data.get("direccion", ""),
+                ciudad=data.get("ciudad", ""),
+                contacto_principal=data.get("contacto_principal", ""),
+                sector=data.get("sector", ""),
+                sitio_web=data.get("sitio_web", ""),
+                preferencia_contacto=data.get("preferencia_contacto", ""),
+                notas=data.get("observaciones", ""),
+            )
+            contacto = None
+            if data.get("contacto_principal"):
+                contacto = ClienteContacto.objects.create(
+                    cliente=cliente,
+                    nombre=data["contacto_principal"],
+                    cargo=data.get("cargo_contacto", ""),
+                    email=email,
+                    telefono=data.get("telefono", ""),
+                    whatsapp=data.get("whatsapp", ""),
+                    es_principal=True,
+                    activo=True,
+                )
+            cliente_usuario = ClienteUsuario.objects.create(
+                cliente=cliente,
+                user=user,
+                contacto=contacto,
+                activo=True,
+            )
+        return cliente_usuario
+
+
+class ClienteLoginForm(forms.Form):
+    email = forms.EmailField(label="Correo electronico")
+    password = forms.CharField(label="Contrasena", widget=forms.PasswordInput)
+
+    def __init__(self, request=None, *args, **kwargs):
+        self.request = request
+        self.user = None
+        self.cliente_usuario = None
+        super().__init__(*args, **kwargs)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        email = cleaned_data.get("email", "").strip().lower()
+        password = cleaned_data.get("password", "")
+        if not email or not password:
+            return cleaned_data
+
+        user_obj = User.objects.filter(email__iexact=email).first() or User.objects.filter(username__iexact=email).first()
+        username = user_obj.username if user_obj else email
+        user = authenticate(self.request, username=username, password=password)
+        if user is None:
+            raise ValidationError("Correo o contrasena invalidos.")
+
+        cliente_usuario = getattr(user, "cliente_usuario", None)
+        if not cliente_usuario or not cliente_usuario.activo or not cliente_usuario.cliente.activo or not user.is_active:
+            raise ValidationError("Tu acceso al portal no esta activo.")
+
+        self.user = user
+        self.cliente_usuario = cliente_usuario
+        return cleaned_data
+
+
+class ClientePerfilForm(forms.ModelForm):
+    class Meta:
+        model = Cliente
+        fields = ["telefono", "whatsapp", "direccion", "ciudad", "contacto_principal", "preferencia_contacto"]
+
+
+class ClienteUsuarioPortalForm(forms.Form):
+    email = forms.EmailField(label="Correo electronico")
+    first_name = forms.CharField(label="Nombre", max_length=150, required=False)
+    last_name = forms.CharField(label="Apellido", max_length=150, required=False)
+    password1 = forms.CharField(label="Contrasena temporal", required=False, widget=forms.PasswordInput)
+    password2 = forms.CharField(label="Confirmar contrasena", required=False, widget=forms.PasswordInput)
+    contacto = forms.ModelChoiceField(label="Contacto", queryset=ClienteContacto.objects.none(), required=False)
+    activo = forms.BooleanField(label="Acceso activo", required=False, initial=True)
+    puede_ver_proyectos = forms.BooleanField(label="Puede ver proyectos", required=False, initial=True)
+    puede_ver_solicitudes = forms.BooleanField(label="Puede ver pedidos", required=False, initial=True)
+    puede_ver_facturacion = forms.BooleanField(label="Puede ver facturacion", required=False)
+    puede_descargar_archivos = forms.BooleanField(label="Puede descargar archivos", required=False, initial=True)
+    recibe_notificaciones = forms.BooleanField(label="Recibe notificaciones", required=False, initial=True)
+
+    def __init__(self, *args, cliente=None, instance=None, **kwargs):
+        self.cliente = cliente or (instance.cliente if instance else None)
+        self.instance = instance
+        initial = kwargs.pop("initial", {})
+        if instance is not None:
+            user = instance.user
+            initial.update(
+                {
+                    "email": user.email or user.username,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "contacto": instance.contacto,
+                    "activo": instance.activo,
+                    "puede_ver_proyectos": instance.puede_ver_proyectos,
+                    "puede_ver_solicitudes": instance.puede_ver_solicitudes,
+                    "puede_ver_facturacion": instance.puede_ver_facturacion,
+                    "puede_descargar_archivos": instance.puede_descargar_archivos,
+                    "recibe_notificaciones": instance.recibe_notificaciones,
+                }
+            )
+        super().__init__(*args, initial=initial, **kwargs)
+        if self.cliente is not None:
+            self.fields["contacto"].queryset = self.cliente.contactos.filter(activo=True)
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+        qs = User.objects.filter(models.Q(email__iexact=email) | models.Q(username__iexact=email))
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.user_id)
+        if qs.exists():
+            raise ValidationError("Ya existe un usuario con este correo.")
+        return email
+
+    def clean(self):
+        cleaned_data = super().clean()
+        password1 = cleaned_data.get("password1")
+        password2 = cleaned_data.get("password2")
+        if self.instance is None and not password1:
+            self.add_error("password1", "La contrasena temporal es obligatoria.")
+        if password1 or password2:
+            if password1 != password2:
+                self.add_error("password2", "Las contrasenas no coinciden.")
+            elif password1:
+                try:
+                    validate_password(password1, self.instance.user if self.instance else None)
+                except ValidationError as exc:
+                    self.add_error("password1", exc)
+        contacto = cleaned_data.get("contacto")
+        if contacto and self.cliente and contacto.cliente_id != self.cliente.id:
+            self.add_error("contacto", "El contacto no pertenece a este cliente.")
+        return cleaned_data
+
+    def save(self):
+        data = self.cleaned_data
+        if self.instance is None:
+            user = User(username=data["email"], email=data["email"], is_staff=False, is_active=True)
+            cliente_usuario = ClienteUsuario(cliente=self.cliente, user=user)
+        else:
+            cliente_usuario = self.instance
+            user = cliente_usuario.user
+
+        user.username = data["email"]
+        user.email = data["email"]
+        user.first_name = data.get("first_name", "")
+        user.last_name = data.get("last_name", "")
+        user.is_staff = False
+        user.is_active = True
+        if data.get("password1"):
+            user.set_password(data["password1"])
+        user.save()
+
+        cliente_usuario.contacto = data.get("contacto")
+        cliente_usuario.activo = data.get("activo", False)
+        cliente_usuario.puede_ver_proyectos = data.get("puede_ver_proyectos", False)
+        cliente_usuario.puede_ver_solicitudes = data.get("puede_ver_solicitudes", False)
+        cliente_usuario.puede_ver_facturacion = data.get("puede_ver_facturacion", False)
+        cliente_usuario.puede_descargar_archivos = data.get("puede_descargar_archivos", False)
+        cliente_usuario.recibe_notificaciones = data.get("recibe_notificaciones", False)
+        cliente_usuario.save()
+        return cliente_usuario
+
+
+class ClientePasswordResetForm(PasswordResetForm):
+    def get_users(self, email):
+        users = User.objects.filter(
+            models.Q(email__iexact=email) | models.Q(username__iexact=email),
+            is_active=True,
+            cliente_usuario__activo=True,
+            cliente_usuario__cliente__activo=True,
+        )
+        return (user for user in users if user.has_usable_password())
+
+
+class CotizacionForm(forms.ModelForm):
+    class Meta:
+        model = Cotizacion
+        fields = [
+            "cliente", "contacto", "proyecto", "solicitud", "titulo", "descripcion",
+            "fecha_emision", "fecha_vencimiento", "estado", "moneda",
+            "observaciones_cliente", "condiciones_comerciales", "tiempo_entrega",
+            "forma_pago", "garantia", "validez_dias", "activa",
+        ]
+        widgets = {
+            "fecha_emision": forms.DateInput(attrs={"type": "date"}),
+            "fecha_vencimiento": forms.DateInput(attrs={"type": "date"}),
+            "descripcion": forms.Textarea(attrs={"rows": 3}),
+            "observaciones_cliente": forms.Textarea(attrs={"rows": 3}),
+            "condiciones_comerciales": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["cliente"].queryset = Cliente.objects.filter(activo=True).order_by("nombre", "razon_social")
+        if self.instance.pk and self.instance.cliente_id:
+            self.fields["cliente"].queryset = Cliente.objects.filter(
+                models.Q(activo=True) | models.Q(pk=self.instance.cliente_id)
+            ).order_by("nombre", "razon_social")
+        self.fields["contacto"].queryset = ClienteContacto.objects.filter(activo=True).select_related("cliente")
+        self.fields["proyecto"].queryset = Proyecto.objects.filter(activo=True).select_related("cliente")
+        self.fields["solicitud"].queryset = Solicitud.objects.select_related("producto", "cliente", "proyecto")
+        self.fields["contacto"].required = False
+        self.fields["proyecto"].required = False
+        self.fields["solicitud"].required = False
+
+    def clean(self):
+        cleaned_data = super().clean()
+        cliente = cleaned_data.get("cliente")
+        contacto = cleaned_data.get("contacto")
+        proyecto = cleaned_data.get("proyecto")
+        solicitud = cleaned_data.get("solicitud")
+        if contacto and cliente and contacto.cliente_id != cliente.id:
+            self.add_error("contacto", "El contacto no pertenece al cliente seleccionado.")
+        if proyecto and cliente and proyecto.cliente_id and proyecto.cliente_id != cliente.id:
+            self.add_error("proyecto", "El proyecto pertenece a otro cliente.")
+        if solicitud and cliente:
+            solicitud_cliente_id = solicitud.cliente_id or getattr(solicitud.proyecto, "cliente_id", None)
+            if solicitud_cliente_id and solicitud_cliente_id != cliente.id:
+                self.add_error("solicitud", "La solicitud pertenece a otro cliente.")
+        return cleaned_data
+
+
+class CotizacionItemForm(forms.ModelForm):
+    class Meta:
+        model = CotizacionItem
+        fields = [
+            "producto", "descripcion", "detalle", "cantidad", "unidad", "valor_unitario",
+            "descuento_porcentaje", "descuento_valor", "impuesto_porcentaje", "orden", "activo",
+        ]
+        widgets = {
+            "detalle": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, cotizacion=None, **kwargs):
+        self.cotizacion = cotizacion
+        super().__init__(*args, **kwargs)
+        self.fields["producto"].queryset = Producto.objects.filter(activo=True).select_related("categoria")
+        self.fields["producto"].required = False
+        if cotizacion is not None and not self.instance.pk:
+            self.instance.cotizacion = cotizacion
+
+    def save(self, commit=True):
+        item = super().save(commit=False)
+        if self.cotizacion is not None and not item.cotizacion_id:
+            item.cotizacion = self.cotizacion
+        producto = self.cleaned_data.get("producto")
+        if producto:
+            if not item.descripcion:
+                item.descripcion = producto.nombre
+            if not item.detalle:
+                item.detalle = producto.descripcion_corta or producto.descripcion_larga[:240]
+            if not item.valor_unitario:
+                item.valor_unitario = producto.precio_base_unidad or producto.precio_base_m2 or Decimal("0")
+        if commit:
+            item.save()
+        return item
+
+
+class CotizacionEstadoForm(forms.Form):
+    estado = forms.ChoiceField(label="Nuevo estado", choices=Cotizacion.ESTADOS)
+    comentario = forms.CharField(label="Comentario interno", required=False, widget=forms.Textarea(attrs={"rows": 3}))
 
 
 class ProyectoForm(forms.ModelForm):
@@ -478,7 +834,7 @@ class ProduccionTareaEstadoForm(forms.Form):
 class SolicitudNovedadForm(forms.ModelForm):
     class Meta:
         model = SolicitudNovedad
-        fields = ["comentario", "archivo_evidencia"]
+        fields = ["comentario", "archivo_evidencia", "visible_para_cliente"]
         widgets = {
             "comentario": forms.Textarea(attrs={"rows": 4}),
         }

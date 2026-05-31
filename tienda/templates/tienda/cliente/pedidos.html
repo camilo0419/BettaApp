@@ -1,0 +1,74 @@
+{% extends 'tienda/cliente/base.html' %}
+
+{% block title %}Mis pedidos | Portal cliente{% endblock %}
+
+{% block content %}
+<div class="client-head">
+  <div>
+    <span class="eyebrow">Pedidos</span>
+    <h1>Historial de pedidos</h1>
+  </div>
+</div>
+
+<section class="client-card">
+  <form method="get" class="filters client-filters">
+    <label>Buscar
+      <input type="search" name="q" value="{{ q }}" placeholder="Producto, proyecto u OP">
+    </label>
+    <label>Estado
+      <select name="estado">
+        <option value="">Todos</option>
+        {% for value,label in estados %}<option value="{{ value }}" {% if estado == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Produccion
+      <select name="estado_produccion">
+        <option value="">Todos</option>
+        {% for value,label in estados_produccion %}<option value="{{ value }}" {% if estado_produccion == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Proyecto
+      <select name="proyecto">
+        <option value="">Todos</option>
+        {% for proyecto in proyectos %}<option value="{{ proyecto.id }}" {% if proyecto_id == proyecto.id|stringformat:"s" %}selected{% endif %}>{{ proyecto.nombre }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Fecha
+      <input type="date" name="fecha" value="{{ fecha }}">
+    </label>
+    <button class="btn btn-primary">Filtrar</button>
+    <a href="{% url 'cliente_pedidos' %}" class="btn btn-outline">Limpiar</a>
+  </form>
+</section>
+
+<section class="client-card">
+  <div class="table-responsive">
+    <table class="table client-table">
+      <thead>
+        <tr>
+          <th>Pedido</th>
+          <th>Producto</th>
+          <th>Proyecto</th>
+          <th>Estado</th>
+          {% if cliente_usuario.puede_ver_facturacion %}<th>Valor</th>{% endif %}
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for solicitud in solicitudes %}
+        <tr>
+          <td><strong>OP-{{ solicitud.id|stringformat:"06d" }}</strong><br><small>{{ solicitud.creado|date:'d/m/Y H:i' }}</small></td>
+          <td>{{ solicitud.producto.nombre }}</td>
+          <td>{{ solicitud.proyecto.nombre|default:'-' }}</td>
+          <td>{{ solicitud.get_estado_produccion_display }}</td>
+          {% if cliente_usuario.puede_ver_facturacion %}<td>${{ solicitud.valor_facturado|default:solicitud.precio_final|default:solicitud.precio_estimado|floatformat:0 }}</td>{% endif %}
+          <td class="actions-column"><div class="table-actions"><a href="{% url 'cliente_pedido_detalle' solicitud.id %}" class="link-button">Ver detalle</a></div></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6">No hay pedidos con esos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

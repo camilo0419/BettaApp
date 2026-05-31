@@ -1,0 +1,54 @@
+{% extends 'tienda/cliente/base.html' %}
+
+{% block title %}Mis proyectos | Portal cliente{% endblock %}
+
+{% block content %}
+<div class="client-head">
+  <div>
+    <span class="eyebrow">Proyectos</span>
+    <h1>Proyectos asociados</h1>
+  </div>
+</div>
+
+<section class="client-card">
+  <form method="get" class="filters client-filters">
+    <label>Buscar
+      <input type="search" name="q" value="{{ q }}" placeholder="Nombre del proyecto">
+    </label>
+    <label>Estado
+      <select name="estado">
+        <option value="">Todos</option>
+        {% for value,label in estados %}<option value="{{ value }}" {% if estado == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Prioridad
+      <select name="prioridad">
+        <option value="">Todas</option>
+        {% for value,label in prioridades %}<option value="{{ value }}" {% if prioridad == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <button class="btn btn-primary">Filtrar</button>
+    <a href="{% url 'cliente_proyectos' %}" class="btn btn-outline">Limpiar</a>
+  </form>
+</section>
+
+<div class="client-card-grid">
+  {% for proyecto in proyectos %}
+  <article class="client-card">
+    <div class="client-card-head">
+      <h2>{{ proyecto.nombre }}</h2>
+      <span class="badge">{{ proyecto.get_estado_display }}</span>
+    </div>
+    <p>{{ proyecto.descripcion|truncatewords:24|default:'Proyecto sin descripcion visible.' }}</p>
+    <dl class="detail-list">
+      <dt>Prioridad</dt><dd>{{ proyecto.get_prioridad_display }}</dd>
+      <dt>Fecha compromiso</dt><dd>{{ proyecto.fecha_compromiso|date:'d/m/Y'|default:'-' }}</dd>
+      <dt>Avance</dt><dd>{{ proyecto.avance_porcentaje }}%</dd>
+    </dl>
+    <a href="{% url 'cliente_proyecto_detalle' proyecto.id %}" class="btn btn-outline">Ver detalle</a>
+  </article>
+  {% empty %}
+  <section class="client-card"><p>No hay proyectos con esos filtros.</p></section>
+  {% endfor %}
+</div>
+{% endblock %}

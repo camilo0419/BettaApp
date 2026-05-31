@@ -1,34 +1,85 @@
 {% extends 'tienda/panel/base_panel.html' %}
-{% block title %}Solicitudes · Betta Diseño{% endblock %}
-{% block header %}Gestión de solicitudes{% endblock %}
+
+{% block title %}Cotizaciones | Admin productos{% endblock %}
+
 {% block content %}
-<section class="panel-card">
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">Comercial</span>
+    <h1>Cotizaciones</h1>
+  </div>
+  <div class="head-actions">
+    <a href="{% url 'panel_cotizacion_crear' %}" class="btn btn-primary">Crear cotizacion</a>
+  </div>
+</div>
+
+<div class="panel-card">
   <form method="get" class="filters">
-    <input type="text" name="q" value="{{ q }}" placeholder="Buscar cliente, celular, producto o referencia">
-    <select name="estado">
-      <option value="">Todos los estados</option>
-      {% for value,label in estados %}<option value="{{ value }}" {% if estado_actual == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-    </select>
+    <label>Buscar
+      <input type="search" name="q" value="{{ q }}" placeholder="Numero, cliente, proyecto o solicitud">
+    </label>
+    <label>Estado
+      <select name="estado">
+        <option value="">Todos</option>
+        {% for value,label in estados %}<option value="{{ value }}" {% if estado == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Cliente
+      <select name="cliente">
+        <option value="">Todos</option>
+        {% for cliente in clientes %}<option value="{{ cliente.id }}" {% if cliente_id == cliente.id|stringformat:"s" %}selected{% endif %}>{{ cliente }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Fecha
+      <input type="date" name="fecha" value="{{ fecha }}">
+    </label>
     <button class="btn btn-primary" type="submit">Filtrar</button>
-    <a class="btn btn-secondary" href="{% url 'tienda:panel_cotizaciones' %}">Limpiar</a>
+    <a href="{% url 'panel_cotizaciones' %}" class="btn btn-outline">Limpiar</a>
   </form>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>ID</th><th>Fecha</th><th>Cliente</th><th>Producto</th><th>Estado</th><th>Precio</th><th></th></tr></thead>
+</div>
+
+<div class="panel-card">
+  <div class="table-responsive">
+    <table class="table products-table">
+      <thead>
+        <tr>
+          <th>Numero</th>
+          <th>Cliente</th>
+          <th>Proyecto</th>
+          <th>Fecha</th>
+          <th>Vence</th>
+          <th>Estado</th>
+          <th>Total</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
       <tbody>
-        {% for c in cotizaciones %}
-          <tr>
-            <td>#{{ c.id }}</td>
-            <td>{{ c.creado|date:'d/m/Y H:i' }}</td>
-            <td>{{ c.nombre_cliente }}<br><small>{{ c.celular }}</small></td>
-            <td>{{ c.producto.nombre }}</td>
-            <td><span class="status {{ c.estado }}">{{ c.get_estado_display }}</span></td>
-            <td>${{ c.precio_estimado|floatformat:0 }}</td>
-            <td><a class="table-action" href="{% url 'tienda:panel_cotizacion_detalle' c.id %}">Gestionar</a></td>
-          </tr>
-        {% empty %}<tr><td colspan="7">No hay solicitudes con esos filtros.</td></tr>{% endfor %}
+        {% for cotizacion in cotizaciones %}
+        <tr>
+          <td><strong>{{ cotizacion.numero }}</strong><br><small>{{ cotizacion.titulo }}</small></td>
+          <td>{% if cotizacion.cliente %}<a href="{% url 'panel_cliente_detalle' cotizacion.cliente.id %}">{{ cotizacion.cliente }}</a>{% else %}-{% endif %}</td>
+          <td>{% if cotizacion.proyecto %}<a href="{% url 'panel_proyecto_detalle' cotizacion.proyecto.id %}">{{ cotizacion.proyecto.nombre }}</a>{% else %}-{% endif %}</td>
+          <td>{{ cotizacion.fecha_creacion|date:'d/m/Y' }}</td>
+          <td>{{ cotizacion.fecha_vencimiento|date:'d/m/Y'|default:'-' }}</td>
+          <td><span class="badge">{{ cotizacion.get_estado_display }}</span></td>
+          <td>${{ cotizacion.total|floatformat:0 }}</td>
+          <td class="actions-column">
+            <div class="table-actions">
+              <a href="{% url 'panel_cotizacion_detalle' cotizacion.id %}" class="link-button">Ver</a>
+              <a href="{% url 'panel_cotizacion_editar' cotizacion.id %}" class="link-button">Editar</a>
+              <a href="{% url 'panel_cotizacion_pdf' cotizacion.id %}" class="link-button" target="_blank" rel="noopener">PDF</a>
+              <form method="post" action="{% url 'panel_cotizacion_duplicar' cotizacion.id %}">
+                {% csrf_token %}
+                <button class="link-button" type="submit">Duplicar</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8">No hay cotizaciones con esos filtros.</td></tr>
+        {% endfor %}
       </tbody>
     </table>
   </div>
-</section>
+</div>
 {% endblock %}

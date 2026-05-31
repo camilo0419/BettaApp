@@ -57,6 +57,39 @@
 
     <div class="panel-card">
       <div class="panel-card-head">
+        <h2>Cotizaciones</h2>
+        <a href="{% url 'panel_cotizacion_crear' %}?solicitud={{ solicitud.id }}" class="link-button">Crear cotizacion</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table products-table">
+          <thead>
+            <tr>
+              <th>Numero</th>
+              <th>Cliente</th>
+              <th>Estado</th>
+              <th>Total</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cotizacion in cotizaciones %}
+            <tr>
+              <td><strong>{{ cotizacion.numero }}</strong><br><small>{{ cotizacion.fecha_creacion|date:'d/m/Y' }}</small></td>
+              <td>{{ cotizacion.cliente }}</td>
+              <td>{{ cotizacion.get_estado_display }}</td>
+              <td>${{ cotizacion.total|floatformat:0 }}</td>
+              <td class="actions-column"><div class="table-actions"><a href="{% url 'panel_cotizacion_detalle' cotizacion.id %}" class="link-button">Ver</a></div></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5">Esta solicitud no tiene cotizaciones.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel-card">
+      <div class="panel-card-head">
         <h2>Asignaciones de produccion</h2>
       </div>
       <form method="post" class="dynamic-form admin-form">

@@ -1,0 +1,12 @@
+{% extends 'tienda/emails/base_email.html' %}
+{% block title %}Cotizacion {{ cotizacion.numero }}{% endblock %}
+{% block content %}
+<h1 style="margin:0 0 12px;font-size:22px;color:#172033;">Cotizacion {{ cotizacion.numero }}</h1>
+<p style="margin:0 0 12px;line-height:1.6;">Hola {% if cliente.contacto_principal %}{{ cliente.contacto_principal }}{% else %}{{ cliente }}{% endif %}, preparamos una cotizacion para tu solicitud.</p>
+<p style="margin:0 0 18px;line-height:1.6;"><strong>Total:</strong> ${{ cotizacion.total|floatformat:0 }} {{ cotizacion.moneda }}</p>
+{% if cotizacion.fecha_vencimiento %}<p style="margin:0 0 18px;line-height:1.6;"><strong>Vigente hasta:</strong> {{ cotizacion.fecha_vencimiento|date:'d/m/Y' }}</p>{% endif %}
+<p style="margin:0 0 22px;line-height:1.6;">Puedes responder este correo para resolver dudas o solicitar ajustes.</p>
+{% if cotizacion.visible_para_cliente %}
+<a href="{{ site_url }}{% url 'cliente_cotizacion_detalle' cotizacion.id %}" style="display:inline-block;background:#172033;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold;">Ver cotizacion</a>
+{% endif %}
+{% endblock %}

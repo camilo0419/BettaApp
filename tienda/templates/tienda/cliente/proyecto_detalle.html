@@ -1,0 +1,91 @@
+{% extends 'tienda/cliente/base.html' %}
+
+{% block title %}{{ proyecto.nombre }} | Portal cliente{% endblock %}
+
+{% block content %}
+<div class="client-head">
+  <div>
+    <span class="eyebrow">Proyecto</span>
+    <h1>{{ proyecto.nombre }}</h1>
+    <p>{{ proyecto.get_estado_display }} · Avance {{ proyecto.avance_porcentaje }}%</p>
+  </div>
+  <div class="client-head-actions">
+    <a href="{% url 'cliente_proyectos' %}" class="btn btn-outline">Volver</a>
+  </div>
+</div>
+
+<div class="client-grid two">
+  <section class="client-card">
+    <h2>Datos del proyecto</h2>
+    <dl class="detail-list">
+      <dt>Estado</dt><dd>{{ proyecto.get_estado_display }}</dd>
+      <dt>Prioridad</dt><dd>{{ proyecto.get_prioridad_display }}</dd>
+      <dt>Inicio</dt><dd>{{ proyecto.fecha_inicio|date:'d/m/Y'|default:'-' }}</dd>
+      <dt>Compromiso</dt><dd>{{ proyecto.fecha_compromiso|date:'d/m/Y'|default:'-' }}</dd>
+      <dt>Avance</dt><dd>{{ proyecto.avance_porcentaje }}%</dd>
+    </dl>
+    {% if proyecto.descripcion %}<p>{{ proyecto.descripcion }}</p>{% endif %}
+  </section>
+
+  {% if cliente_usuario.puede_ver_facturacion %}
+  <section class="client-card">
+    <h2>Valores visibles</h2>
+    <dl class="detail-list">
+      <dt>Total pedidos visibles</dt><dd>{% if valor_total %}${{ valor_total|floatformat:0 }}{% else %}-{% endif %}</dd>
+    </dl>
+  </section>
+  {% endif %}
+</div>
+
+<section class="client-card">
+  <h2>Pedidos del proyecto</h2>
+  <div class="table-responsive">
+    <table class="table client-table">
+      <thead><tr><th>Pedido</th><th>Producto</th><th>Estado</th><th>Fecha</th><th>Acciones</th></tr></thead>
+      <tbody>
+        {% for solicitud in solicitudes %}
+        <tr>
+          <td><strong>OP-{{ solicitud.id|stringformat:"06d" }}</strong></td>
+          <td>{{ solicitud.producto.nombre }}</td>
+          <td>{{ solicitud.get_estado_produccion_display }}</td>
+          <td>{{ solicitud.creado|date:'d/m/Y' }}</td>
+          <td class="actions-column"><div class="table-actions"><a href="{% url 'cliente_pedido_detalle' solicitud.id %}" class="link-button">Ver</a></div></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5">No hay pedidos visibles en este proyecto.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="client-grid two">
+  <section class="client-card">
+    <h2>Novedades visibles</h2>
+    <div class="timeline client-timeline">
+      {% for novedad in novedades %}
+        <div class="timeline-item">
+          <strong>OP-{{ novedad.solicitud.id|stringformat:"06d" }}</strong>
+          <span>{{ novedad.fecha_creacion|date:'d/m/Y H:i' }}</span>
+          <p>{{ novedad.comentario }}</p>
+        </div>
+      {% empty %}
+        <p>No hay novedades visibles.</p>
+      {% endfor %}
+    </div>
+  </section>
+  <section class="client-card">
+    <h2>Documentos visibles</h2>
+    <div class="client-list">
+      {% for respuesta in archivos %}
+        <a href="{{ respuesta.archivo.url }}" class="client-list-item" target="_blank" rel="noopener">
+          <strong>{{ respuesta.etiqueta }}</strong>
+          <span>OP-{{ respuesta.solicitud.id|stringformat:"06d" }} · {{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</span>
+        </a>
+      {% empty %}
+        <p>No hay documentos visibles.</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

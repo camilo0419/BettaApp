@@ -1000,3 +1000,279 @@ header img {
         padding: 16px;
     }
 }
+
+/* Portal cliente */
+.client-body,
+.client-auth-body {
+    background: var(--bg);
+    color: var(--ink);
+}
+
+.client-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px min(4vw, 40px);
+    background: rgba(255, 255, 255, 0.94);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(14px);
+}
+
+.client-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--deep);
+    font-weight: 900;
+}
+
+.client-brand img {
+    height: 44px;
+    width: auto;
+    object-fit: contain;
+}
+
+.client-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.client-nav a,
+.client-nav button {
+    border: 0;
+    border-radius: 999px;
+    padding: 10px 13px;
+    background: transparent;
+    color: var(--deep);
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.client-nav a.active,
+.client-nav a:hover,
+.client-nav button:hover {
+    background: #e8f8f6;
+}
+
+.client-main {
+    width: min(1180px, 92vw);
+    margin: 0 auto;
+    padding: 28px 0 44px;
+}
+
+.client-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 22px;
+}
+
+.client-head h1 {
+    font-size: clamp(30px, 4vw, 48px);
+    margin: 6px 0 8px;
+}
+
+.client-head p {
+    margin: 0;
+}
+
+.client-head-actions,
+.client-auth-links {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.client-kpi-grid,
+.client-card-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.client-kpi,
+.client-card,
+.client-auth-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    box-shadow: 0 12px 34px rgba(3, 72, 96, 0.08);
+}
+
+.client-kpi {
+    padding: 20px;
+}
+
+.client-kpi span {
+    color: var(--muted);
+    font-weight: 800;
+}
+
+.client-kpi strong {
+    display: block;
+    margin-top: 8px;
+    color: var(--deep);
+    font-size: 30px;
+}
+
+.client-card {
+    padding: 22px;
+    margin-bottom: 18px;
+}
+
+.client-grid {
+    display: grid;
+    gap: 18px;
+}
+
+.client-grid.two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.client-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.client-card-head h2 {
+    margin: 0;
+}
+
+.client-list {
+    display: grid;
+    gap: 10px;
+}
+
+.client-list-item {
+    display: block;
+    padding: 13px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: #fbffff;
+}
+
+.client-list-item.unread {
+    background: #e8f8f6;
+}
+
+.client-list-item strong,
+.client-list-item span {
+    display: block;
+}
+
+.client-list-item span {
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+.client-filters {
+    grid-template-columns: minmax(220px, 1fr) repeat(4, minmax(140px, 190px)) auto auto;
+    align-items: end;
+}
+
+.client-table {
+    min-width: 760px;
+}
+
+.client-timeline .timeline-item {
+    background: #fbffff;
+}
+
+.client-auth {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 28px 16px;
+}
+
+.client-auth-wide {
+    place-items: start center;
+}
+
+.client-auth-card {
+    width: min(520px, 100%);
+    padding: 30px;
+}
+
+.client-auth-wide .client-auth-card {
+    width: min(860px, 100%);
+}
+
+.client-auth-card img {
+    height: 54px;
+    width: auto;
+    margin-bottom: 18px;
+}
+
+.client-auth-card h1 {
+    font-size: 36px;
+}
+
+.client-auth-links {
+    margin-top: 18px;
+}
+
+@media (max-width: 1050px) {
+    .client-kpi-grid,
+    .client-card-grid,
+    .client-grid.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .client-filters {
+        grid-template-columns: repeat(2, minmax(180px, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .client-topbar,
+    .client-head {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .client-nav,
+    .client-nav form,
+    .client-head-actions,
+    .client-head-actions .btn {
+        width: 100%;
+    }
+
+    .client-nav a,
+    .client-nav button {
+        width: 100%;
+        justify-content: flex-start;
+        text-align: left;
+    }
+
+    .client-kpi-grid,
+    .client-card-grid,
+    .client-grid.two,
+    .client-filters {
+        grid-template-columns: 1fr;
+    }
+
+    .client-card,
+    .client-auth-card {
+        padding: 18px;
+        border-radius: 20px;
+    }
+
+    .client-head-actions .btn,
+    .client-filters .btn {
+        width: 100%;
+    }
+}

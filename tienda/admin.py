@@ -6,8 +6,12 @@ from .models import (
     CampoOpcion,
     Cliente,
     ClienteContacto,
+    ClienteUsuario,
+    Cotizacion,
+    CotizacionItem,
     EmpleadoPerfil,
     Notificacion,
+    NotificacionCliente,
     Producto,
     ProductoCampo,
     ProductoImagen,
@@ -44,6 +48,21 @@ class ClienteContactoInline(admin.TabularInline):
     extra = 0
 
 
+class ClienteUsuarioInline(admin.TabularInline):
+    model = ClienteUsuario
+    extra = 0
+    fields = [
+        "user",
+        "contacto",
+        "activo",
+        "puede_ver_proyectos",
+        "puede_ver_solicitudes",
+        "puede_ver_facturacion",
+        "puede_descargar_archivos",
+        "recibe_notificaciones",
+    ]
+
+
 @admin.register(Categoria)
 class CategoriaAdmin(admin.ModelAdmin):
     list_display = ["nombre", "activa", "orden", "slug"]
@@ -73,8 +92,8 @@ class CampoMaestroOpcionAdmin(admin.ModelAdmin):
 class ClienteAdmin(admin.ModelAdmin):
     list_display = ["nombre", "razon_social", "tipo_cliente", "identificacion", "email", "telefono", "ciudad", "activo"]
     list_filter = ["tipo_cliente", "activo", "ciudad"]
-    search_fields = ["nombre", "razon_social", "identificacion", "email", "telefono", "whatsapp", "ciudad"]
-    inlines = [ClienteContactoInline]
+    search_fields = ["nombre", "razon_social", "nombre_comercial", "identificacion", "email", "telefono", "whatsapp", "ciudad"]
+    inlines = [ClienteContactoInline, ClienteUsuarioInline]
 
 
 @admin.register(ClienteContacto)
@@ -82,6 +101,13 @@ class ClienteContactoAdmin(admin.ModelAdmin):
     list_display = ["cliente", "nombre", "cargo", "email", "telefono", "es_principal", "activo"]
     list_filter = ["activo", "es_principal"]
     search_fields = ["cliente__nombre", "cliente__razon_social", "nombre", "email", "telefono", "whatsapp"]
+
+
+@admin.register(ClienteUsuario)
+class ClienteUsuarioAdmin(admin.ModelAdmin):
+    list_display = ["cliente", "user", "activo", "puede_ver_proyectos", "puede_ver_solicitudes", "puede_ver_facturacion", "fecha_ultimo_acceso"]
+    list_filter = ["activo", "puede_ver_proyectos", "puede_ver_solicitudes", "puede_ver_facturacion", "recibe_notificaciones"]
+    search_fields = ["cliente__nombre", "cliente__razon_social", "user__username", "user__email", "user__first_name", "user__last_name"]
 
 
 @admin.register(Producto)
@@ -127,6 +153,12 @@ class SolicitudNovedadInline(admin.TabularInline):
     extra = 0
 
 
+class CotizacionItemInline(admin.TabularInline):
+    model = CotizacionItem
+    extra = 0
+    readonly_fields = ["subtotal", "descuento_calculado", "impuesto_calculado", "total"]
+
+
 @admin.register(Proyecto)
 class ProyectoAdmin(admin.ModelAdmin):
     list_display = ["nombre", "cliente", "cliente_nombre", "estado", "prioridad", "responsable", "activo", "fecha_compromiso"]
@@ -137,10 +169,27 @@ class ProyectoAdmin(admin.ModelAdmin):
 
 @admin.register(Solicitud)
 class SolicitudAdmin(admin.ModelAdmin):
-    list_display = ["id", "cliente_nombre", "cliente", "producto", "proyecto", "estado", "estado_produccion", "precio_estimado", "creado"]
-    list_filter = ["estado", "estado_produccion", "cliente", "proyecto", "producto", "creado"]
+    list_display = ["id", "cliente_nombre", "cliente", "producto", "proyecto", "estado", "estado_produccion", "precio_estimado", "valor_facturado", "estado_facturacion", "creado"]
+    list_filter = ["estado", "estado_produccion", "estado_facturacion", "cliente", "proyecto", "producto", "creado"]
     search_fields = ["cliente_nombre", "cliente_celular", "cliente__nombre", "cliente__razon_social", "producto__nombre", "proyecto__nombre"]
     inlines = [SolicitudRespuestaInline, SolicitudAsignacionInline, SolicitudTareaInline, SolicitudNovedadInline]
+
+
+@admin.register(Cotizacion)
+class CotizacionAdmin(admin.ModelAdmin):
+    list_display = ["numero", "cliente", "proyecto", "solicitud", "estado", "subtotal", "descuento_total", "impuesto_total", "total", "fecha_creacion"]
+    list_filter = ["estado", "moneda", "activa", "fecha_creacion", "cliente"]
+    search_fields = ["numero", "titulo", "cliente__nombre", "cliente__razon_social", "proyecto__nombre"]
+    readonly_fields = ["numero", "subtotal", "descuento_total", "impuesto_total", "total", "fecha_creacion", "fecha_actualizacion"]
+    inlines = [CotizacionItemInline]
+
+
+@admin.register(CotizacionItem)
+class CotizacionItemAdmin(admin.ModelAdmin):
+    list_display = ["cotizacion", "descripcion", "cantidad", "valor_unitario", "descuento_calculado", "impuesto_calculado", "total", "activo"]
+    list_filter = ["activo", "producto"]
+    search_fields = ["cotizacion__numero", "descripcion", "producto__nombre"]
+    readonly_fields = ["subtotal", "descuento_calculado", "impuesto_calculado", "total"]
 
 
 @admin.register(EmpleadoPerfil)
@@ -166,8 +215,8 @@ class SolicitudTareaAdmin(admin.ModelAdmin):
 
 @admin.register(SolicitudNovedad)
 class SolicitudNovedadAdmin(admin.ModelAdmin):
-    list_display = ["solicitud", "tarea", "tipo", "usuario", "fecha_creacion"]
-    list_filter = ["tipo", "fecha_creacion"]
+    list_display = ["solicitud", "tarea", "tipo", "usuario", "visible_para_cliente", "fecha_creacion"]
+    list_filter = ["tipo", "visible_para_cliente", "fecha_creacion"]
     search_fields = ["solicitud__cliente_nombre", "comentario", "usuario__username"]
 
 
@@ -176,6 +225,13 @@ class NotificacionAdmin(admin.ModelAdmin):
     list_display = ["usuario_destino", "titulo", "tipo", "leida", "fecha_creacion"]
     list_filter = ["tipo", "leida", "fecha_creacion"]
     search_fields = ["usuario_destino__username", "titulo", "mensaje"]
+
+
+@admin.register(NotificacionCliente)
+class NotificacionClienteAdmin(admin.ModelAdmin):
+    list_display = ["cliente", "cliente_usuario", "titulo", "tipo", "leida", "fecha_creacion"]
+    list_filter = ["tipo", "leida", "fecha_creacion"]
+    search_fields = ["cliente__nombre", "cliente__razon_social", "cliente_usuario__user__email", "titulo", "mensaje"]
 
 
 admin.site.register(ProductoImagen)
