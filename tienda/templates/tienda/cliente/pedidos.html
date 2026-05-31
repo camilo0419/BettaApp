@@ -65,7 +65,7 @@
           <td class="actions-column"><div class="table-actions"><a href="{% url 'cliente_pedido_detalle' solicitud.id %}" class="link-button">Ver detalle</a></div></td>
         </tr>
         {% empty %}
-        <tr><td colspan="6">No hay pedidos con esos filtros.</td></tr>
+        <tr><td colspan="{% if cliente_usuario.puede_ver_facturacion %}6{% else %}5{% endif %}">No hay pedidos con esos filtros.</td></tr>
         {% endfor %}
       </tbody>
     </table>

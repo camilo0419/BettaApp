@@ -16,6 +16,7 @@ from .models import (
     Solicitud,
     SolicitudAsignacion,
     SolicitudNovedad,
+    SolicitudTarea,
 )
 
 
@@ -167,6 +168,83 @@ class PortalClienteTests(TestCase):
             reverse("panel_solicitud_orden_produccion", args=[self.solicitud.id]),
         ]
         for ruta in rutas:
+            response = self.client.get(ruta)
+            self.assertEqual(response.status_code, 200, ruta)
+
+    def test_panel_cliente_detalle_incluye_solicitudes_del_proyecto(self):
+        staff = User.objects.create_user(username="staff-proyecto", password="StaffTest123!", is_staff=True)
+        solicitud_proyecto = Solicitud.objects.create(
+            producto=self.producto,
+            proyecto=self.proyecto,
+            cliente_nombre="Solicitud por proyecto",
+            cliente_celular="3000000002",
+            cliente_email="proyecto@example.com",
+        )
+        self.client.force_login(staff)
+        response = self.client.get(reverse("panel_cliente_detalle", args=[self.cliente.id]))
+        self.assertContains(response, f"OP-{solicitud_proyecto.id:06d}")
+
+    def test_smoke_rutas_principales_por_rol(self):
+        staff = User.objects.create_user(username="staff-smoke", password="StaffTest123!", is_staff=True)
+        cotizacion = Cotizacion.objects.create(
+            cliente=self.cliente,
+            proyecto=self.proyecto,
+            solicitud=self.solicitud,
+            titulo="Cotizacion smoke",
+            estado=Cotizacion.ESTADO_ENVIADA,
+            creada_por=staff,
+        )
+        CotizacionItem.objects.create(cotizacion=cotizacion, descripcion="Item smoke", cantidad=Decimal("1"), valor_unitario=Decimal("1000"))
+
+        self.client.force_login(staff)
+        rutas_staff = [
+            reverse("panel_dashboard"),
+            reverse("panel_solicitudes"),
+            reverse("panel_clientes"),
+            reverse("panel_cliente_detalle", args=[self.cliente.id]),
+            reverse("panel_proyectos"),
+            reverse("panel_proyecto_detalle", args=[self.proyecto.id]),
+            reverse("panel_cotizaciones"),
+            reverse("panel_cotizacion_detalle", args=[cotizacion.id]),
+            reverse("panel_productos"),
+            reverse("panel_producto_campos", args=[self.producto.id]),
+            reverse("panel_categorias"),
+            reverse("panel_campos_maestros"),
+            reverse("panel_empleados"),
+            reverse("panel_solicitud_orden_produccion", args=[self.solicitud.id]),
+            reverse("panel_cotizacion_pdf", args=[cotizacion.id]),
+        ]
+        for ruta in rutas_staff:
+            response = self.client.get(ruta)
+            self.assertEqual(response.status_code, 200, ruta)
+
+        self.client.force_login(self.user)
+        rutas_cliente = [
+            reverse("cliente_dashboard"),
+            reverse("cliente_pedidos"),
+            reverse("cliente_pedido_detalle", args=[self.solicitud.id]),
+            reverse("cliente_proyectos"),
+            reverse("cliente_proyecto_detalle", args=[self.proyecto.id]),
+            reverse("cliente_cotizaciones"),
+            reverse("cliente_cotizacion_detalle", args=[cotizacion.id]),
+            reverse("cliente_perfil"),
+            reverse("cliente_notificaciones"),
+        ]
+        for ruta in rutas_cliente:
+            response = self.client.get(ruta)
+            self.assertEqual(response.status_code, 200, ruta)
+
+        user = User.objects.create_user(username="prod-smoke", password="ProdTest123!")
+        empleado = EmpleadoPerfil.objects.create(user=user, activo=True, puede_recibir_pedidos=True)
+        SolicitudAsignacion.objects.create(solicitud=self.solicitud, empleado=empleado)
+        tarea = SolicitudTarea.objects.create(solicitud=self.solicitud, titulo="Tarea smoke", responsable=empleado)
+        self.client.force_login(user)
+        rutas_produccion = [
+            reverse("produccion_dashboard"),
+            reverse("produccion_pedido_detalle", args=[self.solicitud.id]),
+            reverse("produccion_tarea_detalle", args=[tarea.id]),
+        ]
+        for ruta in rutas_produccion:
             response = self.client.get(ruta)
             self.assertEqual(response.status_code, 200, ruta)
 

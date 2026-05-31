@@ -1276,3 +1276,136 @@ header img {
         width: 100%;
     }
 }
+
+/* Revision responsive pre-GitHub */
+html,
+body {
+    max-width: 100%;
+}
+
+body {
+    overflow-x: hidden;
+}
+
+.panel-main,
+.client-main,
+.production-main,
+.panel-head,
+.client-head,
+.production-head,
+.panel-card,
+.client-card,
+.production-card,
+.production-order-card {
+    min-width: 0;
+}
+
+.panel-head,
+.panel-card-head,
+.client-head,
+.client-card-head,
+.production-head,
+.head-actions,
+.client-head-actions,
+.production-actions {
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.panel-head h1,
+.client-head h1,
+.production-head h1,
+.panel-card h2,
+.client-card h2,
+.production-card h2,
+.detail-list dd,
+.mini-detail dd,
+.answer,
+.notification-item,
+.client-list-item,
+.timeline-item {
+    overflow-wrap: anywhere;
+}
+
+.table-responsive {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+}
+
+.table-responsive > .table {
+    margin-bottom: 0;
+}
+
+.panel-main .clients-table {
+    min-width: 900px;
+}
+
+.client-main .actions-column {
+    display: table-cell;
+    min-width: 130px;
+    vertical-align: top;
+    white-space: nowrap;
+}
+
+.client-main .actions-column .table-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    white-space: normal;
+}
+
+.client-main .actions-column a,
+.client-main .actions-column button {
+    min-height: 36px;
+    white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+    .panel-main .filters-form .form-grid.four {
+        grid-template-columns: repeat(2, minmax(180px, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .panel-card-head,
+    .client-card-head {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .panel-card-head .link-button,
+    .client-card-head .link-button {
+        min-height: 36px;
+    }
+
+    .panel-main .filters-form .form-grid.four,
+    .panel-main .form-grid.two,
+    .client-main .form-grid.two,
+    .production-main .form-grid.two,
+    .detail-list,
+    .mini-detail {
+        grid-template-columns: 1fr;
+    }
+
+    .panel-main .table th:nth-child(3),
+    .panel-main .table td:nth-child(3),
+    .client-main .table th:nth-child(3),
+    .client-main .table td:nth-child(3),
+    .production-main .table th:nth-child(3),
+    .production-main .table td:nth-child(3) {
+        display: table-cell;
+    }
+
+    .panel-card,
+    .client-card,
+    .production-card,
+    .production-order-card {
+        padding: 16px;
+    }
+
+    .kpi strong,
+    .client-kpi strong {
+        font-size: 30px;
+    }
+}

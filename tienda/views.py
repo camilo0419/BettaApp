@@ -1461,7 +1461,6 @@ def clientes_lista(request):
     ciudad = request.GET.get("ciudad", "").strip()
     clientes = Cliente.objects.annotate(
         num_proyectos=Count("proyectos", distinct=True),
-        num_solicitudes=Count("solicitudes", distinct=True),
     )
     if q:
         clientes = clientes.filter(
@@ -1479,6 +1478,16 @@ def clientes_lista(request):
         clientes = clientes.filter(activo=activo == "1")
     if ciudad:
         clientes = clientes.filter(ciudad__icontains=ciudad)
+    clientes = list(clientes)
+    cliente_ids = [cliente.id for cliente in clientes]
+    solicitudes_por_cliente = {cliente.id: set() for cliente in clientes}
+    if cliente_ids:
+        for cliente_id, solicitud_id in Solicitud.objects.filter(cliente_id__in=cliente_ids).values_list("cliente_id", "id"):
+            solicitudes_por_cliente.setdefault(cliente_id, set()).add(solicitud_id)
+        for cliente_id, solicitud_id in Solicitud.objects.filter(proyecto__cliente_id__in=cliente_ids).values_list("proyecto__cliente_id", "id"):
+            solicitudes_por_cliente.setdefault(cliente_id, set()).add(solicitud_id)
+    for cliente in clientes:
+        cliente.num_solicitudes = len(solicitudes_por_cliente.get(cliente.id, set()))
     ciudades = Cliente.objects.exclude(ciudad="").values_list("ciudad", flat=True).distinct().order_by("ciudad")
     return render(
         request,
@@ -1550,7 +1559,12 @@ def cliente_detalle(request, cliente_id):
             return redirect("panel_cliente_detalle", cliente_id=cliente.id)
 
     proyectos = cliente.proyectos.select_related("responsable__user").order_by("-fecha_creacion")
-    solicitudes = cliente.solicitudes.select_related("producto__categoria", "proyecto").order_by("-creado")
+    solicitudes = (
+        Solicitud.objects.filter(Q(cliente=cliente) | Q(proyecto__cliente=cliente))
+        .select_related("producto__categoria", "proyecto")
+        .distinct()
+        .order_by("-creado")
+    )
     cotizaciones = cliente.cotizaciones.select_related("proyecto", "solicitud").order_by("-fecha_creacion")
     tareas = SolicitudTarea.objects.filter(
         Q(solicitud__cliente=cliente) | Q(solicitud__proyecto__cliente=cliente),
