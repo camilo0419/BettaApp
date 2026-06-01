@@ -7,38 +7,47 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!option.value) {
       return true;
     }
+
     const clientSourceId = select.getAttribute("data-filter-client-source");
     const projectSourceId = select.getAttribute("data-filter-project-source");
+
     if (clientSourceId) {
       const source = document.getElementById(clientSourceId);
       const selectedClient = source ? source.value : "";
       const optionClient = option.getAttribute("data-client-id") || "";
+
       if (selectedClient && optionClient !== selectedClient) {
         return false;
       }
     }
+
     if (projectSourceId) {
       const source = document.getElementById(projectSourceId);
       const selectedProject = source ? source.value : "";
       const optionProject = option.getAttribute("data-project-id") || "";
+
       if (selectedProject && optionProject !== selectedProject) {
         return false;
       }
     }
+
     return true;
   }
 
   function refreshSelect(select, input) {
     const query = (input ? input.value : "").trim().toLowerCase();
     let selectedStillVisible = !select.value;
+
     Array.from(select.options).forEach(function (option) {
       const visible = optionMatchesSearch(option, query) && optionMatchesDependencies(select, option);
       option.hidden = !visible;
       option.disabled = !visible && !!option.value;
+
       if (option.selected && visible) {
         selectedStillVisible = true;
       }
     });
+
     if (!selectedStillVisible) {
       select.value = "";
       select.dispatchEvent(new Event("change", { bubbles: true }));
@@ -49,25 +58,32 @@ document.addEventListener("DOMContentLoaded", function () {
     if (select.dataset.searchReady === "true") {
       return;
     }
+
     select.dataset.searchReady = "true";
+
     const optionCount = Array.from(select.options).filter(function (option) {
       return option.value;
     }).length;
+
     const threshold = Number(select.getAttribute("data-search-threshold") || 8);
     const shouldRenderSearch = optionCount >= threshold || select.getAttribute("data-always-searchable") === "true";
+
     let input = null;
 
     if (shouldRenderSearch) {
       const wrapper = document.createElement("div");
       wrapper.className = "select-search";
+
       input = document.createElement("input");
       input.type = "search";
       input.className = "select-search-input";
       input.placeholder = select.getAttribute("data-search-placeholder") || "Filtrar opciones";
       input.setAttribute("aria-label", "Filtrar opciones");
+
       select.parentNode.insertBefore(wrapper, select);
       wrapper.appendChild(input);
       wrapper.appendChild(select);
+
       input.addEventListener("input", function () {
         refreshSelect(select, input);
       });
@@ -76,20 +92,24 @@ document.addEventListener("DOMContentLoaded", function () {
     ["data-filter-client-source", "data-filter-project-source"].forEach(function (attr) {
       const sourceId = select.getAttribute(attr);
       const source = sourceId ? document.getElementById(sourceId) : null;
+
       if (source) {
         source.addEventListener("change", function () {
           refreshSelect(select, input);
         });
       }
     });
+
     refreshSelect(select, input);
   });
 
   function openModal(id) {
     const modal = document.getElementById(id);
+
     if (!modal) {
       return;
     }
+
     modal.classList.add("is-open");
     document.body.classList.add("modal-open");
   }
@@ -98,7 +118,9 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!modal) {
       return;
     }
+
     modal.classList.remove("is-open");
+
     if (!document.querySelector(".modal-shell.is-open")) {
       document.body.classList.remove("modal-open");
     }
@@ -117,6 +139,66 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     });
   });
+
+  function initPanelSidebar() {
+  const body = document.querySelector("[data-panel-layout]");
+  const toggle = document.querySelector("[data-panel-menu-toggle]");
+  const overlay = document.querySelector("[data-panel-sidebar-overlay]");
+  const sidebar = document.querySelector("[data-panel-sidebar]");
+
+  if (!body || !toggle || !sidebar) {
+    return;
+  }
+
+  function isOpen() {
+    return body.classList.contains("panel-sidebar-open");
+  }
+
+  function setToggleState(open) {
+    toggle.classList.toggle("is-open", open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  function openSidebar() {
+    body.classList.add("panel-sidebar-open");
+    body.classList.remove("panel-sidebar-collapsed");
+    setToggleState(true);
+  }
+
+  function closeSidebar() {
+    body.classList.remove("panel-sidebar-open");
+    body.classList.add("panel-sidebar-collapsed");
+    setToggleState(false);
+  }
+
+  function toggleSidebar() {
+    if (isOpen()) {
+      closeSidebar();
+    } else {
+      openSidebar();
+    }
+  }
+
+  toggle.addEventListener("click", toggleSidebar);
+
+  if (overlay) {
+    overlay.addEventListener("click", closeSidebar);
+  }
+
+  sidebar.querySelectorAll("a").forEach(function (link) {
+    link.addEventListener("click", closeSidebar);
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      closeSidebar();
+    }
+  });
+
+  closeSidebar();
+}
+
+  initPanelSidebar();
 
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {

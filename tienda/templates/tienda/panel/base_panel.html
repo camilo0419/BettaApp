@@ -7,38 +7,71 @@
   <title>{% block title %}Admin productos | Betta Dise&ntilde;o{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
 </head>
-<body class="panel-body">
-<aside class="panel-sidebar">
+
+<body class="panel-body" data-panel-layout>
+<button
+  type="button"
+  class="panel-menu-toggle"
+  data-panel-menu-toggle
+  aria-label="Abrir o cerrar men&uacute;"
+  aria-expanded="true"
+>
+  <span></span>
+  <span></span>
+  <span></span>
+</button>
+
+<div class="panel-sidebar-overlay" data-panel-sidebar-overlay></div>
+
+<aside class="panel-sidebar" data-panel-sidebar>
   <a href="{% url 'panel_dashboard' %}" class="panel-brand">
     <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Dise&ntilde;o">
     <span>Panel Administrativo</span>
   </a>
+
   {% with active=request.resolver_match.url_name %}
   <nav>
     <a href="{% url 'panel_dashboard' %}" class="{% if active == 'panel_dashboard' %}active{% endif %}">Dashboard</a>
+
     <a href="{% url 'panel_solicitudes' %}" class="{% if active == 'panel_solicitudes' or active == 'panel_solicitud_detalle' or active == 'panel_solicitud_orden_produccion' or active == 'panel_tarea_editar' or active == 'panel_tarea_toggle' %}active{% endif %}">Solicitudes</a>
+
     <a href="{% url 'panel_cotizaciones' %}" class="{% if active == 'panel_cotizaciones' or active == 'panel_cotizacion_crear' or active == 'panel_cotizacion_detalle' or active == 'panel_cotizacion_editar' or active == 'panel_cotizacion_item_crear' or active == 'panel_cotizacion_item_editar' or active == 'panel_cotizacion_item_toggle' or active == 'panel_cotizacion_cambiar_estado' or active == 'panel_cotizacion_duplicar' or active == 'panel_cotizacion_pdf' or active == 'panel_cotizacion_enviar' or active == 'panel_cotizacion_convertir' %}active{% endif %}">Cotizaciones</a>
+
     <a href="{% url 'panel_empleados' %}" class="{% if active == 'panel_empleados' or active == 'panel_empleado_crear' or active == 'panel_empleado_editar' or active == 'panel_empleado_toggle' %}active{% endif %}">Empleados</a>
+
     <a href="{% url 'panel_clientes' %}" class="{% if active == 'panel_clientes' or active == 'panel_cliente_crear' or active == 'panel_cliente_detalle' or active == 'panel_cliente_editar' or active == 'panel_cliente_toggle' or active == 'panel_cliente_portal_crear' or active == 'panel_cliente_portal_editar' or active == 'panel_cliente_portal_toggle' or active == 'panel_cliente_portal_password_reset' or active == 'panel_cliente_contacto_crear' or active == 'panel_cliente_contacto_editar' or active == 'panel_cliente_contacto_toggle' %}active{% endif %}">Clientes</a>
+
     <a href="{% url 'panel_proyectos' %}" class="{% if active == 'panel_proyectos' or active == 'panel_proyecto_crear' or active == 'panel_proyecto_detalle' or active == 'panel_proyecto_editar' or active == 'panel_proyecto_toggle' %}active{% endif %}">Proyectos</a>
+
     <a href="{% url 'panel_categorias' %}" class="{% if active == 'panel_categorias' or active == 'panel_categoria_crear' or active == 'panel_categoria_editar' or active == 'panel_categoria_toggle' %}active{% endif %}">Categor&iacute;as</a>
+
     <a href="{% url 'panel_productos' %}" class="{% if active == 'panel_productos' or active == 'panel_producto_crear' or active == 'panel_producto_editar' or active == 'panel_producto_toggle' or active == 'panel_producto_campos' or active == 'panel_campo_crear' or active == 'panel_campo_asignar_maestro' or active == 'panel_campo_desactivar' or active == 'panel_campo_reactivar' or active == 'panel_campo_copiar_opciones_maestro' or active == 'panel_campo_editar' or active == 'panel_campo_opciones' or active == 'panel_opcion_crear' or active == 'panel_opcion_editar' or active == 'panel_producto_imagenes' or active == 'panel_imagen_eliminar' %}active{% endif %}">Productos</a>
+
     <a href="{% url 'panel_campos_maestros' %}" class="{% if active == 'panel_campos_maestros' or active == 'panel_campo_maestro_crear' or active == 'panel_campo_maestro_editar' or active == 'panel_campo_maestro_opciones' or active == 'panel_campo_maestro_opcion_crear' or active == 'panel_campo_maestro_opcion_editar' %}active{% endif %}">Campos maestros</a>
+
     <a href="{% url 'produccion_dashboard' %}" class="{% if active == 'produccion_dashboard' or active == 'produccion_pedido_detalle' or active == 'produccion_tarea_detalle' %}active{% endif %}">Producci&oacute;n</a>
+
     <a href="{% url 'home' %}" target="_blank">Ver tienda</a>
+
     <a href="#" onclick="event.preventDefault(); document.getElementById('panel-logout-form').submit();">Salir</a>
   </nav>
   {% endwith %}
+
   <form id="panel-logout-form" method="post" action="{% url 'panel_logout' %}" style="display:none;">
     {% csrf_token %}
   </form>
 </aside>
+
 <main class="panel-main">
   {% if messages %}
-    {% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}
+    {% for message in messages %}
+      <div class="message {{ message.tags }}">{{ message }}</div>
+    {% endfor %}
   {% endif %}
+
   {% block content %}{% endblock %}
 </main>
+
 <script src="{% static 'tienda/js/ui_helpers.js' %}"></script>
 </body>
 </html>

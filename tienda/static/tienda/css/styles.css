@@ -1898,3 +1898,183 @@ body {
         white-space: normal;
     }
 }
+
+/* Panel lateral tipo drawer - estable en PC, portátil y móvil */
+.panel-body {
+    display: block !important;
+    min-height: 100vh;
+}
+
+.panel-main {
+    width: 100%;
+    min-height: 100vh;
+    padding: 84px 30px 30px;
+    overflow: visible;
+}
+
+/* Botón hamburguesa */
+.panel-menu-toggle {
+    position: fixed;
+    top: 18px;
+    left: 18px;
+    z-index: 1300;
+    width: 46px;
+    height: 46px;
+    border: 1px solid rgba(220, 232, 232, 0.95);
+    border-radius: 14px;
+    background: #ffffff;
+    box-shadow: 0 12px 30px rgba(3, 72, 96, 0.14);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 5px;
+    cursor: pointer;
+}
+
+.panel-menu-toggle span {
+    width: 21px;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--deep);
+    display: block;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.panel-menu-toggle.is-open span:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+}
+
+.panel-menu-toggle.is-open span:nth-child(2) {
+    opacity: 0;
+}
+
+.panel-menu-toggle.is-open span:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+}
+
+/* Sidebar siempre flotante */
+.panel-sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    z-index: 1200;
+    width: 300px;
+    height: 100vh;
+    max-height: 100vh;
+    padding: 22px;
+    background: var(--deep);
+    color: white;
+    overflow-y: auto;
+    overflow-x: hidden;
+    transform: translateX(-105%);
+    transition: transform 0.24s ease;
+    box-shadow: 18px 0 45px rgba(0, 0, 0, 0.2);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+}
+
+.panel-sidebar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.panel-sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.panel-sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.28);
+    border-radius: 999px;
+}
+
+.panel-sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.42);
+}
+
+/* Menú abierto */
+.panel-body.panel-sidebar-open .panel-sidebar {
+    transform: translateX(0);
+}
+
+/* El botón X queda dentro del área del menú, arriba a la derecha */
+.panel-body.panel-sidebar-open .panel-menu-toggle {
+    left: 238px;
+}
+
+/* Para que la X no tape el logo */
+.panel-brand {
+    padding-right: 56px;
+}
+
+/* Overlay oscuro */
+.panel-sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1150;
+    background: rgba(3, 24, 34, 0.48);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+}
+
+.panel-body.panel-sidebar-open .panel-sidebar-overlay {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.panel-body.panel-sidebar-open {
+    overflow: hidden;
+}
+
+/* Navegación dentro del drawer */
+.panel-sidebar nav {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    overflow: visible;
+    padding-bottom: 34px;
+}
+
+.panel-sidebar nav a {
+    white-space: normal;
+    flex: initial;
+}
+
+/* Desactivamos totalmente la lógica vieja de colapso */
+.panel-body.panel-sidebar-collapsed {
+    display: block !important;
+}
+
+.panel-body.panel-sidebar-collapsed .panel-main {
+    width: 100%;
+    padding-left: 30px;
+    grid-column: auto;
+}
+
+.panel-body.panel-sidebar-collapsed .panel-sidebar {
+    transform: translateX(-105%);
+}
+
+/* Pantallas pequeñas */
+@media (max-width: 680px) {
+    .panel-main {
+        padding: 78px 14px 20px;
+    }
+
+    .panel-menu-toggle {
+        top: 14px;
+        left: 14px;
+        width: 44px;
+        height: 44px;
+    }
+
+    .panel-sidebar {
+        width: min(300px, 88vw);
+        padding: 18px;
+    }
+
+    .panel-body.panel-sidebar-open .panel-menu-toggle {
+        left: min(238px, calc(88vw - 62px));
+    }
+}
