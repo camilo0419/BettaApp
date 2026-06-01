@@ -1001,6 +1001,163 @@ header img {
     }
 }
 
+.inline-form {
+    display: inline-flex;
+    margin: 0;
+}
+
+.nav-user {
+    color: var(--muted);
+    font-weight: 800;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nav-button {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+}
+
+.select-search {
+    display: grid;
+    gap: 8px;
+}
+
+.select-search-input {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font: inherit;
+    background: #fbffff;
+}
+
+.filters {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    align-items: end;
+}
+
+.filters .btn {
+    min-height: 44px;
+}
+
+.state-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1.2;
+    background: #eef4f6;
+    color: var(--deep);
+    white-space: nowrap;
+}
+
+.client-list-item .state-badge {
+    display: inline-flex;
+}
+
+.state-pendiente_asignar,
+.state-borrador,
+.state-pendiente {
+    background: #f2f5f7;
+    color: #41505a;
+}
+
+.state-asignado,
+.state-en_planeacion {
+    background: #e6f1ff;
+    color: #14508f;
+}
+
+.state-en_proceso,
+.state-produccion,
+.state-en_produccion {
+    background: #e8f8f6;
+    color: #006b5d;
+}
+
+.state-con_novedad,
+.state-pausado,
+.state-pendiente_info {
+    background: #fff4d6;
+    color: #7a5200;
+}
+
+.state-terminado,
+.state-listo_entrega,
+.state-entregado,
+.state-aprobada,
+.state-entregada {
+    background: #e7f7eb;
+    color: #176a31;
+}
+
+.state-calidad {
+    background: #edf0ff;
+    color: #343d86;
+}
+
+.state-cancelado,
+.state-cancelada,
+.state-anulada,
+.state-rechazada {
+    background: #ffe9e9;
+    color: #9a1b1b;
+}
+
+.modal-open {
+    overflow: hidden;
+}
+
+.modal-shell {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 22px;
+    background: rgba(9, 47, 61, .48);
+}
+
+.modal-shell.is-open {
+    display: grid;
+}
+
+.modal-panel {
+    width: min(680px, 100%);
+    max-height: min(86vh, 840px);
+    overflow: auto;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 22px;
+    box-shadow: var(--shadow);
+}
+
+.modal-panel-wide {
+    width: min(900px, 100%);
+}
+
+.modal-close {
+    float: right;
+    border: 0;
+    background: #eef4f6;
+    color: var(--deep);
+    border-radius: 999px;
+    padding: 8px 12px;
+    font: inherit;
+    font-weight: 900;
+    cursor: pointer;
+}
+
 /* Portal cliente */
 .client-body,
 .client-auth-body {

@@ -47,7 +47,7 @@
         <tr>
           <td><strong>OP-{{ solicitud.id|stringformat:"06d" }}</strong></td>
           <td>{{ solicitud.producto.nombre }}</td>
-          <td>{{ solicitud.get_estado_produccion_display }}</td>
+          <td><span class="state-badge state-{{ solicitud.estado_produccion }}">{{ solicitud.get_estado_produccion_display }}</span></td>
           <td>{{ solicitud.creado|date:'d/m/Y' }}</td>
           <td class="actions-column"><div class="table-actions"><a href="{% url 'cliente_pedido_detalle' solicitud.id %}" class="link-button">Ver</a></div></td>
         </tr>

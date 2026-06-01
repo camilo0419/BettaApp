@@ -9,6 +9,9 @@
     <h1>{{ solicitud.producto.nombre }}</h1>
   </div>
   <div class="head-actions">
+    <button type="button" class="btn btn-outline" data-modal-open="modal-crear-tarea">Crear tarea</button>
+    <button type="button" class="btn btn-outline" data-modal-open="modal-novedad">Agregar novedad</button>
+    <button type="button" class="btn btn-outline" data-modal-open="modal-hoja-vida">Hoja de vida</button>
     <a href="{% url 'panel_solicitud_orden_produccion' solicitud.id %}" class="btn btn-primary" target="_blank" rel="noopener">Orden de producci&oacute;n</a>
     <a href="{% url 'panel_solicitudes' %}" class="btn btn-outline">Volver</a>
   </div>
@@ -16,7 +19,7 @@
 
 <div class="kpi-grid production-kpis">
   <div class="kpi"><span>Estado solicitud</span><strong>{{ solicitud.get_estado_display }}</strong></div>
-  <div class="kpi"><span>Estado produccion</span><strong>{{ solicitud.get_estado_produccion_display }}</strong></div>
+  <div class="kpi"><span>Estado de producción</span><strong><span class="state-badge state-{{ solicitud.estado_produccion }}">{{ solicitud.get_estado_produccion_display }}</span></strong></div>
   <div class="kpi"><span>Asignaciones activas</span><strong>{{ solicitud.asignaciones.all|length }}</strong></div>
   <div class="kpi"><span>Novedades</span><strong>{{ novedades|length }}</strong></div>
 </div>
@@ -30,8 +33,9 @@
         <dt>Celular</dt><dd>{{ solicitud.cliente_celular }}</dd>
         <dt>Email</dt><dd>{{ solicitud.cliente_email|default:'-' }}</dd>
         <dt>Cliente asociado</dt><dd>{% if solicitud.cliente %}<a href="{% url 'panel_cliente_detalle' solicitud.cliente.id %}">{{ solicitud.cliente }}</a>{% else %}-{% endif %}</dd>
+        <dt>Contacto asociado</dt><dd>{{ solicitud.contacto.nombre|default:'-' }}</dd>
         <dt>Producto</dt><dd>{{ solicitud.producto.nombre }}</dd>
-        <dt>Categoria</dt><dd>{{ solicitud.producto.categoria }}</dd>
+        <dt>Categoría</dt><dd>{{ solicitud.producto.categoria }}</dd>
         <dt>Proyecto</dt><dd>{% if solicitud.proyecto %}<a href="{% url 'panel_proyecto_detalle' solicitud.proyecto.id %}">{{ solicitud.proyecto.nombre }}</a>{% else %}-{% endif %}</dd>
         <dt>Precio estimado</dt><dd>${{ solicitud.precio_estimado|floatformat:0 }}</dd>
         <dt>Fecha</dt><dd>{{ solicitud.creado|date:'d/m/Y H:i' }}</dd>
@@ -58,13 +62,13 @@
     <div class="panel-card">
       <div class="panel-card-head">
         <h2>Cotizaciones</h2>
-        <a href="{% url 'panel_cotizacion_crear' %}?solicitud={{ solicitud.id }}" class="link-button">Crear cotizacion</a>
+        <a href="{% url 'panel_cotizacion_crear' %}?solicitud={{ solicitud.id }}" class="link-button">Crear cotización</a>
       </div>
       <div class="table-responsive">
         <table class="table products-table">
           <thead>
             <tr>
-              <th>Numero</th>
+              <th>Número</th>
               <th>Cliente</th>
               <th>Estado</th>
               <th>Total</th>
@@ -90,7 +94,7 @@
 
     <div class="panel-card">
       <div class="panel-card-head">
-        <h2>Asignaciones de produccion</h2>
+        <h2>Asignaciones de producción</h2>
       </div>
       <form method="post" class="dynamic-form admin-form">
         {% csrf_token %}
@@ -157,7 +161,7 @@
 
     <div class="panel-card">
       <div class="panel-card-head">
-        <h2>Tareas de produccion</h2>
+        <h2>Tareas de producción</h2>
       </div>
       <div class="table-responsive">
         <table class="table products-table">
@@ -165,9 +169,9 @@
             <tr>
               <th>Tarea</th>
               <th>Responsable</th>
-              <th>Area</th>
+              <th>Área</th>
               <th>Estado</th>
-              <th>Limite</th>
+              <th>Límite</th>
               <th>Acciones</th>
             </tr>
           </thead>
@@ -190,7 +194,7 @@
               </td>
             </tr>
             {% empty %}
-            <tr><td colspan="6">Esta solicitud aun no tiene tareas internas.</td></tr>
+            <tr><td colspan="6">Esta solicitud aún no tiene tareas internas.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -224,6 +228,9 @@
       {% if cliente_sugerido %}
         <p class="alert-soft">El proyecto asociado tiene como cliente a {{ cliente_sugerido }}.</p>
       {% endif %}
+      {% if contacto_sugerido %}
+        <p class="alert-soft">El proyecto asociado tiene como contacto a {{ contacto_sugerido.nombre }}.</p>
+      {% endif %}
       <form method="post" class="dynamic-form">
         {% csrf_token %}
         <input type="hidden" name="action" value="cliente">
@@ -240,7 +247,7 @@
     </div>
 
     <div class="panel-card">
-      <h2>Estado de produccion</h2>
+      <h2>Estado de producción</h2>
       <form method="post" class="dynamic-form">
         {% csrf_token %}
         <input type="hidden" name="action" value="estado_produccion">
@@ -249,7 +256,9 @@
       </form>
     </div>
 
-    <div class="panel-card">
+    <div class="modal-shell" id="modal-crear-tarea" data-modal>
+      <div class="modal-panel">
+      <button type="button" class="modal-close" data-modal-close>Cerrar</button>
       <h2>Crear tarea</h2>
       <form method="post" enctype="multipart/form-data" class="dynamic-form">
         {% csrf_token %}
@@ -257,9 +266,12 @@
         {{ tarea_form.as_p }}
         <button class="btn btn-primary btn-wide">Crear tarea</button>
       </form>
+      </div>
     </div>
 
-    <div class="panel-card">
+    <div class="modal-shell" id="modal-novedad" data-modal>
+      <div class="modal-panel">
+      <button type="button" class="modal-close" data-modal-close>Cerrar</button>
       <h2>Agregar novedad</h2>
       <form method="post" enctype="multipart/form-data" class="dynamic-form">
         {% csrf_token %}
@@ -267,9 +279,12 @@
         {{ novedad_form.as_p }}
         <button class="btn btn-primary btn-wide">Registrar novedad</button>
       </form>
+      </div>
     </div>
 
-    <div class="panel-card">
+    <div class="modal-shell" id="modal-hoja-vida" data-modal>
+      <div class="modal-panel modal-panel-wide">
+      <button type="button" class="modal-close" data-modal-close>Cerrar</button>
       <h2>Hoja de vida</h2>
       <div class="timeline">
         {% for novedad in novedades %}
@@ -288,6 +303,7 @@
         {% empty %}
           <p>No hay novedades registradas.</p>
         {% endfor %}
+      </div>
       </div>
     </div>
   </div>

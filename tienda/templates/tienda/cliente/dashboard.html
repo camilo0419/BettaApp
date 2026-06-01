@@ -17,7 +17,7 @@
 
 <div class="client-kpi-grid">
   <div class="client-kpi"><span>Proyectos activos</span><strong>{{ metricas.proyectos_activos }}</strong></div>
-  <div class="client-kpi"><span>Pedidos en produccion</span><strong>{{ metricas.pedidos_produccion }}</strong></div>
+  <div class="client-kpi"><span>Pedidos en producción</span><strong>{{ metricas.pedidos_produccion }}</strong></div>
   <div class="client-kpi"><span>Pedidos terminados</span><strong>{{ metricas.pedidos_terminados }}</strong></div>
   {% if cliente_usuario.puede_ver_facturacion %}
   <div class="client-kpi"><span>Valor visible</span><strong>${{ metricas.valor_facturado|floatformat:0 }}</strong></div>
@@ -36,7 +36,7 @@
       {% for solicitud in solicitudes %}
         <a href="{% url 'cliente_pedido_detalle' solicitud.id %}" class="client-list-item">
           <strong>OP-{{ solicitud.id|stringformat:"06d" }} · {{ solicitud.producto.nombre }}</strong>
-          <span>{{ solicitud.get_estado_produccion_display }} · {{ solicitud.creado|date:'d/m/Y' }}</span>
+          <span><span class="state-badge state-{{ solicitud.estado_produccion }}">{{ solicitud.get_estado_produccion_display }}</span> · {{ solicitud.creado|date:'d/m/Y' }}</span>
         </a>
       {% empty %}
         <p>No hay pedidos asociados a tu cuenta.</p>

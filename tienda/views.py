@@ -169,6 +169,81 @@ def cliente_usuario_actual(request):
     return getattr(request, "cliente_usuario", getattr(request.user, "cliente_usuario", None))
 
 
+def cliente_contacto_principal(cliente):
+    if not cliente:
+        return None
+    return cliente.contactos.filter(activo=True, es_principal=True).first() or cliente.contactos.filter(activo=True).first()
+
+
+def cliente_usuario_ve_toda_la_cuenta(cliente_usuario):
+    return bool(cliente_usuario and cliente_usuario.puede_ver_toda_la_cuenta)
+
+
+def proyectos_para_cliente_usuario(cliente_usuario, qs=None):
+    qs = qs if qs is not None else Proyecto.objects.all()
+    qs = qs.filter(cliente=cliente_usuario.cliente)
+    if cliente_usuario_ve_toda_la_cuenta(cliente_usuario):
+        return qs
+    if not cliente_usuario.contacto_id:
+        return qs.none()
+    return qs.filter(contacto=cliente_usuario.contacto)
+
+
+def solicitudes_para_cliente_usuario(cliente_usuario, qs=None):
+    qs = qs if qs is not None else Solicitud.objects.all()
+    qs = qs.filter(Q(cliente=cliente_usuario.cliente) | Q(proyecto__cliente=cliente_usuario.cliente)).distinct()
+    if cliente_usuario_ve_toda_la_cuenta(cliente_usuario):
+        return qs
+    if not cliente_usuario.contacto_id:
+        return qs.none()
+    return qs.filter(
+        Q(contacto=cliente_usuario.contacto)
+        | Q(contacto__isnull=True, proyecto__contacto=cliente_usuario.contacto)
+    ).distinct()
+
+
+def cotizaciones_para_cliente_usuario(cliente_usuario, qs=None):
+    qs = qs if qs is not None else Cotizacion.objects.all()
+    qs = qs.filter(cliente=cliente_usuario.cliente)
+    if cliente_usuario_ve_toda_la_cuenta(cliente_usuario):
+        return qs
+    if not cliente_usuario.contacto_id:
+        return qs.none()
+    return qs.filter(
+        Q(contacto=cliente_usuario.contacto)
+        | Q(contacto__isnull=True, proyecto__contacto=cliente_usuario.contacto)
+        | Q(contacto__isnull=True, solicitud__contacto=cliente_usuario.contacto)
+    ).distinct()
+
+
+def cliente_usuario_puede_ver_proyecto(cliente_usuario, proyecto):
+    if not cliente_usuario or not proyecto:
+        return False
+    return proyectos_para_cliente_usuario(cliente_usuario, Proyecto.objects.filter(pk=proyecto.pk)).exists()
+
+
+def cliente_usuario_puede_ver_solicitud(cliente_usuario, solicitud):
+    if not cliente_usuario or not solicitud:
+        return False
+    return solicitudes_para_cliente_usuario(cliente_usuario, Solicitud.objects.filter(pk=solicitud.pk)).exists()
+
+
+def cliente_usuario_puede_ver_cotizacion(cliente_usuario, cotizacion):
+    if not cliente_usuario or not cotizacion:
+        return False
+    return cotizaciones_para_cliente_usuario(cliente_usuario, Cotizacion.objects.filter(pk=cotizacion.pk)).exists()
+
+
+def notificacion_cliente_visible(cliente_usuario, notificacion):
+    if notificacion.solicitud_id and not cliente_usuario_puede_ver_solicitud(cliente_usuario, notificacion.solicitud):
+        return False
+    if not notificacion.solicitud_id and notificacion.proyecto_id and not cliente_usuario_puede_ver_proyecto(cliente_usuario, notificacion.proyecto):
+        return False
+    if notificacion.tipo == NotificacionCliente.TIPO_FACTURACION and not cliente_usuario.puede_ver_facturacion:
+        return False
+    return True
+
+
 def solicitud_token(solicitud_id):
     return signing.dumps({"solicitud_id": solicitud_id}, salt=COTIZACION_TOKEN_SALT)
 
@@ -325,6 +400,12 @@ def crear_notificacion_cliente(cliente_usuario, titulo, mensaje, tipo=Notificaci
         or not cliente_usuario.cliente.activo
     ):
         return None
+    if tipo == NotificacionCliente.TIPO_FACTURACION and not cliente_usuario.puede_ver_facturacion:
+        return None
+    if solicitud and not cliente_usuario_puede_ver_solicitud(cliente_usuario, solicitud):
+        return None
+    if proyecto and not solicitud and not cliente_usuario_puede_ver_proyecto(cliente_usuario, proyecto):
+        return None
     if not url_destino and solicitud:
         url_destino = reverse("cliente_pedido_detalle", args=[solicitud.id])
     elif not url_destino and proyecto:
@@ -354,7 +435,7 @@ def notificar_clientes_solicitud(solicitud, titulo, mensaje, tipo=NotificacionCl
     usuarios = cliente.usuarios_portal.filter(activo=True, user__is_active=True)
     creadas = 0
     for cliente_usuario in usuarios:
-        crear_notificacion_cliente(
+        notificacion = crear_notificacion_cliente(
             cliente_usuario,
             titulo,
             mensaje,
@@ -363,7 +444,8 @@ def notificar_clientes_solicitud(solicitud, titulo, mensaje, tipo=NotificacionCl
             proyecto=solicitud.proyecto,
             enviar_email=enviar_email,
         )
-        creadas += 1
+        if notificacion:
+            creadas += 1
     return creadas
 
 
@@ -373,7 +455,7 @@ def notificar_clientes_proyecto(proyecto, titulo, mensaje, tipo=NotificacionClie
     usuarios = proyecto.cliente.usuarios_portal.filter(activo=True, user__is_active=True)
     creadas = 0
     for cliente_usuario in usuarios:
-        crear_notificacion_cliente(
+        notificacion = crear_notificacion_cliente(
             cliente_usuario,
             titulo,
             mensaje,
@@ -381,7 +463,8 @@ def notificar_clientes_proyecto(proyecto, titulo, mensaje, tipo=NotificacionClie
             proyecto=proyecto,
             enviar_email=enviar_email,
         )
-        creadas += 1
+        if notificacion:
+            creadas += 1
     return creadas
 
 
@@ -434,7 +517,7 @@ def cambiar_estado_produccion(solicitud, nuevo_estado, usuario, comentario="", n
         return False
     solicitud.estado_produccion = nuevo_estado
     solicitud.save(update_fields=["estado_produccion", "actualizado"])
-    comentario_base = comentario.strip() or f"Estado de produccion cambiado de {estado_produccion_label(estado_anterior)} a {estado_produccion_label(nuevo_estado)}."
+    comentario_base = comentario.strip() or f"Estado de producción cambiado de {estado_produccion_label(estado_anterior)} a {estado_produccion_label(nuevo_estado)}."
     crear_novedad(
         solicitud,
         usuario,
@@ -592,14 +675,22 @@ def producto_detalle(request, slug):
         asegurar_opciones_para_campo(campo)
     campos = producto.campos_activos.prefetch_related("opciones")
     galeria = producto.imagenes.filter(activa=True)
+    cliente_usuario = None
+    if request.user.is_authenticated:
+        candidato = getattr(request.user, "cliente_usuario", None)
+        if candidato and candidato.activo and candidato.cliente.activo:
+            cliente_usuario = candidato
 
     if request.method == "POST":
-        form = DynamicSolicitudForm(producto, request.POST, request.FILES)
+        form = DynamicSolicitudForm(producto, request.POST, request.FILES, cliente_usuario=cliente_usuario)
         if form.is_valid():
             ctx = form.price_context()
             requiere_revision = producto.requiere_revision or producto.tipo_calculo == Producto.CALCULO_MANUAL
+            contacto = form.resolve_portal_contact()
             solicitud = Solicitud.objects.create(
                 producto=producto,
+                cliente=cliente_usuario.cliente if cliente_usuario else None,
+                contacto=contacto,
                 cliente_nombre=form.cleaned_data["cliente_nombre"],
                 cliente_celular=form.cleaned_data["cliente_celular"],
                 cliente_email=form.cleaned_data.get("cliente_email", ""),
@@ -644,14 +735,14 @@ def producto_detalle(request, slug):
                 solicitud,
                 None,
                 SolicitudNovedad.TIPO_SISTEMA,
-                "Solicitud creada y pendiente por asignar en produccion.",
+                "Solicitud creada y pendiente por asignar en producción.",
                 estado_nuevo=Solicitud.PROD_PENDIENTE_ASIGNAR,
             )
             if solicitud.cliente_email:
                 enviar_confirmacion_solicitud(solicitud, solicitud.cliente_email)
             return redirect("cotizacion_exito", pk=solicitud.pk, token=solicitud_token(solicitud.pk))
     else:
-        form = DynamicSolicitudForm(producto)
+        form = DynamicSolicitudForm(producto, cliente_usuario=cliente_usuario)
 
     return render(request, "tienda/producto_detalle.html", {"producto": producto, "campos": campos, "galeria": galeria, "form": form})
 
@@ -757,29 +848,41 @@ def cliente_dashboard(request):
     cliente_usuario = cliente_usuario_actual(request)
     cliente = cliente_usuario.cliente
 
-    solicitudes = Solicitud.objects.filter(Q(cliente=cliente) | Q(proyecto__cliente=cliente)).select_related("producto", "proyecto").distinct()
-    proyectos = Proyecto.objects.filter(cliente=cliente)
+    solicitudes = solicitudes_para_cliente_usuario(
+        cliente_usuario,
+        Solicitud.objects.select_related("producto", "proyecto", "contacto"),
+    )
+    proyectos = proyectos_para_cliente_usuario(
+        cliente_usuario,
+        Proyecto.objects.select_related("contacto", "responsable__user"),
+    )
     novedades = SolicitudNovedad.objects.filter(
-        Q(solicitud__cliente=cliente) | Q(solicitud__proyecto__cliente=cliente),
+        solicitud__in=solicitudes.values("pk"),
         visible_para_cliente=True,
     ).select_related("solicitud", "usuario")[:6]
     archivos = SolicitudRespuesta.objects.filter(
-        Q(solicitud__cliente=cliente) | Q(solicitud__proyecto__cliente=cliente),
+        solicitud__in=solicitudes.values("pk"),
         visible_para_cliente=True,
         archivo__isnull=False,
     ).exclude(archivo="").select_related("solicitud")[:6]
-    notificaciones = cliente_usuario.notificaciones.select_related("solicitud", "proyecto")[:6]
-    cotizaciones = Cotizacion.objects.filter(
-        cliente=cliente,
-        estado__in=[
-            Cotizacion.ESTADO_ENVIADA,
-            Cotizacion.ESTADO_VISTA,
-            Cotizacion.ESTADO_APROBADA,
-            Cotizacion.ESTADO_RECHAZADA,
-            Cotizacion.ESTADO_VENCIDA,
-            Cotizacion.ESTADO_CONVERTIDA,
-        ],
-        activa=True,
+    notificaciones = [
+        notificacion
+        for notificacion in cliente_usuario.notificaciones.select_related("solicitud", "proyecto")
+        if notificacion_cliente_visible(cliente_usuario, notificacion)
+    ][:6]
+    cotizaciones = cotizaciones_para_cliente_usuario(
+        cliente_usuario,
+        Cotizacion.objects.filter(
+            estado__in=[
+                Cotizacion.ESTADO_ENVIADA,
+                Cotizacion.ESTADO_VISTA,
+                Cotizacion.ESTADO_APROBADA,
+                Cotizacion.ESTADO_RECHAZADA,
+                Cotizacion.ESTADO_VENCIDA,
+                Cotizacion.ESTADO_CONVERTIDA,
+            ],
+            activa=True,
+        ).select_related("contacto", "proyecto", "solicitud"),
     )
 
     valor_facturado = 0
@@ -792,7 +895,11 @@ def cliente_dashboard(request):
         "pedidos_produccion": solicitudes.filter(estado_produccion__in=[Solicitud.PROD_ASIGNADO, Solicitud.PROD_EN_PROCESO, Solicitud.PROD_CON_NOVEDAD, Solicitud.PROD_CALIDAD]).count(),
         "pedidos_terminados": solicitudes.filter(estado_produccion__in=[Solicitud.PROD_TERMINADO, Solicitud.PROD_LISTO_ENTREGA, Solicitud.PROD_ENTREGADO]).count(),
         "valor_facturado": valor_facturado,
-        "sin_leer": cliente_usuario.notificaciones.filter(leida=False).count(),
+        "sin_leer": sum(
+            1
+            for notificacion in cliente_usuario.notificaciones.filter(leida=False).select_related("solicitud", "proyecto")
+            if notificacion_cliente_visible(cliente_usuario, notificacion)
+        ),
         "cotizaciones": cotizaciones.count() if cliente_usuario.puede_ver_facturacion else 0,
     }
     return render(
@@ -822,9 +929,10 @@ def cliente_pedidos(request):
     estado_produccion = request.GET.get("estado_produccion", "").strip()
     proyecto_id = request.GET.get("proyecto", "").strip()
     fecha = request.GET.get("fecha", "").strip()
-    solicitudes = Solicitud.objects.filter(
-        Q(cliente=cliente_usuario.cliente) | Q(proyecto__cliente=cliente_usuario.cliente)
-    ).select_related("producto", "proyecto").distinct()
+    solicitudes = solicitudes_para_cliente_usuario(
+        cliente_usuario,
+        Solicitud.objects.select_related("producto", "proyecto", "contacto"),
+    )
     if q:
         filtro = Q(producto__nombre__icontains=q) | Q(proyecto__nombre__icontains=q) | Q(cliente_nombre__icontains=q)
         if q.isdigit():
@@ -838,7 +946,7 @@ def cliente_pedidos(request):
         solicitudes = solicitudes.filter(proyecto_id=proyecto_id)
     if fecha:
         solicitudes = solicitudes.filter(creado__date=fecha)
-    proyectos = Proyecto.objects.filter(cliente=cliente_usuario.cliente).order_by("nombre")
+    proyectos = proyectos_para_cliente_usuario(cliente_usuario, Proyecto.objects.all()).order_by("nombre")
     return render(
         request,
         "tienda/cliente/pedidos.html",
@@ -863,11 +971,12 @@ def cliente_pedido_detalle(request, pk):
     if not cliente_usuario.puede_ver_solicitudes:
         raise PermissionDenied
     solicitud = get_object_or_404(
-        Solicitud.objects.select_related("producto__categoria", "proyecto"),
+        solicitudes_para_cliente_usuario(
+            cliente_usuario,
+            Solicitud.objects.select_related("producto__categoria", "proyecto", "contacto"),
+        ),
         pk=pk,
     )
-    if solicitud.cliente_id != cliente_usuario.cliente_id and getattr(solicitud.proyecto, "cliente_id", None) != cliente_usuario.cliente_id:
-        raise Http404
     respuestas_base = solicitud.respuestas.select_related("campo__campo_maestro").filter(visible_para_cliente=True).order_by("orden", "id")
     respuestas = [
         respuesta
@@ -898,7 +1007,10 @@ def cliente_proyectos(request):
     q = request.GET.get("q", "").strip()
     estado = request.GET.get("estado", "").strip()
     prioridad = request.GET.get("prioridad", "").strip()
-    proyectos = Proyecto.objects.filter(cliente=cliente_usuario.cliente).select_related("responsable__user")
+    proyectos = proyectos_para_cliente_usuario(
+        cliente_usuario,
+        Proyecto.objects.select_related("contacto", "responsable__user"),
+    )
     if q:
         proyectos = proyectos.filter(Q(nombre__icontains=q) | Q(cliente_nombre__icontains=q) | Q(descripcion__icontains=q))
     if estado:
@@ -926,17 +1038,16 @@ def cliente_proyecto_detalle(request, proyecto_id):
     if not cliente_usuario.puede_ver_proyectos:
         raise PermissionDenied
     proyecto = get_object_or_404(
-        Proyecto.objects.select_related("cliente", "responsable__user"),
+        proyectos_para_cliente_usuario(cliente_usuario, Proyecto.objects.select_related("cliente", "contacto", "responsable__user")),
         pk=proyecto_id,
-        cliente=cliente_usuario.cliente,
     )
-    solicitudes = proyecto.solicitudes.select_related("producto").order_by("-creado")
+    solicitudes = solicitudes_para_cliente_usuario(cliente_usuario, proyecto.solicitudes.select_related("producto", "contacto")).order_by("-creado")
     novedades = SolicitudNovedad.objects.filter(
-        solicitud__proyecto=proyecto,
+        solicitud__in=solicitudes.values("pk"),
         visible_para_cliente=True,
     ).select_related("solicitud", "usuario")[:12]
     archivos = SolicitudRespuesta.objects.filter(
-        solicitud__proyecto=proyecto,
+        solicitud__in=solicitudes.values("pk"),
         visible_para_cliente=True,
         archivo__isnull=False,
     ).exclude(archivo="").select_related("solicitud")[:12]
@@ -969,7 +1080,10 @@ def cliente_cotizaciones(request):
         Cotizacion.ESTADO_VENCIDA,
         Cotizacion.ESTADO_CONVERTIDA,
     ]
-    cotizaciones = Cotizacion.objects.filter(cliente=cliente_usuario.cliente, estado__in=visibles, activa=True).select_related("proyecto", "solicitud")
+    cotizaciones = cotizaciones_para_cliente_usuario(
+        cliente_usuario,
+        Cotizacion.objects.filter(estado__in=visibles, activa=True).select_related("contacto", "proyecto", "solicitud"),
+    )
     if q:
         cotizaciones = cotizaciones.filter(Q(numero__icontains=q) | Q(titulo__icontains=q) | Q(proyecto__nombre__icontains=q))
     if estado:
@@ -987,9 +1101,11 @@ def cliente_cotizacion_detalle(request, cotizacion_id):
     if not cliente_usuario.puede_ver_facturacion:
         raise PermissionDenied
     cotizacion = get_object_or_404(
-        Cotizacion.objects.select_related("cliente", "contacto", "proyecto", "solicitud"),
+        cotizaciones_para_cliente_usuario(
+            cliente_usuario,
+            Cotizacion.objects.select_related("cliente", "contacto", "proyecto", "solicitud"),
+        ),
         pk=cotizacion_id,
-        cliente=cliente_usuario.cliente,
         activa=True,
     )
     if not cotizacion.visible_para_cliente:
@@ -1020,7 +1136,11 @@ def cliente_notificaciones(request):
         qs.update(leida=True)
         messages.success(request, "Notificaciones actualizadas.")
         return redirect("cliente_notificaciones")
-    notificaciones = cliente_usuario.notificaciones.select_related("solicitud", "proyecto")
+    notificaciones = [
+        notificacion
+        for notificacion in cliente_usuario.notificaciones.select_related("solicitud", "proyecto")
+        if notificacion_cliente_visible(cliente_usuario, notificacion)
+    ]
     return render(request, "tienda/cliente/notificaciones.html", {"cliente_usuario": cliente_usuario, "notificaciones": notificaciones})
 
 
@@ -1071,7 +1191,7 @@ def solicitudes_lista(request):
     q = request.GET.get("q", "").strip()
     estado = request.GET.get("estado", "").strip()
     estado_produccion = request.GET.get("estado_produccion", "").strip()
-    solicitudes = Solicitud.objects.select_related("producto").all()
+    solicitudes = Solicitud.objects.select_related("producto", "cliente", "contacto", "proyecto").all()
     if q:
         
         filtro = Q(cliente_nombre__icontains=q) | Q(cliente_celular__icontains=q) | Q(producto__nombre__icontains=q)
@@ -1101,8 +1221,9 @@ def cotizaciones_lista(request):
     q = request.GET.get("q", "").strip()
     estado = request.GET.get("estado", "").strip()
     cliente_id = request.GET.get("cliente", "").strip()
+    proyecto_id = request.GET.get("proyecto", "").strip()
     fecha = request.GET.get("fecha", "").strip()
-    cotizaciones = Cotizacion.objects.select_related("cliente", "proyecto", "solicitud", "creada_por")
+    cotizaciones = Cotizacion.objects.select_related("cliente", "contacto", "proyecto", "solicitud", "creada_por")
     if q:
         filtro = (
             Q(numero__icontains=q)
@@ -1118,9 +1239,12 @@ def cotizaciones_lista(request):
         cotizaciones = cotizaciones.filter(estado=estado)
     if cliente_id.isdigit():
         cotizaciones = cotizaciones.filter(cliente_id=cliente_id)
+    if proyecto_id.isdigit():
+        cotizaciones = cotizaciones.filter(proyecto_id=proyecto_id)
     if fecha:
         cotizaciones = cotizaciones.filter(fecha_creacion__date=fecha)
     clientes = Cliente.objects.filter(activo=True).order_by("nombre", "razon_social")
+    proyectos = Proyecto.objects.filter(activo=True).select_related("cliente").order_by("nombre")
     return render(
         request,
         "tienda/panel/cotizaciones.html",
@@ -1129,9 +1253,11 @@ def cotizaciones_lista(request):
             "q": q,
             "estado": estado,
             "cliente_id": cliente_id,
+            "proyecto_id": proyecto_id,
             "fecha": fecha,
             "estados": Cotizacion.ESTADOS,
             "clientes": clientes,
+            "proyectos": proyectos,
         },
     )
 
@@ -1144,14 +1270,16 @@ def cotizacion_initial_from_request(request):
     if cliente_id.isdigit():
         initial["cliente"] = cliente_id
     if proyecto_id.isdigit():
-        proyecto = Proyecto.objects.filter(pk=proyecto_id).first()
+        proyecto = Proyecto.objects.select_related("cliente", "contacto").filter(pk=proyecto_id).first()
         if proyecto:
             initial["proyecto"] = proyecto.id
             if proyecto.cliente_id:
                 initial["cliente"] = proyecto.cliente_id
-            initial.setdefault("titulo", f"Cotizacion {proyecto.nombre}")
+            if proyecto.contacto_id:
+                initial["contacto"] = proyecto.contacto_id
+            initial.setdefault("titulo", f"Cotización {proyecto.nombre}")
     if solicitud_id.isdigit():
-        solicitud = Solicitud.objects.select_related("producto", "cliente", "proyecto__cliente").filter(pk=solicitud_id).first()
+        solicitud = Solicitud.objects.select_related("producto", "cliente", "contacto", "proyecto__cliente", "proyecto__contacto").filter(pk=solicitud_id).first()
         if solicitud:
             initial["solicitud"] = solicitud.id
             initial["proyecto"] = solicitud.proyecto_id
@@ -1159,8 +1287,16 @@ def cotizacion_initial_from_request(request):
                 initial["cliente"] = solicitud.cliente_id
             elif solicitud.proyecto_id and solicitud.proyecto.cliente_id:
                 initial["cliente"] = solicitud.proyecto.cliente_id
-            initial.setdefault("titulo", f"Cotizacion OP-{solicitud.id:06d} - {solicitud.producto.nombre}")
+            if solicitud.contacto_id:
+                initial["contacto"] = solicitud.contacto_id
+            elif solicitud.proyecto_id and solicitud.proyecto.contacto_id:
+                initial["contacto"] = solicitud.proyecto.contacto_id
+            initial.setdefault("titulo", f"Cotización OP-{solicitud.id:06d} - {solicitud.producto.nombre}")
             initial.setdefault("descripcion", f"Solicitud OP-{solicitud.id:06d}")
+    if initial.get("cliente") and not initial.get("contacto"):
+        contacto = cliente_contacto_principal(Cliente.objects.filter(pk=initial["cliente"]).first())
+        if contacto:
+            initial["contacto"] = contacto.id
     return initial
 
 
@@ -1195,9 +1331,9 @@ def cotizacion_crear(request):
         cotizacion.actualizada_por = request.user
         cotizacion.save()
         crear_item_desde_solicitud(cotizacion)
-        messages.success(request, "Cotizacion creada.")
+        messages.success(request, "Cotización creada.")
         return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
-    return render(request, "tienda/panel/cotizacion_form.html", {"form": form, "titulo": "Crear cotizacion"})
+    return render(request, "tienda/panel/cotizacion_form.html", {"form": form, "titulo": "Crear cotización"})
 
 
 @panel_staff_required
@@ -1208,7 +1344,7 @@ def cotizacion_editar(request, cotizacion_id):
         cotizacion = form.save(commit=False)
         cotizacion.actualizada_por = request.user
         cotizacion.save()
-        messages.success(request, "Cotizacion actualizada.")
+        messages.success(request, "Cotización actualizada.")
         return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
     return render(request, "tienda/panel/cotizacion_form.html", {"form": form, "cotizacion": cotizacion, "titulo": f"Editar {cotizacion.numero}"})
 
@@ -1235,9 +1371,9 @@ def cotizacion_item_crear(request, cotizacion_id):
     form = CotizacionItemForm(request.POST or None, cotizacion=cotizacion)
     if request.method == "POST" and form.is_valid():
         form.save()
-        messages.success(request, "Item agregado.")
+        messages.success(request, "Ítem agregado.")
         return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
-    return render(request, "tienda/panel/cotizacion_item_form.html", {"form": form, "cotizacion": cotizacion, "titulo": "Agregar item"})
+    return render(request, "tienda/panel/cotizacion_item_form.html", {"form": form, "cotizacion": cotizacion, "titulo": "Agregar ítem"})
 
 
 @panel_staff_required
@@ -1246,9 +1382,9 @@ def cotizacion_item_editar(request, item_id):
     form = CotizacionItemForm(request.POST or None, instance=item, cotizacion=item.cotizacion)
     if request.method == "POST" and form.is_valid():
         form.save()
-        messages.success(request, "Item actualizado.")
+        messages.success(request, "Ítem actualizado.")
         return redirect("panel_cotizacion_detalle", cotizacion_id=item.cotizacion_id)
-    return render(request, "tienda/panel/cotizacion_item_form.html", {"form": form, "cotizacion": item.cotizacion, "item": item, "titulo": "Editar item"})
+    return render(request, "tienda/panel/cotizacion_item_form.html", {"form": form, "cotizacion": item.cotizacion, "item": item, "titulo": "Editar ítem"})
 
 
 @panel_staff_required
@@ -1257,7 +1393,7 @@ def cotizacion_item_toggle(request, item_id):
     item = get_object_or_404(CotizacionItem.objects.select_related("cotizacion"), pk=item_id)
     item.activo = not item.activo
     item.save(update_fields=["activo"])
-    messages.success(request, "Item actualizado.")
+    messages.success(request, "Ítem actualizado.")
     return redirect("panel_cotizacion_detalle", cotizacion_id=item.cotizacion_id)
 
 
@@ -1281,9 +1417,9 @@ def cotizacion_cambiar_estado(request, cotizacion_id):
                 cotizacion.solicitud,
                 request.user,
                 SolicitudNovedad.TIPO_SISTEMA,
-                form.cleaned_data.get("comentario") or f"Cotizacion {cotizacion.numero} cambio de estado: {estado_anterior} -> {nuevo_estado}.",
+                form.cleaned_data.get("comentario") or f"Cotización {cotizacion.numero} cambió de estado: {estado_anterior} -> {nuevo_estado}.",
             )
-        messages.success(request, "Estado de cotizacion actualizado.")
+        messages.success(request, "Estado de cotización actualizado.")
     else:
         messages.error(request, "No se pudo cambiar el estado.")
     return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
@@ -1325,7 +1461,7 @@ def cotizacion_duplicar(request, cotizacion_id):
             orden=item.orden,
             activo=item.activo,
         )
-    messages.success(request, f"Cotizacion duplicada como {nueva.numero}.")
+    messages.success(request, f"Cotización duplicada como {nueva.numero}.")
     return redirect("panel_cotizacion_detalle", cotizacion_id=nueva.id)
 
 
@@ -1346,12 +1482,12 @@ def cotizacion_enviar(request, cotizacion_id):
     cotizacion = get_object_or_404(Cotizacion.objects.select_related("cliente", "contacto", "solicitud"), pk=cotizacion_id)
     email = request.POST.get("email", "").strip() or (cotizacion.contacto.email if cotizacion.contacto_id else "") or cotizacion.cliente.email
     if not email:
-        messages.error(request, "El cliente no tiene email para enviar la cotizacion.")
+        messages.error(request, "El cliente no tiene email para enviar la cotización.")
         return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
     cotizacion.recalcular_totales()
     enviado = enviar_correo_cliente(
         email,
-        f"Cotizacion {cotizacion.numero} - Betta",
+        f"Cotización {cotizacion.numero} - Betta",
         "tienda/emails/cotizacion_cliente.html",
         {"cotizacion": cotizacion, "cliente": cotizacion.cliente},
     )
@@ -1366,17 +1502,19 @@ def cotizacion_enviar(request, cotizacion_id):
         cotizacion.actualizada_por = request.user
         cotizacion.save()
         for cliente_usuario in cotizacion.cliente.usuarios_portal.filter(activo=True, user__is_active=True):
+            if not cliente_usuario.puede_ver_facturacion or not cliente_usuario_puede_ver_cotizacion(cliente_usuario, cotizacion):
+                continue
             crear_notificacion_cliente(
                 cliente_usuario,
-                f"Cotizacion {cotizacion.numero}",
-                "Tienes una cotizacion disponible en tu portal.",
+                f"Cotización {cotizacion.numero}",
+                "Tienes una cotización disponible en tu portal.",
                 tipo=NotificacionCliente.TIPO_FACTURACION,
                 url_destino=reverse("cliente_cotizacion_detalle", args=[cotizacion.id]),
                 enviar_email=False,
             )
-        messages.success(request, "Cotizacion enviada o preparada segun la configuracion de correo.")
+        messages.success(request, "Cotización enviada o preparada según la configuración de correo.")
     else:
-        messages.error(request, "No se pudo enviar el correo. Revisa la configuracion SMTP.")
+        messages.error(request, "No se pudo enviar el correo. Revisa la configuración SMTP.")
     return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
 
 
@@ -1385,7 +1523,7 @@ def cotizacion_enviar(request, cotizacion_id):
 def cotizacion_convertir(request, cotizacion_id):
     cotizacion = get_object_or_404(Cotizacion.objects.select_related("solicitud"), pk=cotizacion_id)
     if cotizacion.estado != Cotizacion.ESTADO_APROBADA:
-        messages.error(request, "Solo una cotizacion aprobada puede convertirse.")
+        messages.error(request, "Solo una cotización aprobada puede convertirse.")
         return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
     cotizacion.estado = Cotizacion.ESTADO_CONVERTIDA
     cotizacion.actualizada_por = request.user
@@ -1398,9 +1536,9 @@ def cotizacion_convertir(request, cotizacion_id):
             cotizacion.solicitud,
             request.user,
             SolicitudNovedad.TIPO_SISTEMA,
-            f"Cotizacion {cotizacion.numero} convertida y asociada como base comercial.",
+            f"Cotización {cotizacion.numero} convertida y asociada como base comercial.",
         )
-    messages.success(request, "Cotizacion marcada como convertida.")
+    messages.success(request, "Cotización marcada como convertida.")
     return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
 
 
@@ -1664,9 +1802,9 @@ def cliente_portal_password_reset(request, usuario_id):
             html_email_template_name="tienda/emails/password_reset_cliente.html",
             subject_template_name="tienda/emails/password_reset_cliente_subject.txt",
         )
-        messages.success(request, "Correo de recuperacion enviado o preparado segun la configuracion de email.")
+        messages.success(request, "Correo de recuperación enviado o preparado según la configuración de email.")
     else:
-        messages.error(request, "No se pudo preparar la recuperacion de contrasena para este usuario.")
+        messages.error(request, "No se pudo preparar la recuperación de contraseña para este usuario.")
     return redirect("panel_cliente_detalle", cliente_id=cliente_usuario.cliente_id)
 
 
@@ -1712,7 +1850,7 @@ def proyectos_lista(request):
     prioridad = request.GET.get("prioridad", "").strip()
     activo = request.GET.get("activo", "").strip()
     cliente_id = request.GET.get("cliente", "").strip()
-    proyectos = Proyecto.objects.select_related("cliente", "responsable__user").annotate(
+    proyectos = Proyecto.objects.select_related("cliente", "contacto", "responsable__user").annotate(
         num_solicitudes=Count("solicitudes", distinct=True),
         num_tareas=Count("solicitudes__tareas", filter=Q(solicitudes__tareas__activa=True), distinct=True),
     )
@@ -1721,6 +1859,8 @@ def proyectos_lista(request):
             Q(nombre__icontains=q)
             | Q(cliente_nombre__icontains=q)
             | Q(cliente_contacto__icontains=q)
+            | Q(contacto__nombre__icontains=q)
+            | Q(contacto__email__icontains=q)
             | Q(cliente__nombre__icontains=q)
             | Q(cliente__razon_social__icontains=q)
             | Q(cliente__identificacion__icontains=q)
@@ -1759,6 +1899,9 @@ def proyecto_crear(request):
     cliente_id = request.GET.get("cliente", "").strip()
     if cliente_id.isdigit():
         initial["cliente"] = cliente_id
+        contacto = cliente_contacto_principal(Cliente.objects.filter(pk=cliente_id).first())
+        if contacto:
+            initial["contacto"] = contacto.id
     form = ProyectoForm(request.POST or None, initial=initial)
     if request.method == "POST" and form.is_valid():
         proyecto = form.save(commit=False)
@@ -1773,20 +1916,31 @@ def proyecto_crear(request):
 def proyecto_editar(request, proyecto_id):
     proyecto = get_object_or_404(Proyecto, pk=proyecto_id)
     cliente_anterior = proyecto.cliente
+    contacto_anterior = proyecto.contacto
     estado_anterior = proyecto.estado
     form = ProyectoForm(request.POST or None, instance=proyecto)
     if request.method == "POST" and form.is_valid():
         proyecto = form.save()
-        if cliente_anterior != proyecto.cliente:
+        if cliente_anterior != proyecto.cliente or contacto_anterior != proyecto.contacto:
             for solicitud in proyecto.solicitudes.all():
+                update_fields = []
                 if proyecto.cliente and not solicitud.cliente_id:
                     solicitud.cliente = proyecto.cliente
-                    solicitud.save(update_fields=["cliente", "actualizado"])
+                    update_fields.append("cliente")
+                if proyecto.contacto_id and (not solicitud.contacto_id or solicitud.contacto_id == getattr(contacto_anterior, "id", None)):
+                    solicitud.contacto = proyecto.contacto
+                    update_fields.append("contacto")
+                elif not proyecto.contacto_id and contacto_anterior and solicitud.contacto_id == contacto_anterior.id:
+                    solicitud.contacto = None
+                    update_fields.append("contacto")
+                if update_fields:
+                    update_fields.append("actualizado")
+                    solicitud.save(update_fields=update_fields)
                 crear_novedad(
                     solicitud,
                     request.user,
                     SolicitudNovedad.TIPO_SISTEMA,
-                    f"Cliente del proyecto actualizado a {proyecto.cliente or 'sin cliente'}.",
+                    f"Cliente/contacto del proyecto actualizado a {proyecto.cliente or 'sin cliente'}.",
                 )
         if estado_anterior != proyecto.estado:
             notificar_clientes_proyecto(
@@ -1813,7 +1967,7 @@ def proyecto_toggle(request, proyecto_id):
 
 @panel_staff_required
 def proyecto_detalle(request, proyecto_id):
-    proyecto = get_object_or_404(Proyecto.objects.select_related("cliente", "responsable__user", "creado_por"), pk=proyecto_id)
+    proyecto = get_object_or_404(Proyecto.objects.select_related("cliente", "contacto", "responsable__user", "creado_por"), pk=proyecto_id)
     asociar_form = ProyectoSolicitudForm(proyecto=proyecto)
     if request.method == "POST":
         action = request.POST.get("action")
@@ -1823,7 +1977,14 @@ def proyecto_detalle(request, proyecto_id):
                 asociadas = 0
                 for solicitud in asociar_form.cleaned_data["solicitudes"]:
                     solicitud.proyecto = proyecto
-                    solicitud.save(update_fields=["proyecto", "actualizado"])
+                    update_fields = ["proyecto", "actualizado"]
+                    if proyecto.cliente_id and not solicitud.cliente_id:
+                        solicitud.cliente = proyecto.cliente
+                        update_fields.append("cliente")
+                    if proyecto.contacto_id and not solicitud.contacto_id:
+                        solicitud.contacto = proyecto.contacto
+                        update_fields.append("contacto")
+                    solicitud.save(update_fields=update_fields)
                     crear_novedad(
                         solicitud,
                         request.user,
@@ -1846,8 +2007,8 @@ def proyecto_detalle(request, proyecto_id):
             messages.success(request, "Solicitud retirada del proyecto.")
             return redirect("panel_proyecto_detalle", proyecto_id=proyecto.id)
 
-    solicitudes = proyecto.solicitudes.select_related("producto__categoria").prefetch_related("tareas").order_by("-creado")
-    cotizaciones = proyecto.cotizaciones.select_related("cliente", "solicitud").order_by("-fecha_creacion")
+    solicitudes = proyecto.solicitudes.select_related("producto__categoria", "cliente", "contacto").prefetch_related("tareas").order_by("-creado")
+    cotizaciones = proyecto.cotizaciones.select_related("cliente", "contacto", "solicitud").order_by("-fecha_creacion")
     tareas = SolicitudTarea.objects.filter(solicitud__proyecto=proyecto).select_related(
         "solicitud__producto",
         "responsable__user",
@@ -1879,7 +2040,7 @@ def proyecto_detalle(request, proyecto_id):
 
 @panel_staff_required
 def solicitud_detalle(request, pk):
-    solicitud = get_object_or_404(Solicitud.objects.select_related("producto__categoria", "cliente", "proyecto__cliente"), pk=pk)
+    solicitud = get_object_or_404(Solicitud.objects.select_related("producto__categoria", "cliente", "contacto", "proyecto__cliente", "proyecto__contacto"), pk=pk)
     form = SolicitudEstadoForm(instance=solicitud)
     asignacion_form = SolicitudAsignacionForm()
     estado_produccion_form = AdminProduccionEstadoForm(initial={"estado_produccion": solicitud.estado_produccion})
@@ -1920,8 +2081,8 @@ def solicitud_detalle(request, pk):
                 if facturacion_anterior != facturacion_nueva:
                     notificar_clientes_solicitud(
                         solicitud,
-                        f"Facturacion OP-{solicitud.id:06d}",
-                        "La informacion comercial visible de tu pedido fue actualizada.",
+                        f"Facturación OP-{solicitud.id:06d}",
+                        "La información comercial visible de tu pedido fue actualizada.",
                         tipo=NotificacionCliente.TIPO_FACTURACION,
                     )
                 messages.success(request, "Solicitud actualizada correctamente.")
@@ -1935,7 +2096,7 @@ def solicitud_detalle(request, pk):
                     request.user,
                     estado_produccion_form.cleaned_data.get("comentario", ""),
                 )
-                messages.success(request, "Estado de produccion actualizado.")
+                messages.success(request, "Estado de producción actualizado.")
                 return redirect("panel_solicitud_detalle", pk=solicitud.pk)
         elif action == "proyecto":
             proyecto_anterior = solicitud.proyecto
@@ -1943,6 +2104,17 @@ def solicitud_detalle(request, pk):
             if proyecto_form.is_valid():
                 solicitud = proyecto_form.save()
                 if proyecto_anterior != solicitud.proyecto:
+                    update_fields = []
+                    if solicitud.proyecto_id:
+                        if solicitud.proyecto.cliente_id and not solicitud.cliente_id:
+                            solicitud.cliente = solicitud.proyecto.cliente
+                            update_fields.append("cliente")
+                        if solicitud.proyecto.contacto_id and not solicitud.contacto_id:
+                            solicitud.contacto = solicitud.proyecto.contacto
+                            update_fields.append("contacto")
+                    if update_fields:
+                        update_fields.append("actualizado")
+                        solicitud.save(update_fields=update_fields)
                     if solicitud.proyecto:
                         comentario = f"Asociada al proyecto {solicitud.proyecto.nombre}."
                     elif proyecto_anterior:
@@ -1954,16 +2126,19 @@ def solicitud_detalle(request, pk):
                 return redirect("panel_solicitud_detalle", pk=solicitud.pk)
         elif action == "cliente":
             cliente_anterior = solicitud.cliente
+            contacto_anterior = solicitud.contacto
             cliente_form = SolicitudClienteForm(request.POST, instance=solicitud)
             if cliente_form.is_valid():
                 solicitud = cliente_form.save()
-                if cliente_anterior != solicitud.cliente:
+                if cliente_anterior != solicitud.cliente or contacto_anterior != solicitud.contacto:
                     if solicitud.cliente:
                         comentario = f"Solicitud asociada al cliente {solicitud.cliente}."
+                        if solicitud.contacto:
+                            comentario += f" Contacto: {solicitud.contacto.nombre}."
                     elif cliente_anterior:
                         comentario = f"Solicitud retirada del cliente {cliente_anterior}."
                     else:
-                        comentario = "Cliente actualizado."
+                        comentario = "Cliente/contacto actualizado."
                     crear_novedad(solicitud, request.user, SolicitudNovedad.TIPO_SISTEMA, comentario)
                     notificar_clientes_solicitud(
                         solicitud,
@@ -1992,8 +2167,21 @@ def solicitud_detalle(request, pk):
                 mensaje = f"Cliente creado desde la solicitud y asociado: {cliente}."
             else:
                 mensaje = f"Cliente existente asociado desde email: {cliente}."
+            contacto = None
+            if solicitud.cliente_email:
+                contacto = cliente.contactos.filter(email__iexact=solicitud.cliente_email).first()
+            if contacto is None and solicitud.cliente_nombre:
+                contacto = ClienteContacto.objects.create(
+                    cliente=cliente,
+                    nombre=solicitud.cliente_nombre,
+                    email=solicitud.cliente_email,
+                    telefono=solicitud.cliente_celular,
+                    whatsapp=solicitud.cliente_celular,
+                    es_principal=not cliente.contactos.filter(activo=True, es_principal=True).exists(),
+                )
             solicitud.cliente = cliente
-            solicitud.save(update_fields=["cliente", "actualizado"])
+            solicitud.contacto = contacto
+            solicitud.save(update_fields=["cliente", "contacto", "actualizado"])
             crear_novedad(solicitud, request.user, SolicitudNovedad.TIPO_SISTEMA, mensaje)
             messages.success(request, mensaje)
             return redirect("panel_solicitud_detalle", pk=solicitud.pk)
@@ -2041,12 +2229,12 @@ def solicitud_detalle(request, pk):
                         crear_notificacion(
                             empleado.user,
                             solicitud,
-                            f"Nueva asignacion #{solicitud.id}",
+                            f"Nueva asignación #{solicitud.id}",
                             observacion or f"Te asignaron la solicitud #{solicitud.id}.",
                             tipo=Notificacion.TIPO_ASIGNACION,
                         )
                     if nuevas or reactivadas:
-                        cambiar_estado_produccion(solicitud, Solicitud.PROD_ASIGNADO, request.user, "Solicitud asignada a produccion.", notificar=False)
+                        cambiar_estado_produccion(solicitud, Solicitud.PROD_ASIGNADO, request.user, "Solicitud asignada a producción.", notificar=False)
                 messages.success(request, f"Asignaciones procesadas. Nuevas: {nuevas}. Reactivadas: {reactivadas}. Omitidas: {omitidas}.")
                 return redirect("panel_solicitud_detalle", pk=solicitud.pk)
         elif action == "crear_tarea":
@@ -2095,10 +2283,10 @@ def solicitud_detalle(request, pk):
                     asignacion.desasignado_por = request.user
                     asignacion.save(update_fields=["activa", "fecha_desasignacion", "desasignado_por"])
                     crear_novedad(solicitud, request.user, SolicitudNovedad.TIPO_DESASIGNACION, f"Desasignado {asignacion.empleado}.")
-                    crear_notificacion(asignacion.empleado.user, solicitud, f"Desasignacion #{solicitud.id}", "Ya no tienes este pedido asignado.", tipo=Notificacion.TIPO_DESASIGNACION)
+                    crear_notificacion(asignacion.empleado.user, solicitud, f"Desasignación #{solicitud.id}", "Ya no tienes este pedido asignado.", tipo=Notificacion.TIPO_DESASIGNACION)
                     if not solicitud.asignaciones.filter(activa=True).exists() and solicitud.estado_produccion in [Solicitud.PROD_ASIGNADO, Solicitud.PROD_EN_PROCESO, Solicitud.PROD_CON_NOVEDAD]:
                         cambiar_estado_produccion(solicitud, Solicitud.PROD_PENDIENTE_ASIGNAR, request.user, "Solicitud sin asignaciones activas.", notificar=False)
-                    messages.success(request, "Asignacion desactivada.")
+                    messages.success(request, "Asignación desactivada.")
             else:
                 if not asignacion.activa:
                     asignacion.activa = True
@@ -2107,11 +2295,11 @@ def solicitud_detalle(request, pk):
                     asignacion.desasignado_por = None
                     asignacion.asignado_por = request.user
                     asignacion.save()
-                    crear_novedad(solicitud, request.user, SolicitudNovedad.TIPO_ASIGNACION, f"Reactivada asignacion de {asignacion.empleado}.")
-                    crear_notificacion(asignacion.empleado.user, solicitud, f"Asignacion reactivada #{solicitud.id}", "Tu asignacion fue reactivada.", tipo=Notificacion.TIPO_ASIGNACION)
+                    crear_novedad(solicitud, request.user, SolicitudNovedad.TIPO_ASIGNACION, f"Reactivada asignación de {asignacion.empleado}.")
+                    crear_notificacion(asignacion.empleado.user, solicitud, f"Asignación reactivada #{solicitud.id}", "Tu asignación fue reactivada.", tipo=Notificacion.TIPO_ASIGNACION)
                     if solicitud.estado_produccion == Solicitud.PROD_PENDIENTE_ASIGNAR:
-                        cambiar_estado_produccion(solicitud, Solicitud.PROD_ASIGNADO, request.user, "Solicitud reasignada a produccion.", notificar=False)
-                    messages.success(request, "Asignacion reactivada.")
+                        cambiar_estado_produccion(solicitud, Solicitud.PROD_ASIGNADO, request.user, "Solicitud reasignada a producción.", notificar=False)
+                    messages.success(request, "Asignación reactivada.")
             return redirect("panel_solicitud_detalle", pk=solicitud.pk)
         elif action == "novedad":
             novedad_form = SolicitudNovedadForm(request.POST, request.FILES)
@@ -2134,10 +2322,13 @@ def solicitud_detalle(request, pk):
     asignaciones = solicitud.asignaciones.select_related("empleado__user", "asignado_por", "desasignado_por").order_by("-activa", "-fecha_asignacion")
     tareas = solicitud.tareas.select_related("responsable__user", "asignado_por").order_by("orden", "fecha_limite", "id")
     novedades = solicitud.novedades.select_related("usuario", "tarea").order_by("-fecha_creacion", "-id")
-    cotizaciones = solicitud.cotizaciones.select_related("cliente", "proyecto").order_by("-fecha_creacion")
+    cotizaciones = solicitud.cotizaciones.select_related("cliente", "contacto", "proyecto").order_by("-fecha_creacion")
     cliente_sugerido = None
+    contacto_sugerido = None
     if solicitud.proyecto_id and solicitud.proyecto.cliente_id and solicitud.cliente_id != solicitud.proyecto.cliente_id:
         cliente_sugerido = solicitud.proyecto.cliente
+    if solicitud.proyecto_id and solicitud.proyecto.contacto_id and solicitud.contacto_id != solicitud.proyecto.contacto_id:
+        contacto_sugerido = solicitud.proyecto.contacto
     return render(
         request,
         "tienda/panel/solicitud_detalle.html",
@@ -2150,6 +2341,7 @@ def solicitud_detalle(request, pk):
             "proyecto_form": proyecto_form,
             "cliente_form": cliente_form,
             "cliente_sugerido": cliente_sugerido,
+            "contacto_sugerido": contacto_sugerido,
             "tarea_form": tarea_form,
             "asignaciones": asignaciones,
             "tareas": tareas,
@@ -2205,7 +2397,7 @@ def tarea_editar(request, tarea_id):
             notificar_tarea(
                 tarea,
                 f"Tarea #{tarea.id}: {estado_tarea_label(tarea.estado)}",
-                f"La tarea '{tarea.titulo}' cambio de estado.",
+                f"La tarea '{tarea.titulo}' cambió de estado.",
                 tipo=Notificacion.TIPO_TAREA,
                 exclude_user=request.user,
             )
@@ -2348,7 +2540,7 @@ def produccion_login(request):
         user = form.get_user()
         perfil = getattr(user, "empleado_perfil", None)
         if not user.is_staff and (perfil is None or not perfil.activo):
-            form.add_error(None, "Tu usuario no tiene un perfil de produccion activo.")
+            form.add_error(None, "Tu usuario no tiene un perfil de producción activo.")
         else:
             login(request, user)
             if redirect_value and url_has_allowed_host_and_scheme(

@@ -5,7 +5,7 @@
 {% block content %}
 <div class="panel-head">
   <div>
-    <span class="eyebrow">Cotizacion</span>
+    <span class="eyebrow">Cotización</span>
     <h1>{{ cotizacion.numero }}</h1>
     <p>{{ cotizacion.titulo }}</p>
   </div>
@@ -35,25 +35,25 @@
         <dt>Proyecto</dt><dd>{% if cotizacion.proyecto %}<a href="{% url 'panel_proyecto_detalle' cotizacion.proyecto.id %}">{{ cotizacion.proyecto.nombre }}</a>{% else %}-{% endif %}</dd>
         <dt>Solicitud</dt><dd>{% if cotizacion.solicitud %}<a href="{% url 'panel_solicitud_detalle' cotizacion.solicitud.id %}">OP-{{ cotizacion.solicitud.id|stringformat:"06d" }}</a>{% else %}-{% endif %}</dd>
         <dt>Estado</dt><dd>{{ cotizacion.get_estado_display }}</dd>
-        <dt>Emision</dt><dd>{{ cotizacion.fecha_emision|date:'d/m/Y'|default:'-' }}</dd>
+        <dt>Emisión</dt><dd>{{ cotizacion.fecha_emision|date:'d/m/Y'|default:'-' }}</dd>
         <dt>Vencimiento</dt><dd>{{ cotizacion.fecha_vencimiento|date:'d/m/Y'|default:'-' }}</dd>
         <dt>Moneda</dt><dd>{{ cotizacion.moneda }}</dd>
-        <dt>Email envio</dt><dd>{{ cotizacion.enviada_a_email|default:'-' }}</dd>
+        <dt>Email de envío</dt><dd>{{ cotizacion.enviada_a_email|default:'-' }}</dd>
       </dl>
       {% if cotizacion.descripcion %}<p>{{ cotizacion.descripcion }}</p>{% endif %}
     </div>
 
     <div class="panel-card">
       <div class="panel-card-head">
-        <h2>Items</h2>
-        <a href="{% url 'panel_cotizacion_item_crear' cotizacion.id %}" class="link-button">Agregar item</a>
+        <h2>Ítems</h2>
+        <a href="{% url 'panel_cotizacion_item_crear' cotizacion.id %}" class="link-button">Agregar ítem</a>
       </div>
       <div class="table-responsive">
         <table class="table products-table">
           <thead>
             <tr>
               <th>#</th>
-              <th>Descripcion</th>
+              <th>Descripción</th>
               <th>Cant.</th>
               <th>Unitario</th>
               <th>Desc.</th>
@@ -83,7 +83,7 @@
               </td>
             </tr>
             {% empty %}
-            <tr><td colspan="8">Esta cotizacion aun no tiene items.</td></tr>
+            <tr><td colspan="8">Esta cotización aún no tiene ítems.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -93,10 +93,10 @@
     <div class="panel-card">
       <h2>Condiciones</h2>
       <dl class="detail-list">
-        <dt>Tiempo entrega</dt><dd>{{ cotizacion.tiempo_entrega|default:'-' }}</dd>
-        <dt>Forma pago</dt><dd>{{ cotizacion.forma_pago|default:'-' }}</dd>
-        <dt>Garantia</dt><dd>{{ cotizacion.garantia|default:'-' }}</dd>
-        <dt>Validez</dt><dd>{{ cotizacion.validez_dias }} dias</dd>
+        <dt>Tiempo de entrega</dt><dd>{{ cotizacion.tiempo_entrega|default:'-' }}</dd>
+        <dt>Forma de pago</dt><dd>{{ cotizacion.forma_pago|default:'-' }}</dd>
+        <dt>Garantía</dt><dd>{{ cotizacion.garantia|default:'-' }}</dd>
+        <dt>Validez</dt><dd>{{ cotizacion.validez_dias }} días</dd>
       </dl>
       {% if cotizacion.observaciones_cliente %}<p><strong>Observaciones:</strong><br>{{ cotizacion.observaciones_cliente|linebreaksbr }}</p>{% endif %}
       {% if cotizacion.condiciones_comerciales %}<p><strong>Condiciones comerciales:</strong><br>{{ cotizacion.condiciones_comerciales|linebreaksbr }}</p>{% endif %}
@@ -120,11 +120,11 @@
           {% csrf_token %}
           <label for="email">Email destino</label>
           <input id="email" type="email" name="email" value="{% if cotizacion.contacto and cotizacion.contacto.email %}{{ cotizacion.contacto.email }}{% else %}{{ cotizacion.cliente.email }}{% endif %}">
-          <button class="btn btn-primary btn-wide">Enviar cotizacion</button>
+          <button class="btn btn-primary btn-wide">Enviar cotización</button>
         </form>
         <form method="post" action="{% url 'panel_cotizacion_duplicar' cotizacion.id %}">
           {% csrf_token %}
-          <button class="btn btn-outline btn-wide">Duplicar cotizacion</button>
+          <button class="btn btn-outline btn-wide">Duplicar cotización</button>
         </form>
         {% if cotizacion.estado == 'aprobada' %}
         <form method="post" action="{% url 'panel_cotizacion_convertir' cotizacion.id %}">

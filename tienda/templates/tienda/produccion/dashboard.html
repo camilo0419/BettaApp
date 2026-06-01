@@ -1,12 +1,12 @@
 {% extends 'tienda/produccion/base.html' %}
 
-{% block title %}Mis pedidos y tareas | Produccion{% endblock %}
+{% block title %}Mis pedidos y tareas | Producción{% endblock %}
 
 {% block content %}
 <div class="production-head">
   <div>
-    <span class="eyebrow">{% if produccion_modo_staff %}Dashboard produccion{% else %}Dashboard personal{% endif %}</span>
-    <h1>{% if produccion_modo_staff %}Dashboard produccion{% else %}Mis pedidos y tareas{% endif %}</h1>
+    <span class="eyebrow">{% if produccion_modo_staff %}Dashboard producción{% else %}Dashboard personal{% endif %}</span>
+    <h1>{% if produccion_modo_staff %}Dashboard producción{% else %}Mis pedidos y tareas{% endif %}</h1>
     <p class="production-user-summary">
       <strong>{{ produccion_usuario_nombre }}</strong>
       {% if produccion_usuario_detalle %}<span>{{ produccion_usuario_detalle }}</span>{% endif %}
@@ -77,7 +77,7 @@
       </select>
     </div>
     <div class="field">
-      <label for="fecha_limite">Fecha limite</label>
+      <label for="fecha_limite">Fecha límite</label>
       <input id="fecha_limite" type="date" name="fecha_limite" value="{{ fecha_limite }}">
     </div>
     <button type="submit" class="btn btn-primary">Filtrar</button>
@@ -101,8 +101,8 @@
           OP-{{ tarea.solicitud.id|stringformat:"06d" }} · {{ tarea.solicitud.producto.nombre }}
         </p>
         <dl class="mini-detail">
-          <dt>Area</dt><dd>{{ tarea.get_area_display }}</dd>
-          <dt>Limite</dt><dd>{{ tarea.fecha_limite|date:'d/m/Y'|default:'-' }}</dd>
+          <dt>Área</dt><dd>{{ tarea.get_area_display }}</dd>
+          <dt>Límite</dt><dd>{{ tarea.fecha_limite|date:'d/m/Y'|default:'-' }}</dd>
           <dt>Cliente</dt><dd>{{ tarea.solicitud.cliente_nombre }}</dd>
         </dl>
         <div class="production-actions">
@@ -125,7 +125,7 @@
       <article class="production-order-card">
         <div class="order-card-head">
           <span class="badge">OP-{{ asignacion.solicitud.id|stringformat:"06d" }}</span>
-          <span class="badge">{{ asignacion.solicitud.get_estado_produccion_display }}</span>
+          <span class="state-badge state-{{ asignacion.solicitud.estado_produccion }}">{{ asignacion.solicitud.get_estado_produccion_display }}</span>
         </div>
         <h2>{{ asignacion.solicitud.producto.nombre }}</h2>
         <p>{{ asignacion.solicitud.cliente_nombre }} · {{ asignacion.solicitud.creado|date:'d/m/Y H:i' }}</p>

@@ -19,20 +19,20 @@
     <h2>Resumen</h2>
     <dl class="detail-list">
       <dt>Producto</dt><dd>{{ solicitud.producto.nombre }}</dd>
-      <dt>Categoria</dt><dd>{{ solicitud.producto.categoria.nombre|default:'-' }}</dd>
+      <dt>Categoría</dt><dd>{{ solicitud.producto.categoria.nombre|default:'-' }}</dd>
       <dt>Proyecto</dt><dd>{% if solicitud.proyecto %}<a href="{% url 'cliente_proyecto_detalle' solicitud.proyecto.id %}">{{ solicitud.proyecto.nombre }}</a>{% else %}-{% endif %}</dd>
       <dt>Estado general</dt><dd>{{ solicitud.get_estado_display }}</dd>
-      <dt>Estado produccion</dt><dd>{{ solicitud.get_estado_produccion_display }}</dd>
+      <dt>Estado de producción</dt><dd><span class="state-badge state-{{ solicitud.estado_produccion }}">{{ solicitud.get_estado_produccion_display }}</span></dd>
       <dt>Fecha</dt><dd>{{ solicitud.creado|date:'d/m/Y H:i' }}</dd>
     </dl>
   </section>
 
   {% if cliente_usuario.puede_ver_facturacion %}
   <section class="client-card">
-    <h2>Informacion comercial</h2>
+    <h2>Información comercial</h2>
     <dl class="detail-list">
       <dt>Valor visible</dt><dd>{% if valor_visible %}${{ valor_visible|floatformat:0 }}{% else %}-{% endif %}</dd>
-      <dt>Estado facturacion</dt><dd>{{ solicitud.get_estado_facturacion_display }}</dd>
+      <dt>Estado facturación</dt><dd>{{ solicitud.get_estado_facturacion_display }}</dd>
       <dt>Factura</dt><dd>{{ solicitud.numero_factura|default:'-' }}</dd>
       <dt>Fecha factura</dt><dd>{{ solicitud.fecha_factura|date:'d/m/Y'|default:'-' }}</dd>
     </dl>

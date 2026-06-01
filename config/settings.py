@@ -62,7 +62,7 @@ if not DEBUG and SECRET_KEY in {
     "change-me",
     "change-me-in-production",
 }:
-    raise ImproperlyConfigured("DJANGO_SECRET_KEY debe ser un valor real y seguro en produccion.")
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY debe ser un valor real y seguro en producción.")
 
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["127.0.0.1", "localhost"])
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
@@ -171,5 +171,5 @@ if EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend" and (not EMAIL
 
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "webmaster@localhost").strip()
 SERVER_EMAIL = os.environ.get("SERVER_EMAIL", DEFAULT_FROM_EMAIL).strip()
-BETTA_EMAIL_FROM_NAME = os.environ.get("BETTA_EMAIL_FROM_NAME", "Betta Diseno").strip()
+BETTA_EMAIL_FROM_NAME = os.environ.get("BETTA_EMAIL_FROM_NAME", "Betta Diseño").strip()
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000").strip().rstrip("/")

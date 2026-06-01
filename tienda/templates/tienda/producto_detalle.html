@@ -90,6 +90,14 @@
               {{ form.cliente_email }}
               {{ form.cliente_email.errors }}
             </div>
+
+            {% if form.contacto %}
+            <div class="field full">
+              {{ form.contacto.label_tag }}
+              {{ form.contacto }}
+              {{ form.contacto.errors }}
+            </div>
+            {% endif %}
           </div>
         </div>
 
@@ -98,7 +106,7 @@
 
           <div class="form-grid two">
             {% for field in form %}
-              {% if field.name != 'cliente_nombre' and field.name != 'cliente_celular' and field.name != 'cliente_email' %}
+              {% if field.name != 'cliente_nombre' and field.name != 'cliente_celular' and field.name != 'cliente_email' and field.name != 'contacto' %}
 
               <div class="field {% if field.field.widget.input_type == 'checkbox' or field.field.widget.input_type == 'file' or field.field.widget.input_type == 'color' %}full{% endif %}">
                 {{ field.label_tag }}
@@ -191,8 +199,8 @@ document.addEventListener("DOMContentLoaded", function () {
       mainImage.src = newSrc;
       mainImage.alt = newAlt;
 
-      galleryButtons.forEach(function (item) {
-        item.classList.remove("active");
+      galleryButtons.forEach(function (ítem) {
+        ítem.classList.remove("active");
       });
 
       button.classList.add("active");

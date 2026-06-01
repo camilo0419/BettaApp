@@ -28,9 +28,10 @@
       <h2>Datos del proyecto</h2>
       <dl class="detail-list">
         <dt>Cliente</dt><dd>{% if proyecto.cliente %}<a href="{% url 'panel_cliente_detalle' proyecto.cliente.id %}">{{ proyecto.cliente }}</a>{% else %}-{% endif %}</dd>
+        <dt>Contacto asociado</dt><dd>{{ proyecto.contacto.nombre|default:'-' }}</dd>
         <dt>Cliente legacy</dt><dd>{{ proyecto.cliente_nombre|default:'-' }}</dd>
-        <dt>Contacto</dt><dd>{{ proyecto.cliente_contacto|default:'-' }}</dd>
-        <dt>Telefono</dt><dd>{{ proyecto.cliente_telefono|default:'-' }}</dd>
+        <dt>Contacto legacy</dt><dd>{{ proyecto.cliente_contacto|default:'-' }}</dd>
+        <dt>Teléfono</dt><dd>{{ proyecto.cliente_telefono|default:'-' }}</dd>
         <dt>Email</dt><dd>{{ proyecto.cliente_email|default:'-' }}</dd>
         <dt>Estado</dt><dd>{{ proyecto.get_estado_display }}</dd>
         <dt>Prioridad</dt><dd>{{ proyecto.get_prioridad_display }}</dd>
@@ -51,6 +52,7 @@
               <th>Solicitud</th>
               <th>Cliente</th>
               <th>Cliente asociado</th>
+              <th>Contacto</th>
               <th>Producto</th>
               <th>Estado</th>
               <th>Acciones</th>
@@ -62,8 +64,9 @@
               <td><strong>OP-{{ solicitud.id|stringformat:"06d" }}</strong></td>
               <td>{{ solicitud.cliente_nombre }}</td>
               <td>{% if solicitud.cliente %}<a href="{% url 'panel_cliente_detalle' solicitud.cliente.id %}">{{ solicitud.cliente }}</a>{% else %}-{% endif %}</td>
+              <td>{{ solicitud.contacto.nombre|default:'-' }}</td>
               <td>{{ solicitud.producto.nombre }}</td>
-              <td>{{ solicitud.get_estado_produccion_display }}</td>
+              <td><span class="state-badge state-{{ solicitud.estado_produccion }}">{{ solicitud.get_estado_produccion_display }}</span></td>
               <td class="actions-column">
                 <div class="table-actions">
                   <a href="{% url 'panel_solicitud_detalle' solicitud.id %}" class="link-button">Ver</a>
@@ -77,7 +80,7 @@
               </td>
             </tr>
             {% empty %}
-            <tr><td colspan="6">Este proyecto aun no tiene solicitudes asociadas.</td></tr>
+            <tr><td colspan="7">Este proyecto aún no tiene solicitudes asociadas.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -87,13 +90,13 @@
     <div class="panel-card">
       <div class="panel-card-head">
         <h2>Cotizaciones</h2>
-        <a href="{% url 'panel_cotizacion_crear' %}?proyecto={{ proyecto.id }}" class="link-button">Crear cotizacion</a>
+        <a href="{% url 'panel_cotizacion_crear' %}?proyecto={{ proyecto.id }}" class="link-button">Crear cotización</a>
       </div>
       <div class="table-responsive">
         <table class="table products-table">
           <thead>
             <tr>
-              <th>Numero</th>
+              <th>Número</th>
               <th>Cliente</th>
               <th>Estado</th>
               <th>Total</th>
@@ -127,7 +130,7 @@
               <th>Solicitud</th>
               <th>Responsable</th>
               <th>Estado</th>
-              <th>Limite</th>
+              <th>Límite</th>
               <th>Acciones</th>
             </tr>
           </thead>

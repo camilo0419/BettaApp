@@ -5,7 +5,7 @@
 {% block content %}
 <div class="panel-head">
   <div>
-    <span class="eyebrow">Gestion operativa</span>
+    <span class="eyebrow">Gestión operativa</span>
     <h1>Proyectos</h1>
   </div>
   <a href="{% url 'panel_proyecto_crear' %}" class="btn btn-primary">Crear proyecto</a>
@@ -46,7 +46,7 @@
       </div>
       <div class="field">
         <label for="cliente">Cliente</label>
-        <select id="cliente" name="cliente">
+        <select id="cliente" name="cliente" data-searchable-select="true">
           <option value="">Todos</option>
           {% for cliente in clientes %}
             <option value="{{ cliente.id }}" {% if cliente_id == cliente.id|stringformat:'s' %}selected{% endif %}>{{ cliente }}</option>
@@ -64,8 +64,9 @@
       <thead>
         <tr>
           <th>Proyecto</th>
-          <th>Cliente legacy</th>
           <th>Cliente</th>
+          <th>Contacto</th>
+          <th>Cliente legacy</th>
           <th>Estado</th>
           <th>Prioridad</th>
           <th>Responsable</th>
@@ -79,6 +80,7 @@
         <tr>
           <td><strong>{{ proyecto.nombre }}</strong><br><small>{% if proyecto.activo %}Activo{% else %}Inactivo{% endif %}</small></td>
           <td>{% if proyecto.cliente %}<a href="{% url 'panel_cliente_detalle' proyecto.cliente.id %}">{{ proyecto.cliente }}</a>{% else %}-{% endif %}</td>
+          <td>{{ proyecto.contacto.nombre|default:proyecto.cliente_contacto|default:'-' }}</td>
           <td>{{ proyecto.cliente_nombre|default:'-' }}</td>
           <td>{{ proyecto.get_estado_display }}</td>
           <td>{{ proyecto.get_prioridad_display }}</td>
@@ -97,7 +99,7 @@
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="9">No hay proyectos con esos filtros.</td></tr>
+        <tr><td colspan="10">No hay proyectos con esos filtros.</td></tr>
         {% endfor %}
       </tbody>
     </table>

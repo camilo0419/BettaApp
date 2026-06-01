@@ -5,11 +5,11 @@
 {% block content %}
 <div class="panel-head">
   <div>
-    <span class="eyebrow">Cotizacion</span>
+    <span class="eyebrow">Cotización</span>
     <h1>{{ titulo }}</h1>
   </div>
   <div class="head-actions">
-    {% if cotizacion %}<a href="{% url 'panel_cotizacion_detalle' cotizacion.id %}" class="btn btn-outline">Volver a cotizacion</a>{% endif %}
+    {% if cotizacion %}<a href="{% url 'panel_cotizacion_detalle' cotizacion.id %}" class="btn btn-outline">Volver a cotización</a>{% endif %}
     <a href="{% url 'panel_cotizaciones' %}" class="btn btn-outline">Volver</a>
   </div>
 </div>
@@ -27,7 +27,7 @@
       {% endfor %}
     </div>
     {{ form.non_field_errors }}
-    <button class="btn btn-primary btn-wide">Guardar cotizacion</button>
+    <button class="btn btn-primary btn-wide">Guardar cotización</button>
   </form>
 </div>
 {% endblock %}

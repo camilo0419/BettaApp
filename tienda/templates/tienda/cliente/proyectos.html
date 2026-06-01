@@ -39,7 +39,7 @@
       <h2>{{ proyecto.nombre }}</h2>
       <span class="badge">{{ proyecto.get_estado_display }}</span>
     </div>
-    <p>{{ proyecto.descripcion|truncatewords:24|default:'Proyecto sin descripcion visible.' }}</p>
+    <p>{{ proyecto.descripcion|truncatewords:24|default:'Proyecto sin descripción visible.' }}</p>
     <dl class="detail-list">
       <dt>Prioridad</dt><dd>{{ proyecto.get_prioridad_display }}</dd>
       <dt>Fecha compromiso</dt><dd>{{ proyecto.fecha_compromiso|date:'d/m/Y'|default:'-' }}</dd>

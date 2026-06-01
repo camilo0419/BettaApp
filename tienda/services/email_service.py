@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 def remitente_betta():
-    nombre = getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseno")
+    nombre = getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseño")
     email = getattr(settings, "DEFAULT_FROM_EMAIL", "") or getattr(settings, "SERVER_EMAIL", "")
     if email and nombre:
         return f"{nombre} <{email}>"
@@ -24,7 +24,7 @@ def enviar_correo_cliente(destinatarios, asunto, template_html, contexto=None, t
 
     contexto = contexto or {}
     contexto.setdefault("site_url", getattr(settings, "SITE_URL", ""))
-    contexto.setdefault("from_name", getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseno"))
+    contexto.setdefault("from_name", getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseño"))
 
     try:
         texto = render_to_string(template_texto, contexto) if template_texto else ""
@@ -68,7 +68,7 @@ def enviar_notificacion_cliente(notificacion):
 def enviar_notificacion_estado_pedido(solicitud, cliente_usuario, mensaje):
     return enviar_correo_cliente(
         cliente_usuario.user.email,
-        f"Actualizacion de pedido OP-{solicitud.id:06d}",
+        f"Actualización de pedido OP-{solicitud.id:06d}",
         "tienda/emails/notificacion_cliente.html",
         {
             "cliente": cliente_usuario.cliente,
@@ -84,7 +84,7 @@ def enviar_notificacion_estado_pedido(solicitud, cliente_usuario, mensaje):
 def enviar_notificacion_estado_proyecto(proyecto, cliente_usuario, mensaje):
     return enviar_correo_cliente(
         cliente_usuario.user.email,
-        f"Actualizacion de proyecto {proyecto.nombre}",
+        f"Actualización de proyecto {proyecto.nombre}",
         "tienda/emails/notificacion_cliente.html",
         {
             "cliente": cliente_usuario.cliente,

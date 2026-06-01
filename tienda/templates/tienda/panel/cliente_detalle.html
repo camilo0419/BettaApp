@@ -19,7 +19,7 @@
   <div class="kpi"><span>Proyectos activos</span><strong>{{ metricas.proyectos_activos }}</strong></div>
   <div class="kpi"><span>Proyectos terminados</span><strong>{{ metricas.proyectos_terminados }}</strong></div>
   <div class="kpi"><span>Solicitudes</span><strong>{{ metricas.solicitudes }}</strong></div>
-  <div class="kpi"><span>En produccion</span><strong>{{ metricas.solicitudes_produccion }}</strong></div>
+  <div class="kpi"><span>En producción</span><strong>{{ metricas.solicitudes_produccion }}</strong></div>
   <div class="kpi"><span>Tareas pendientes</span><strong>{{ metricas.tareas_pendientes }}</strong></div>
   <div class="kpi"><span>Cotizaciones</span><strong>{{ metricas.cotizaciones }}</strong></div>
   <div class="kpi"><span>Total cotizado</span><strong>${{ metricas.total_cotizado|floatformat:0 }}</strong></div>
@@ -32,17 +32,17 @@
       <dl class="detail-list">
         <dt>Tipo</dt><dd>{{ cliente.get_tipo_cliente_display }}</dd>
         <dt>Nombre</dt><dd>{{ cliente.nombre }}</dd>
-        <dt>Razon social</dt><dd>{{ cliente.razon_social|default:'-' }}</dd>
+        <dt>Razón social</dt><dd>{{ cliente.razon_social|default:'-' }}</dd>
         <dt>Nombre comercial</dt><dd>{{ cliente.nombre_comercial|default:'-' }}</dd>
         <dt>Sector</dt><dd>{{ cliente.sector|default:'-' }}</dd>
-        <dt>Identificacion</dt><dd>{{ cliente.tipo_identificacion|upper|default:'-' }} {{ cliente.identificacion|default:'' }}</dd>
+        <dt>Identificación</dt><dd>{{ cliente.tipo_identificacion|upper|default:'-' }} {{ cliente.identificacion|default:'' }}</dd>
         <dt>Email</dt><dd>{{ cliente.email|default:'-' }}</dd>
-        <dt>Telefono</dt><dd>{{ cliente.telefono|default:'-' }}</dd>
+        <dt>Teléfono</dt><dd>{{ cliente.telefono|default:'-' }}</dd>
         <dt>WhatsApp</dt><dd>{{ cliente.whatsapp|default:'-' }}</dd>
         <dt>Sitio web</dt><dd>{{ cliente.sitio_web|default:'-' }}</dd>
         <dt>Preferencia contacto</dt><dd>{{ cliente.preferencia_contacto|default:'-' }}</dd>
         <dt>Ciudad</dt><dd>{{ cliente.ciudad|default:'-' }}</dd>
-        <dt>Direccion</dt><dd>{{ cliente.direccion|default:'-' }}</dd>
+        <dt>Dirección</dt><dd>{{ cliente.direccion|default:'-' }}</dd>
         <dt>Estado</dt><dd>{% if cliente.activo %}Activo{% else %}Inactivo{% endif %}</dd>
       </dl>
       {% if cliente.notas %}<p>{{ cliente.notas }}</p>{% endif %}
@@ -83,13 +83,13 @@
     <div class="panel-card">
       <div class="panel-card-head">
         <h2>Cotizaciones</h2>
-        <a href="{% url 'panel_cotizacion_crear' %}?cliente={{ cliente.id }}" class="link-button">Crear cotizacion</a>
+        <a href="{% url 'panel_cotizacion_crear' %}?cliente={{ cliente.id }}" class="link-button">Crear cotización</a>
       </div>
       <div class="table-responsive">
         <table class="table products-table">
           <thead>
             <tr>
-              <th>Numero</th>
+              <th>Número</th>
               <th>Proyecto</th>
               <th>Estado</th>
               <th>Total</th>
@@ -132,7 +132,7 @@
               <td><strong>OP-{{ solicitud.id|stringformat:"06d" }}</strong><br><small>{{ solicitud.creado|date:'d/m/Y H:i' }}</small></td>
               <td>{{ solicitud.producto.nombre }}</td>
               <td>{{ solicitud.proyecto.nombre|default:'-' }}</td>
-              <td>{{ solicitud.get_estado_produccion_display }}</td>
+              <td><span class="state-badge state-{{ solicitud.estado_produccion }}">{{ solicitud.get_estado_produccion_display }}</span></td>
               <td class="actions-column"><div class="table-actions"><a href="{% url 'panel_solicitud_detalle' solicitud.id %}" class="link-button">Ver</a></div></td>
             </tr>
             {% empty %}
@@ -209,8 +209,8 @@
         {% for usuario_portal in usuarios_portal %}
           <div class="notification-item">
             <strong>{{ usuario_portal.user.email|default:usuario_portal.user.username }}</strong>
-            <span>{% if usuario_portal.activo %}Activo{% else %}Inactivo{% endif %} · {% if usuario_portal.puede_ver_facturacion %}Ve facturacion{% else %}Sin facturacion{% endif %}</span>
-            <span>Ultimo acceso: {{ usuario_portal.fecha_ultimo_acceso|date:'d/m/Y H:i'|default:'-' }}</span>
+            <span>{% if usuario_portal.activo %}Activo{% else %}Inactivo{% endif %} · {% if usuario_portal.puede_ver_facturacion %}Ve facturación{% else %}Sin facturación{% endif %}</span>
+            <span>último acceso: {{ usuario_portal.fecha_ultimo_acceso|date:'d/m/Y H:i'|default:'-' }}</span>
             <div class="table-actions">
               <a href="{% url 'panel_cliente_portal_editar' usuario_portal.id %}" class="link-button">Editar</a>
               <form method="post" action="{% url 'panel_cliente_portal_toggle' usuario_portal.id %}">

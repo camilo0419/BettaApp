@@ -7,6 +7,7 @@ from django.urls import reverse
 from .models import (
     Categoria,
     Cliente,
+    ClienteContacto,
     ClienteUsuario,
     Cotizacion,
     CotizacionItem,
@@ -22,7 +23,7 @@ from .models import (
 
 class PortalClienteTests(TestCase):
     def setUp(self):
-        self.categoria = Categoria.objects.create(nombre="Categoria Test", activa=True)
+        self.categoria = Categoria.objects.create(nombre="Categoría Test", activa=True)
         self.producto = Producto.objects.create(
             nombre="Producto Test",
             categoria=self.categoria,
@@ -33,6 +34,21 @@ class PortalClienteTests(TestCase):
         )
         self.cliente = Cliente.objects.create(nombre="Cliente Uno", email="cliente1@example.com", activo=True)
         self.otro_cliente = Cliente.objects.create(nombre="Cliente Dos", email="cliente2@example.com", activo=True)
+        self.contacto = ClienteContacto.objects.create(
+            cliente=self.cliente,
+            nombre="Contacto Uno",
+            email="cliente1@example.com",
+            telefono="3000000000",
+            whatsapp="3000000000",
+            es_principal=True,
+        )
+        self.contacto_dos = ClienteContacto.objects.create(
+            cliente=self.cliente,
+            nombre="Contacto Dos",
+            email="contacto2@example.com",
+            telefono="3000000002",
+            whatsapp="3000000002",
+        )
         self.user = User.objects.create_user(
             username="cliente1@example.com",
             email="cliente1@example.com",
@@ -42,12 +58,14 @@ class PortalClienteTests(TestCase):
         self.cliente_usuario = ClienteUsuario.objects.create(
             cliente=self.cliente,
             user=self.user,
+            contacto=self.contacto,
             puede_ver_facturacion=True,
         )
-        self.proyecto = Proyecto.objects.create(nombre="Proyecto Cliente", cliente=self.cliente, estado=Proyecto.ESTADO_PRODUCCION)
+        self.proyecto = Proyecto.objects.create(nombre="Proyecto Cliente", cliente=self.cliente, contacto=self.contacto, estado=Proyecto.ESTADO_PRODUCCION)
         self.solicitud = Solicitud.objects.create(
             producto=self.producto,
             cliente=self.cliente,
+            contacto=self.contacto,
             proyecto=self.proyecto,
             cliente_nombre="Cliente Uno",
             cliente_celular="3000000000",
@@ -118,15 +136,36 @@ class PortalClienteTests(TestCase):
         response = self.client.get(reverse("cliente_pedido_detalle", args=[self.otra_solicitud.id]))
         self.assertEqual(response.status_code, 404)
 
+    def test_cliente_solo_ve_su_contacto_salvo_permiso_global(self):
+        proyecto_dos = Proyecto.objects.create(nombre="Proyecto otro contacto", cliente=self.cliente, contacto=self.contacto_dos)
+        solicitud_dos = Solicitud.objects.create(
+            producto=self.producto,
+            cliente=self.cliente,
+            contacto=self.contacto_dos,
+            proyecto=proyecto_dos,
+            cliente_nombre="Contacto Dos",
+            cliente_celular="3000000002",
+            cliente_email="contacto2@example.com",
+        )
+        self.login_cliente()
+        response = self.client.get(reverse("cliente_pedidos"))
+        self.assertContains(response, "OP-{:06d}".format(self.solicitud.id))
+        self.assertNotContains(response, "OP-{:06d}".format(solicitud_dos.id))
+        self.assertEqual(self.client.get(reverse("cliente_pedido_detalle", args=[solicitud_dos.id])).status_code, 404)
+        self.cliente_usuario.puede_ver_toda_la_cuenta = True
+        self.cliente_usuario.save()
+        response = self.client.get(reverse("cliente_pedido_detalle", args=[solicitud_dos.id]))
+        self.assertEqual(response.status_code, 200)
+
     def test_facturacion_depende_de_permiso(self):
         self.login_cliente()
         response = self.client.get(reverse("cliente_pedido_detalle", args=[self.solicitud.id]))
-        self.assertContains(response, "Informacion comercial")
+        self.assertContains(response, "Información comercial")
         self.assertContains(response, "Facturado")
         self.cliente_usuario.puede_ver_facturacion = False
         self.cliente_usuario.save()
         response = self.client.get(reverse("cliente_pedido_detalle", args=[self.solicitud.id]))
-        self.assertNotContains(response, "Informacion comercial")
+        self.assertNotContains(response, "Información comercial")
 
     def test_novedades_internas_no_se_exponen(self):
         self.login_cliente()
@@ -155,6 +194,32 @@ class PortalClienteTests(TestCase):
     def test_publico_sigue_sin_login(self):
         response = self.client.get(reverse("producto_detalle", args=[self.producto.slug]))
         self.assertEqual(response.status_code, 200)
+
+    def test_cliente_logueado_crea_solicitud_con_su_cuenta(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            reverse("producto_detalle", args=[self.producto.slug]),
+            {
+                "cliente_nombre": "Nombre alterado",
+                "cliente_celular": "3999999999",
+                "cliente_email": "alterado@example.com",
+            },
+        )
+        solicitud = Solicitud.objects.exclude(pk__in=[self.solicitud.pk, self.otra_solicitud.pk]).latest("id")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(f"/solicitud/{solicitud.pk}/exito/", response.url)
+        self.assertEqual(solicitud.cliente, self.cliente)
+        self.assertEqual(solicitud.contacto, self.contacto)
+        self.assertEqual(solicitud.cliente_nombre, self.contacto.nombre)
+        self.assertEqual(solicitud.cliente_celular, self.contacto.whatsapp)
+        self.assertEqual(solicitud.cliente_email, self.contacto.email)
+
+    def test_header_publico_muestra_cuenta_si_cliente_logueado(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("producto_detalle", args=[self.producto.slug]))
+        self.assertContains(response, "Mi cuenta")
+        self.assertContains(response, self.contacto.nombre)
+        self.assertNotContains(response, "Iniciar sesi")
 
     def test_panel_staff_y_orden_produccion_siguen_funcionando(self):
         staff = User.objects.create_user(username="staff", password="StaffTest123!", is_staff=True)
@@ -190,11 +255,11 @@ class PortalClienteTests(TestCase):
             cliente=self.cliente,
             proyecto=self.proyecto,
             solicitud=self.solicitud,
-            titulo="Cotizacion smoke",
+            titulo="Cotización smoke",
             estado=Cotizacion.ESTADO_ENVIADA,
             creada_por=staff,
         )
-        CotizacionItem.objects.create(cotizacion=cotizacion, descripcion="Item smoke", cantidad=Decimal("1"), valor_unitario=Decimal("1000"))
+        CotizacionItem.objects.create(cotizacion=cotizacion, descripcion="ítem smoke", cantidad=Decimal("1"), valor_unitario=Decimal("1000"))
 
         self.client.force_login(staff)
         rutas_staff = [
@@ -275,7 +340,7 @@ class PortalClienteTests(TestCase):
                 "cliente": self.cliente.id,
                 "proyecto": self.proyecto.id,
                 "solicitud": self.solicitud.id,
-                "titulo": "Cotizacion test",
+                "titulo": "Cotización test",
                 "descripcion": "Prueba comercial",
                 "estado": Cotizacion.ESTADO_BORRADOR,
                 "moneda": Cotizacion.MONEDA_COP,
@@ -283,13 +348,13 @@ class PortalClienteTests(TestCase):
                 "activa": "on",
             },
         )
-        cotizacion = Cotizacion.objects.get(titulo="Cotizacion test")
+        cotizacion = Cotizacion.objects.get(titulo="Cotización test")
         self.assertRedirects(response, reverse("panel_cotizacion_detalle", args=[cotizacion.id]))
         response = self.client.post(
             reverse("panel_cotizacion_item_crear", args=[cotizacion.id]),
             {
                 "producto": self.producto.id,
-                "descripcion": "Item test",
+                "descripcion": "ítem test",
                 "detalle": "Detalle",
                 "cantidad": "2",
                 "unidad": "und",
@@ -315,13 +380,13 @@ class PortalClienteTests(TestCase):
             cliente=self.cliente,
             proyecto=self.proyecto,
             solicitud=self.solicitud,
-            titulo="Cotizacion visible",
+            titulo="Cotización visible",
             estado=Cotizacion.ESTADO_ENVIADA,
             creada_por=None,
         )
         CotizacionItem.objects.create(
             cotizacion=cotizacion,
-            descripcion="Item visible",
+            descripcion="ítem visible",
             cantidad=Decimal("1"),
             valor_unitario=Decimal("5000"),
         )
@@ -339,8 +404,8 @@ class PortalClienteTests(TestCase):
     def test_envio_cotizacion_cambia_estado_con_backend_consola(self):
         staff = User.objects.create_user(username="staff3", password="StaffTest123!", is_staff=True)
         self.client.force_login(staff)
-        cotizacion = Cotizacion.objects.create(cliente=self.cliente, titulo="Envio test", creada_por=staff)
-        CotizacionItem.objects.create(cotizacion=cotizacion, descripcion="Item", cantidad=Decimal("1"), valor_unitario=Decimal("1000"))
+        cotizacion = Cotizacion.objects.create(cliente=self.cliente, titulo="Envío test", creada_por=staff)
+        CotizacionItem.objects.create(cotizacion=cotizacion, descripcion="ítem", cantidad=Decimal("1"), valor_unitario=Decimal("1000"))
         response = self.client.post(reverse("panel_cotizacion_enviar", args=[cotizacion.id]), {"email": "cliente1@example.com"})
         self.assertRedirects(response, reverse("panel_cotizacion_detalle", args=[cotizacion.id]))
         cotizacion.refresh_from_db()

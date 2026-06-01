@@ -55,6 +55,7 @@ class ClienteUsuarioInline(admin.TabularInline):
         "user",
         "contacto",
         "activo",
+        "puede_ver_toda_la_cuenta",
         "puede_ver_proyectos",
         "puede_ver_solicitudes",
         "puede_ver_facturacion",
@@ -105,8 +106,8 @@ class ClienteContactoAdmin(admin.ModelAdmin):
 
 @admin.register(ClienteUsuario)
 class ClienteUsuarioAdmin(admin.ModelAdmin):
-    list_display = ["cliente", "user", "activo", "puede_ver_proyectos", "puede_ver_solicitudes", "puede_ver_facturacion", "fecha_ultimo_acceso"]
-    list_filter = ["activo", "puede_ver_proyectos", "puede_ver_solicitudes", "puede_ver_facturacion", "recibe_notificaciones"]
+    list_display = ["cliente", "user", "contacto", "activo", "puede_ver_toda_la_cuenta", "puede_ver_proyectos", "puede_ver_solicitudes", "puede_ver_facturacion", "fecha_ultimo_acceso"]
+    list_filter = ["activo", "puede_ver_toda_la_cuenta", "puede_ver_proyectos", "puede_ver_solicitudes", "puede_ver_facturacion", "recibe_notificaciones"]
     search_fields = ["cliente__nombre", "cliente__razon_social", "user__username", "user__email", "user__first_name", "user__last_name"]
 
 
@@ -161,25 +162,25 @@ class CotizacionItemInline(admin.TabularInline):
 
 @admin.register(Proyecto)
 class ProyectoAdmin(admin.ModelAdmin):
-    list_display = ["nombre", "cliente", "cliente_nombre", "estado", "prioridad", "responsable", "activo", "fecha_compromiso"]
-    list_filter = ["estado", "prioridad", "activo", "cliente", "fecha_compromiso"]
-    search_fields = ["nombre", "cliente__nombre", "cliente__razon_social", "cliente_nombre", "cliente_contacto", "responsable__user__username"]
+    list_display = ["nombre", "cliente", "contacto", "cliente_nombre", "estado", "prioridad", "responsable", "activo", "fecha_compromiso"]
+    list_filter = ["estado", "prioridad", "activo", "cliente", "contacto", "fecha_compromiso"]
+    search_fields = ["nombre", "cliente__nombre", "cliente__razon_social", "contacto__nombre", "contacto__email", "cliente_nombre", "cliente_contacto", "responsable__user__username"]
     readonly_fields = ["fecha_creacion", "fecha_actualizacion"]
 
 
 @admin.register(Solicitud)
 class SolicitudAdmin(admin.ModelAdmin):
-    list_display = ["id", "cliente_nombre", "cliente", "producto", "proyecto", "estado", "estado_produccion", "precio_estimado", "valor_facturado", "estado_facturacion", "creado"]
-    list_filter = ["estado", "estado_produccion", "estado_facturacion", "cliente", "proyecto", "producto", "creado"]
-    search_fields = ["cliente_nombre", "cliente_celular", "cliente__nombre", "cliente__razon_social", "producto__nombre", "proyecto__nombre"]
+    list_display = ["id", "cliente_nombre", "cliente", "contacto", "producto", "proyecto", "estado", "estado_produccion", "precio_estimado", "valor_facturado", "estado_facturacion", "creado"]
+    list_filter = ["estado", "estado_produccion", "estado_facturacion", "cliente", "contacto", "proyecto", "producto", "creado"]
+    search_fields = ["cliente_nombre", "cliente_celular", "cliente__nombre", "cliente__razon_social", "contacto__nombre", "contacto__email", "producto__nombre", "proyecto__nombre"]
     inlines = [SolicitudRespuestaInline, SolicitudAsignacionInline, SolicitudTareaInline, SolicitudNovedadInline]
 
 
 @admin.register(Cotizacion)
 class CotizacionAdmin(admin.ModelAdmin):
-    list_display = ["numero", "cliente", "proyecto", "solicitud", "estado", "subtotal", "descuento_total", "impuesto_total", "total", "fecha_creacion"]
-    list_filter = ["estado", "moneda", "activa", "fecha_creacion", "cliente"]
-    search_fields = ["numero", "titulo", "cliente__nombre", "cliente__razon_social", "proyecto__nombre"]
+    list_display = ["numero", "cliente", "contacto", "proyecto", "solicitud", "estado", "subtotal", "descuento_total", "impuesto_total", "total", "fecha_creacion"]
+    list_filter = ["estado", "moneda", "activa", "fecha_creacion", "cliente", "contacto"]
+    search_fields = ["numero", "titulo", "cliente__nombre", "cliente__razon_social", "contacto__nombre", "contacto__email", "proyecto__nombre"]
     readonly_fields = ["numero", "subtotal", "descuento_total", "impuesto_total", "total", "fecha_creacion", "fecha_actualizacion"]
     inlines = [CotizacionItemInline]
 

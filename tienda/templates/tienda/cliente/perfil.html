@@ -10,7 +10,7 @@
     <p>{{ cliente_usuario.user.email }}</p>
   </div>
   <div class="client-head-actions">
-    <a href="{% url 'cliente_password_reset' %}" class="btn btn-outline">Cambiar contrasena</a>
+    <a href="{% url 'cliente_password_reset' %}" class="btn btn-outline">Cambiar contraseña</a>
   </div>
 </div>
 
@@ -20,11 +20,11 @@
     <dl class="detail-list">
       <dt>Tipo</dt><dd>{{ cliente_usuario.cliente.get_tipo_cliente_display }}</dd>
       <dt>Nombre</dt><dd>{{ cliente_usuario.cliente.nombre }}</dd>
-      <dt>Razon social</dt><dd>{{ cliente_usuario.cliente.razon_social|default:'-' }}</dd>
-      <dt>Identificacion</dt><dd>{{ cliente_usuario.cliente.tipo_identificacion|upper|default:'-' }} {{ cliente_usuario.cliente.identificacion|default:'' }}</dd>
+      <dt>Razón social</dt><dd>{{ cliente_usuario.cliente.razon_social|default:'-' }}</dd>
+      <dt>Identificación</dt><dd>{{ cliente_usuario.cliente.tipo_identificacion|upper|default:'-' }} {{ cliente_usuario.cliente.identificacion|default:'' }}</dd>
       <dt>Email principal</dt><dd>{{ cliente_usuario.cliente.email|default:cliente_usuario.user.email }}</dd>
     </dl>
-    <p>Para cambiar identificacion, razon social o correo principal, contacta al equipo Betta.</p>
+    <p>Para cambiar identificación, razón social o correo principal, contacta al equipo Betta.</p>
   </section>
 
   <section class="client-card">

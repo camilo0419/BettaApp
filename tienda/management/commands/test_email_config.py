@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
-    help = "Envia un correo de prueba usando la configuracion actual sin exponer credenciales."
+    help = "Envía un correo de prueba usando la configuración actual sin exponer credenciales."
 
     def add_arguments(self, parser):
         parser.add_argument("destinatario", help="Correo destino de la prueba.")
@@ -20,7 +20,7 @@ class Command(BaseCommand):
         try:
             enviados = send_mail(
                 "Prueba Betta",
-                "Correo de prueba de configuracion Betta.",
+                "Correo de prueba de configuración Betta.",
                 None,
                 [destinatario],
                 fail_silently=False,

@@ -4,14 +4,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Produccion | Betta Diseno{% endblock %}</title>
+  <title>{% block title %}Producción | Betta Diseño{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
 </head>
 <body class="production-body">
   <header class="production-topbar">
     <a href="{% url 'produccion_dashboard' %}" class="production-brand">
-      <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseno">
-      <span>Produccion</span>
+      <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseño">
+      <span>Producción</span>
     </a>
     {% with active=request.resolver_match.url_name %}
     <nav class="production-nav">
@@ -37,15 +37,15 @@
     const endpoint = "{% url 'produccion_notificaciones_check' %}";
     let lastSeen = Number(window.localStorage.getItem("bettaLastNotificationId") || "0");
 
-    function notify(item) {
+    function notify(ítem) {
       if (!("Notification" in window) || Notification.permission !== "granted") {
         return;
       }
-      const notification = new Notification(item.titulo, { body: item.mensaje });
+      const notification = new Notification(ítem.titulo, { body: ítem.mensaje });
       notification.onclick = function () {
-        if (item.url) {
+        if (ítem.url) {
           window.focus();
-          window.location.href = item.url;
+          window.location.href = ítem.url;
         }
       };
     }
@@ -57,10 +57,10 @@
           if (!data || !data.notifications || !data.notifications.length) {
             return;
           }
-          data.notifications.slice().reverse().forEach(function (item) {
-            if (item.id > lastSeen) {
-              notify(item);
-              lastSeen = item.id;
+          data.notifications.slice().reverse().forEach(function (ítem) {
+            if (ítem.id > lastSeen) {
+              notify(ítem);
+              lastSeen = ítem.id;
             }
           });
           window.localStorage.setItem("bettaLastNotificationId", String(lastSeen));

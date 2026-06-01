@@ -21,14 +21,14 @@
         {% for value,label in estados %}<option value="{{ value }}" {% if estado == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
       </select>
     </label>
-    <label>Produccion
+    <label>Producción
       <select name="estado_produccion">
         <option value="">Todos</option>
         {% for value,label in estados_produccion %}<option value="{{ value }}" {% if estado_produccion == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
       </select>
     </label>
     <label>Proyecto
-      <select name="proyecto">
+      <select name="proyecto" data-searchable-select="true">
         <option value="">Todos</option>
         {% for proyecto in proyectos %}<option value="{{ proyecto.id }}" {% if proyecto_id == proyecto.id|stringformat:"s" %}selected{% endif %}>{{ proyecto.nombre }}</option>{% endfor %}
       </select>
@@ -60,7 +60,7 @@
           <td><strong>OP-{{ solicitud.id|stringformat:"06d" }}</strong><br><small>{{ solicitud.creado|date:'d/m/Y H:i' }}</small></td>
           <td>{{ solicitud.producto.nombre }}</td>
           <td>{{ solicitud.proyecto.nombre|default:'-' }}</td>
-          <td>{{ solicitud.get_estado_produccion_display }}</td>
+          <td><span class="state-badge state-{{ solicitud.estado_produccion }}">{{ solicitud.get_estado_produccion_display }}</span></td>
           {% if cliente_usuario.puede_ver_facturacion %}<td>${{ solicitud.valor_facturado|default:solicitud.precio_final|default:solicitud.precio_estimado|floatformat:0 }}</td>{% endif %}
           <td class="actions-column"><div class="table-actions"><a href="{% url 'cliente_pedido_detalle' solicitud.id %}" class="link-button">Ver detalle</a></div></td>
         </tr>

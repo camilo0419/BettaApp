@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ cotizacion.numero }} | Cotizacion</title>
+  <title>{{ cotizacion.numero }} | Cotización</title>
   <style>
     :root{--teal:#4abab8;--deep:#034860;--green:#00a28b;--ink:#092f3d;--muted:#5f747b;--line:#dce8e8;--bg:#f4f8f8}
     *{box-sizing:border-box}
@@ -32,11 +32,11 @@
   <main class="quote-page">
     <header class="quote-top">
       <div class="brand">
-        <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseno">
-        <div><strong>Betta Diseno</strong><span>Soluciones graficas y produccion personalizada</span></div>
+        <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseño">
+        <div><strong>Betta Diseño</strong><span>Soluciones gráficas y producción personalizada</span></div>
       </div>
       <div class="quote-title">
-        <h1>COTIZACION</h1>
+        <h1>COTIZACIÓN</h1>
         <strong>{{ cotizacion.numero }}</strong><br>
         <span>{{ cotizacion.get_estado_display }}</span>
       </div>
@@ -47,9 +47,9 @@
           <h2>Cliente</h2>
           <dl class="detail">
             <dt>Nombre</dt><dd>{{ cotizacion.cliente }}</dd>
-            <dt>Identificacion</dt><dd>{{ cotizacion.cliente.tipo_identificacion|upper|default:'-' }} {{ cotizacion.cliente.identificacion|default:'' }}</dd>
+            <dt>Identificación</dt><dd>{{ cotizacion.cliente.tipo_identificacion|upper|default:'-' }} {{ cotizacion.cliente.identificacion|default:'' }}</dd>
             <dt>Contacto</dt><dd>{% if cotizacion.contacto %}{{ cotizacion.contacto.nombre }}{% else %}{{ cotizacion.cliente.contacto_principal|default:'-' }}{% endif %}</dd>
-            <dt>Telefono</dt><dd>{% if cotizacion.cliente.telefono %}{{ cotizacion.cliente.telefono }}{% elif cotizacion.cliente.whatsapp %}{{ cotizacion.cliente.whatsapp }}{% else %}-{% endif %}</dd>
+            <dt>Teléfono</dt><dd>{% if cotizacion.cliente.telefono %}{{ cotizacion.cliente.telefono }}{% elif cotizacion.cliente.whatsapp %}{{ cotizacion.cliente.whatsapp }}{% else %}-{% endif %}</dd>
             <dt>Email</dt><dd>{% if cotizacion.contacto and cotizacion.contacto.email %}{{ cotizacion.contacto.email }}{% else %}{{ cotizacion.cliente.email|default:'-' }}{% endif %}</dd>
             <dt>Ciudad</dt><dd>{{ cotizacion.cliente.ciudad|default:'-' }}</dd>
           </dl>
@@ -57,7 +57,7 @@
         <div class="box">
           <h2>Referencia</h2>
           <dl class="detail">
-            <dt>Emision</dt><dd>{% if cotizacion.fecha_emision %}{{ cotizacion.fecha_emision|date:'d/m/Y' }}{% else %}{{ cotizacion.fecha_creacion|date:'d/m/Y' }}{% endif %}</dd>
+            <dt>Emisión</dt><dd>{% if cotizacion.fecha_emision %}{{ cotizacion.fecha_emision|date:'d/m/Y' }}{% else %}{{ cotizacion.fecha_creacion|date:'d/m/Y' }}{% endif %}</dd>
             <dt>Vencimiento</dt><dd>{{ cotizacion.fecha_vencimiento|date:'d/m/Y'|default:'-' }}</dd>
             <dt>Proyecto</dt><dd>{{ cotizacion.proyecto.nombre|default:'-' }}</dd>
             <dt>Solicitud</dt><dd>{% if cotizacion.solicitud %}OP-{{ cotizacion.solicitud.id|stringformat:"06d" }}{% else %}-{% endif %}</dd>
@@ -71,7 +71,7 @@
         {% if cotizacion.descripcion %}<p>{{ cotizacion.descripcion|linebreaksbr }}</p>{% endif %}
         <table>
           <thead>
-            <tr><th>#</th><th>Producto / descripcion</th><th>Cantidad</th><th class="num">Unitario</th><th class="num">Desc.</th><th class="num">Imp.</th><th class="num">Total</th></tr>
+            <tr><th>#</th><th>Producto / descripción</th><th>Cantidad</th><th class="num">Unitario</th><th class="num">Desc.</th><th class="num">Imp.</th><th class="num">Total</th></tr>
           </thead>
           <tbody>
             {% for item in items %}
@@ -85,7 +85,7 @@
               <td class="num"><strong>${{ item.total|floatformat:0 }}</strong></td>
             </tr>
             {% empty %}
-            <tr><td colspan="7">Sin items.</td></tr>
+            <tr><td colspan="7">Sin ítems.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -100,20 +100,20 @@
         <div class="box">
           <h2>Condiciones</h2>
           <dl class="detail">
-            <dt>Validez</dt><dd>{{ cotizacion.validez_dias }} dias</dd>
-            <dt>Entrega</dt><dd>{{ cotizacion.tiempo_entrega|default:'Por confirmar' }}</dd>
-            <dt>Pago</dt><dd>{{ cotizacion.forma_pago|default:'Por confirmar' }}</dd>
-            <dt>Garantia</dt><dd>{{ cotizacion.garantia|default:'Segun condiciones del producto' }}</dd>
+            <dt>Validez</dt><dd>{{ cotizacion.validez_dias }} días</dd>
+            <dt>Tiempo de entrega</dt><dd>{{ cotizacion.tiempo_entrega|default:'Por confirmar' }}</dd>
+            <dt>Forma de pago</dt><dd>{{ cotizacion.forma_pago|default:'Por confirmar' }}</dd>
+            <dt>Garantía</dt><dd>{{ cotizacion.garantia|default:'Según condiciones del producto' }}</dd>
           </dl>
         </div>
         <div class="box">
           <h2>Observaciones</h2>
-          <p>{{ cotizacion.observaciones_cliente|default:'Gracias por confiar en Betta Diseno.'|linebreaksbr }}</p>
+          <p>{{ cotizacion.observaciones_cliente|default:'Gracias por confiar en Betta Diseño.'|linebreaksbr }}</p>
           {% if cotizacion.condiciones_comerciales %}<p>{{ cotizacion.condiciones_comerciales|linebreaksbr }}</p>{% endif %}
         </div>
       </div>
     </section>
-    <footer class="footer">Esta cotizacion es comercial y no reemplaza una orden de produccion. Valores sujetos a las condiciones indicadas.</footer>
+    <footer class="footer">Esta cotización es comercial y no reemplaza una orden de producción. Valores sujetos a las condiciones indicadas.</footer>
   </main>
 </body>
 </html>

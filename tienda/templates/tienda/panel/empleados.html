@@ -19,7 +19,7 @@
         <input id="empleado-q" type="search" name="q" value="{{ q }}" placeholder="Usuario, nombre, email o cargo">
       </div>
       <div class="field">
-        <label for="empleado-area">Area</label>
+        <label for="empleado-area">Área</label>
         <select id="empleado-area" name="area">
           <option value="">Todas</option>
           {% for value,label in areas %}
@@ -31,7 +31,7 @@
         <label for="empleado-activo">Activo</label>
         <select id="empleado-activo" name="activo">
           <option value="">Todos</option>
-          <option value="1" {% if activo == "1" %}selected{% endif %}>Si</option>
+          <option value="1" {% if activo == "1" %}selected{% endif %}>Sí</option>
           <option value="0" {% if activo == "0" %}selected{% endif %}>No</option>
         </select>
       </div>
@@ -47,7 +47,7 @@
       <thead>
         <tr>
           <th>Empleado</th>
-          <th>Area</th>
+          <th>Área</th>
           <th>Cargo</th>
           <th>Staff</th>
           <th>Recibe pedidos</th>
@@ -65,10 +65,10 @@
           </td>
           <td>{{ empleado.get_area_display }}</td>
           <td>{{ empleado.cargo|default:"-" }}</td>
-          <td>{% if empleado.user.is_staff %}Si{% else %}No{% endif %}</td>
-          <td>{% if empleado.puede_recibir_pedidos %}Si{% else %}No{% endif %}</td>
+          <td>{% if empleado.user.is_staff %}Sí{% else %}No{% endif %}</td>
+          <td>{% if empleado.puede_recibir_pedidos %}Sí{% else %}No{% endif %}</td>
           <td>{{ empleado.num_asignaciones }}</td>
-          <td>{% if empleado.activo %}Si{% else %}No{% endif %}</td>
+          <td>{% if empleado.activo %}Sí{% else %}No{% endif %}</td>
           <td class="actions-column">
             <div class="table-actions">
               <a href="{% url 'panel_empleado_editar' empleado.id %}">Editar</a>

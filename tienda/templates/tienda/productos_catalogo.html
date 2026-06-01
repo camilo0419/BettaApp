@@ -1,23 +1,23 @@
 {% extends 'tienda/base.html' %}
 {% load static %}
 
-{% block title %}Productos | Betta Diseno{% endblock %}
+{% block title %}Productos | Betta Diseño{% endblock %}
 
 {% block content %}
 <section class="section" id="catalogo">
   <div class="container">
     <div class="section-head">
       <div>
-        <span class="eyebrow">Catalogo</span>
+        <span class="eyebrow">Catálogo</span>
         <h1>Productos</h1>
-        <p>Encuentra productos activos por nombre o categoria.</p>
+        <p>Encuentra productos activos por nombre o categoría.</p>
       </div>
     </div>
 
     <form method="get" class="filters">
       <input type="text" name="q" value="{{ q }}" placeholder="Buscar producto">
       <select name="categoria">
-        <option value="">Todas las categorias</option>
+        <option value="">Todas las categorías</option>
         {% for categoria in categorias %}
           <option value="{{ categoria.slug }}" {% if categoria_slug == categoria.slug %}selected{% endif %}>{{ categoria.nombre }}</option>
         {% endfor %}
@@ -39,7 +39,7 @@
         {% for producto in productos %}
           {% include 'tienda/partials/product_card.html' %}
         {% empty %}
-          <div class="empty-state">{% if q %}No encontramos productos con ese nombre.{% else %}No hay productos activos en esta categoria.{% endif %}</div>
+          <div class="empty-state">{% if q %}No encontramos productos con ese nombre.{% else %}No hay productos activos en esta categoría.{% endif %}</div>
         {% endfor %}
       </div>
     {% else %}

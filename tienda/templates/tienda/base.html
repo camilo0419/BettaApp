@@ -14,7 +14,18 @@
       <img src="{% static 'tienda/img/marca/betta-logo-text.jpeg' %}" alt="Betta Diseño">
     </a>
     <nav class="nav-actions">
-      <a href="{% url 'cliente_login' %}" class="nav-link">Iniciar sesi&oacute;n</a>
+      {% with portal=request.user.cliente_usuario %}
+        {% if request.user.is_authenticated and portal and portal.activo %}
+          <span class="nav-user">{{ portal.contacto.nombre|default:portal.cliente }}</span>
+          <a href="{% url 'cliente_dashboard' %}" class="nav-link">Mi cuenta</a>
+          <form method="post" action="{% url 'cliente_logout' %}" class="inline-form">
+            {% csrf_token %}
+            <button type="submit" class="nav-link nav-button">Salir</button>
+          </form>
+        {% else %}
+          <a href="{% url 'cliente_login' %}" class="nav-link">Iniciar sesi&oacute;n</a>
+        {% endif %}
+      {% endwith %}
       <a href="https://wa.me/573026491143" class="btn btn-primary">WhatsApp</a>
     </nav>
   </div>
@@ -39,5 +50,6 @@
     </div>
   </div>
 </footer>
+<script src="{% static 'tienda/js/ui_helpers.js' %}"></script>
 </body>
 </html>

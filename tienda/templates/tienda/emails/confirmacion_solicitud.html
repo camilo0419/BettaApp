@@ -3,7 +3,7 @@
 {% block content %}
 <h1 style="margin:0 0 12px;font-size:22px;color:#172033;">Solicitud OP-{{ solicitud.id|stringformat:"06d" }} recibida</h1>
 <p style="margin:0 0 10px;line-height:1.6;">Recibimos tu solicitud para <strong>{{ solicitud.producto.nombre }}</strong>.</p>
-<p style="margin:0 0 22px;line-height:1.6;">El equipo Betta revisara la informacion y actualizara el estado cuando corresponda.</p>
+<p style="margin:0 0 22px;line-height:1.6;">El equipo Betta revisara la información y actualizara el estado cuando corresponda.</p>
 {% if solicitud.cliente %}
 <a href="{{ site_url }}{% url 'cliente_pedido_detalle' solicitud.id %}" style="display:inline-block;background:#172033;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold;">Ver pedido</a>
 {% endif %}

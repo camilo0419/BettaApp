@@ -373,7 +373,7 @@ class CampoOpcion(models.Model):
             if self.pk:
                 opciones = opciones.exclude(pk=self.pk)
             if opciones.exists():
-                raise ValidationError({"valor": "Ya existe una opcion con este valor en este campo."})
+                raise ValidationError({"valor": "Ya existe una opción con este valor en este campo."})
 
     def save(self, *args, **kwargs):
         if not self.valor:
@@ -411,7 +411,7 @@ class CampoMaestroOpcion(models.Model):
             if self.pk:
                 opciones = opciones.exclude(pk=self.pk)
             if opciones.exists():
-                raise ValidationError({"valor": "Ya existe una opcion maestra con este valor en este campo."})
+                raise ValidationError({"valor": "Ya existe una opción maestra con este valor en este campo."})
 
     def save(self, *args, **kwargs):
         if not self.valor:
@@ -523,6 +523,7 @@ class ClienteUsuario(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cliente_usuario")
     contacto = models.ForeignKey(ClienteContacto, on_delete=models.SET_NULL, related_name="usuarios_portal", null=True, blank=True)
     activo = models.BooleanField(default=True)
+    puede_ver_toda_la_cuenta = models.BooleanField(default=False)
     puede_ver_proyectos = models.BooleanField(default=True)
     puede_ver_solicitudes = models.BooleanField(default=True)
     puede_ver_facturacion = models.BooleanField(default=False)
@@ -547,7 +548,7 @@ class ClienteUsuario(models.Model):
             if self.user.is_staff:
                 errors["user"] = "Un usuario staff no puede ser usuario de portal cliente."
             if hasattr(self.user, "empleado_perfil"):
-                errors["user"] = "Un usuario de produccion no puede ser usuario de portal cliente."
+                errors["user"] = "Un usuario de producción no puede ser usuario de portal cliente."
         if self.contacto_id and self.cliente_id and self.contacto.cliente_id != self.cliente_id:
             errors["contacto"] = "El contacto debe pertenecer al cliente seleccionado."
         if errors:
@@ -571,8 +572,8 @@ class Proyecto(models.Model):
     ESTADOS = [
         (ESTADO_BORRADOR, "Borrador"),
         (ESTADO_PENDIENTE, "Pendiente"),
-        (ESTADO_PLANEACION, "En planeacion"),
-        (ESTADO_PRODUCCION, "En produccion"),
+        (ESTADO_PLANEACION, "En planeación"),
+        (ESTADO_PRODUCCION, "En producción"),
         (ESTADO_PAUSADO, "Pausado"),
         (ESTADO_TERMINADO, "Terminado"),
         (ESTADO_ENTREGADO, "Entregado"),
@@ -592,6 +593,7 @@ class Proyecto(models.Model):
     ]
 
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name="proyectos", null=True, blank=True)
+    contacto = models.ForeignKey(ClienteContacto, on_delete=models.SET_NULL, related_name="proyectos", null=True, blank=True)
     nombre = models.CharField(max_length=180)
     cliente_nombre = models.CharField(max_length=160, blank=True)
     cliente_contacto = models.CharField(max_length=160, blank=True)
@@ -629,6 +631,17 @@ class Proyecto(models.Model):
 
     def __str__(self):
         return self.nombre
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.contacto_id:
+            if not self.cliente_id:
+                errors["contacto"] = "Selecciona un cliente para asociar este contacto."
+            elif self.contacto.cliente_id != self.cliente_id:
+                errors["contacto"] = "El contacto debe pertenecer al cliente seleccionado."
+        if errors:
+            raise ValidationError(errors)
 
     @property
     def avance_porcentaje(self):
@@ -711,6 +724,7 @@ class Solicitud(models.Model):
 
     producto = models.ForeignKey(Producto, on_delete=models.PROTECT, related_name="solicitudes")
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name="solicitudes", null=True, blank=True)
+    contacto = models.ForeignKey(ClienteContacto, on_delete=models.SET_NULL, related_name="solicitudes", null=True, blank=True)
     proyecto = models.ForeignKey(Proyecto, on_delete=models.SET_NULL, related_name="solicitudes", null=True, blank=True)
     cliente_nombre = models.CharField(max_length=160)
     cliente_celular = models.CharField(max_length=40)
@@ -735,6 +749,21 @@ class Solicitud(models.Model):
 
     def __str__(self):
         return f"Solicitud #{self.id} - {self.producto}"
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        proyecto_cliente_id = getattr(self.proyecto, "cliente_id", None)
+        cliente_id = self.cliente_id or proyecto_cliente_id
+        if self.proyecto_id and self.cliente_id and proyecto_cliente_id and proyecto_cliente_id != self.cliente_id:
+            errors["proyecto"] = "El proyecto pertenece a otro cliente."
+        if self.contacto_id:
+            if not cliente_id:
+                errors["contacto"] = "Selecciona un cliente o proyecto para asociar este contacto."
+            elif self.contacto.cliente_id != cliente_id:
+                errors["contacto"] = "El contacto debe pertenecer al cliente de la solicitud."
+        if errors:
+            raise ValidationError(errors)
 
 
 def money(value):
@@ -796,11 +825,25 @@ class Cotizacion(models.Model):
 
     class Meta:
         ordering = ["-fecha_creacion", "-id"]
-        verbose_name = "Cotizacion"
+        verbose_name = "Cotización"
         verbose_name_plural = "Cotizaciones"
 
     def __str__(self):
-        return f"{self.numero or 'Cotizacion'} - {self.cliente}"
+        return f"{self.numero or 'Cotización'} - {self.cliente}"
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.contacto_id and self.cliente_id and self.contacto.cliente_id != self.cliente_id:
+            errors["contacto"] = "El contacto debe pertenecer al cliente seleccionado."
+        if self.proyecto_id and self.cliente_id and self.proyecto.cliente_id and self.proyecto.cliente_id != self.cliente_id:
+            errors["proyecto"] = "El proyecto pertenece a otro cliente."
+        if self.solicitud_id and self.cliente_id:
+            solicitud_cliente_id = self.solicitud.cliente_id or getattr(self.solicitud.proyecto, "cliente_id", None)
+            if solicitud_cliente_id and solicitud_cliente_id != self.cliente_id:
+                errors["solicitud"] = "La solicitud pertenece a otro cliente."
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         if not self.numero:
@@ -857,8 +900,8 @@ class CotizacionItem(models.Model):
 
     class Meta:
         ordering = ["orden", "id"]
-        verbose_name = "Item de cotizacion"
-        verbose_name_plural = "Items de cotizacion"
+        verbose_name = "Ítem de cotización"
+        verbose_name_plural = "Ítems de cotización"
 
     def __str__(self):
         return f"{self.cotizacion.numero} - {self.descripcion}"
@@ -930,10 +973,10 @@ class EmpleadoPerfil(models.Model):
     AREA_APOYO = "apoyo"
 
     AREAS = [
-        (AREA_PRODUCCION, "Produccion"),
-        (AREA_DISENO, "Diseno"),
+        (AREA_PRODUCCION, "Producción"),
+        (AREA_DISENO, "Diseño"),
         (AREA_CORTE, "Corte"),
-        (AREA_IMPRESION, "Impresion"),
+        (AREA_IMPRESION, "Impresión"),
         (AREA_CALIDAD, "Calidad"),
         (AREA_DESPACHO, "Despacho"),
         (AREA_ADMIN, "Admin"),
@@ -972,7 +1015,7 @@ class SolicitudAsignacion(models.Model):
 
     class Meta:
         ordering = ["-activa", "fecha_asignacion"]
-        verbose_name = "Asignacion de solicitud"
+        verbose_name = "Asignación de solicitud"
         verbose_name_plural = "Asignaciones de solicitud"
         constraints = [
             models.UniqueConstraint(
@@ -1029,14 +1072,14 @@ class SolicitudTarea(models.Model):
     AREA_APOYO = "apoyo"
 
     AREAS = [
-        (AREA_DISENO, "Diseno"),
+        (AREA_DISENO, "Diseño"),
         (AREA_PREPRENSA, "Preprensa"),
-        (AREA_IMPRESION, "Impresion"),
+        (AREA_IMPRESION, "Impresión"),
         (AREA_LAMINADO, "Laminado"),
         (AREA_CORTE, "Corte"),
         (AREA_ENSAMBLE, "Ensamble"),
         (AREA_CALIDAD, "Calidad"),
-        (AREA_INSTALACION, "Instalacion"),
+        (AREA_INSTALACION, "Instalación"),
         (AREA_DESPACHO, "Despacho"),
         (AREA_APOYO, "Apoyo"),
     ]
@@ -1081,8 +1124,8 @@ class SolicitudTarea(models.Model):
 
     class Meta:
         ordering = ["solicitud", "orden", "fecha_limite", "id"]
-        verbose_name = "Tarea de produccion"
-        verbose_name_plural = "Tareas de produccion"
+        verbose_name = "Tarea de producción"
+        verbose_name_plural = "Tareas de producción"
 
     def __str__(self):
         return f"Solicitud #{self.solicitud_id} - {self.titulo}"
@@ -1111,8 +1154,8 @@ class SolicitudNovedad(models.Model):
     TIPOS = [
         (TIPO_COMENTARIO, "Comentario"),
         (TIPO_CAMBIO_ESTADO, "Cambio de estado"),
-        (TIPO_ASIGNACION, "Asignacion"),
-        (TIPO_DESASIGNACION, "Desasignacion"),
+        (TIPO_ASIGNACION, "Asignación"),
+        (TIPO_DESASIGNACION, "Desasignación"),
         (TIPO_EVIDENCIA, "Evidencia"),
         (TIPO_SISTEMA, "Sistema"),
         (TIPO_ALERTA, "Alerta"),
@@ -1157,8 +1200,8 @@ class Notificacion(models.Model):
     TIPO_SISTEMA = "sistema"
 
     TIPOS = [
-        (TIPO_ASIGNACION, "Asignacion"),
-        (TIPO_DESASIGNACION, "Desasignacion"),
+        (TIPO_ASIGNACION, "Asignación"),
+        (TIPO_DESASIGNACION, "Desasignación"),
         (TIPO_ESTADO, "Cambio de estado"),
         (TIPO_NOVEDAD, "Novedad"),
         (TIPO_TERMINADO, "Terminado"),
@@ -1180,7 +1223,7 @@ class Notificacion(models.Model):
 
     class Meta:
         ordering = ["-fecha_creacion", "-id"]
-        verbose_name = "Notificacion"
+        verbose_name = "Notificación"
         verbose_name_plural = "Notificaciones"
 
     def __str__(self):
@@ -1199,7 +1242,7 @@ class NotificacionCliente(models.Model):
         (TIPO_SISTEMA, "Sistema"),
         (TIPO_PEDIDO, "Pedido"),
         (TIPO_PROYECTO, "Proyecto"),
-        (TIPO_FACTURACION, "Facturacion"),
+        (TIPO_FACTURACION, "Facturación"),
         (TIPO_DOCUMENTO, "Documento"),
         (TIPO_NOVEDAD, "Novedad"),
     ]
@@ -1217,7 +1260,7 @@ class NotificacionCliente(models.Model):
 
     class Meta:
         ordering = ["-fecha_creacion", "-id"]
-        verbose_name = "Notificacion de cliente"
+        verbose_name = "Notificación de cliente"
         verbose_name_plural = "Notificaciones de cliente"
 
     def __str__(self):

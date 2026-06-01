@@ -1,6 +1,6 @@
 {% extends 'tienda/produccion/base.html' %}
 
-{% block title %}Pedido #{{ solicitud.id }} | Produccion{% endblock %}
+{% block title %}Pedido #{{ solicitud.id }} | Producción{% endblock %}
 
 {% block content %}
 <div class="production-head">
@@ -9,7 +9,7 @@
     <h1>{{ solicitud.producto.nombre }}</h1>
   </div>
   <div class="head-actions">
-    <a href="{% url 'panel_solicitud_orden_produccion' solicitud.id %}" class="btn btn-primary" target="_blank" rel="noopener">Orden de produccion</a>
+    <a href="{% url 'panel_solicitud_orden_produccion' solicitud.id %}" class="btn btn-primary" target="_blank" rel="noopener">Orden de producción</a>
     <a href="{% url 'produccion_dashboard' %}" class="btn btn-outline">Volver</a>
   </div>
 </div>
@@ -18,15 +18,15 @@
   <div>
     <section class="production-card">
       <div class="order-card-head">
-        <span class="badge">{{ solicitud.get_estado_produccion_display }}</span>
+        <span class="state-badge state-{{ solicitud.estado_produccion }}">{{ solicitud.get_estado_produccion_display }}</span>
         <span class="badge">{{ solicitud.creado|date:'d/m/Y H:i' }}</span>
       </div>
-      <h2>Resumen tecnico</h2>
+      <h2>Resumen técnico</h2>
       <dl class="detail-list">
         <dt>Cliente</dt><dd>{{ solicitud.cliente_nombre }}</dd>
         <dt>Proyecto</dt><dd>{{ solicitud.proyecto.nombre|default:'-' }}</dd>
         <dt>Producto</dt><dd>{{ solicitud.producto.nombre }}</dd>
-        <dt>Categoria</dt><dd>{{ solicitud.producto.categoria }}</dd>
+        <dt>Categoría</dt><dd>{{ solicitud.producto.categoria }}</dd>
         <dt>Referencia</dt><dd>{{ solicitud.producto.slug }}</dd>
       </dl>
     </section>
@@ -43,7 +43,7 @@
             {% endif %}
           </div>
         {% empty %}
-          <p>No hay respuestas tecnicas guardadas.</p>
+          <p>No hay respuestas técnicas guardadas.</p>
         {% endfor %}
       </div>
     </section>
@@ -74,7 +74,7 @@
               <span class="badge">{{ tarea.get_prioridad_display }}</span>
             </div>
             <h2>{{ tarea.titulo }}</h2>
-            <p>{{ tarea.get_area_display }} · {{ tarea.fecha_limite|date:'d/m/Y'|default:'Sin fecha limite' }}</p>
+            <p>{{ tarea.get_area_display }} · {{ tarea.fecha_limite|date:'d/m/Y'|default:'Sin fecha límite' }}</p>
             <div class="production-actions">
               <a href="{% url 'produccion_tarea_detalle' tarea.id %}" class="btn btn-primary">Ver tarea</a>
             </div>
@@ -111,11 +111,11 @@
       <h2>Mis asignaciones</h2>
       {% for asignacion in asignaciones %}
         <div class="assignment-pill">
-          <strong>{{ asignacion.rol_en_trabajo|default:'Produccion' }}</strong>
+          <strong>{{ asignacion.rol_en_trabajo|default:'Producción' }}</strong>
           <span>{{ asignacion.fecha_asignacion|date:'d/m/Y H:i' }}</span>
         </div>
       {% empty %}
-        <p>No hay asignacion activa para tu usuario.</p>
+        <p>No hay asignación activa para tu usuario.</p>
       {% endfor %}
     </section>
 

@@ -9,14 +9,14 @@
     <h1>Cotizaciones</h1>
   </div>
   <div class="head-actions">
-    <a href="{% url 'panel_cotizacion_crear' %}" class="btn btn-primary">Crear cotizacion</a>
+    <a href="{% url 'panel_cotizacion_crear' %}" class="btn btn-primary">Crear cotización</a>
   </div>
 </div>
 
 <div class="panel-card">
   <form method="get" class="filters">
     <label>Buscar
-      <input type="search" name="q" value="{{ q }}" placeholder="Numero, cliente, proyecto o solicitud">
+      <input type="search" name="q" value="{{ q }}" placeholder="Número, cliente, proyecto o solicitud">
     </label>
     <label>Estado
       <select name="estado">
@@ -25,9 +25,15 @@
       </select>
     </label>
     <label>Cliente
-      <select name="cliente">
+      <select name="cliente" data-searchable-select="true">
         <option value="">Todos</option>
         {% for cliente in clientes %}<option value="{{ cliente.id }}" {% if cliente_id == cliente.id|stringformat:"s" %}selected{% endif %}>{{ cliente }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Proyecto
+      <select name="proyecto" data-searchable-select="true">
+        <option value="">Todos</option>
+        {% for proyecto in proyectos %}<option value="{{ proyecto.id }}" {% if proyecto_id == proyecto.id|stringformat:"s" %}selected{% endif %}>{{ proyecto.nombre }}{% if proyecto.cliente %} - {{ proyecto.cliente }}{% endif %}</option>{% endfor %}
       </select>
     </label>
     <label>Fecha
@@ -43,7 +49,7 @@
     <table class="table products-table">
       <thead>
         <tr>
-          <th>Numero</th>
+          <th>Número</th>
           <th>Cliente</th>
           <th>Proyecto</th>
           <th>Fecha</th>
