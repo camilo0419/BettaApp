@@ -43,13 +43,13 @@
 </section>
 {% endif %}
 
-<section class="production-card">
-  <form method="get" class="dynamic-form production-filters">
-    <div class="field">
+<section class="production-card filter-card">
+  <form method="get" class="filter-form filter-grid production-filter-grid">
+    <div class="filter-field filter-field-wide">
       <label for="q">Buscar</label>
       <input id="q" type="search" name="q" value="{{ q }}" placeholder="Cliente, producto, proyecto o solicitud">
     </div>
-    <div class="field">
+    <div class="filter-field">
       <label for="estado">Estado pedido</label>
       <select id="estado" name="estado">
         <option value="">Todos</option>
@@ -58,7 +58,7 @@
         {% endfor %}
       </select>
     </div>
-    <div class="field">
+    <div class="filter-field">
       <label for="tarea_estado">Estado tarea</label>
       <select id="tarea_estado" name="tarea_estado">
         <option value="">Todas</option>
@@ -67,7 +67,7 @@
         {% endfor %}
       </select>
     </div>
-    <div class="field">
+    <div class="filter-field">
       <label for="proyecto">Proyecto</label>
       <select id="proyecto" name="proyecto">
         <option value="">Todos</option>
@@ -76,11 +76,14 @@
         {% endfor %}
       </select>
     </div>
-    <div class="field">
+    <div class="filter-field">
       <label for="fecha_limite">Fecha límite</label>
       <input id="fecha_limite" type="date" name="fecha_limite" value="{{ fecha_limite }}">
     </div>
-    <button type="submit" class="btn btn-primary">Filtrar</button>
+    <div class="filter-actions">
+      <button type="submit" class="btn btn-primary">Filtrar</button>
+      <a href="{% url 'produccion_dashboard' %}" class="btn btn-outline">Limpiar</a>
+    </div>
   </form>
 </section>
 

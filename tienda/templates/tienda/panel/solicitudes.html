@@ -1,23 +1,43 @@
 {% extends 'tienda/panel/base_panel.html' %}
 {% block title %}Solicitudes | Admin productos{% endblock %}
 {% block content %}
-<div class="panel-head"><div><span class="eyebrow">Gestión</span><h1>Solicitudes</h1></div></div>
-<div class="panel-card">
-  <form method="get" class="filters">
-    <input type="text" name="q" value="{{ q }}" placeholder="Buscar por cliente, celular, producto o ID">
-    <select name="estado">
-      <option value="">Todos los estados</option>
-      {% for value,label in estados %}<option value="{{ value }}" {% if estado == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-    </select>
-    <select name="estado_produccion">
-      <option value="">Producción: todos</option>
-      {% for value,label in estados_produccion %}<option value="{{ value }}" {% if estado_produccion == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-    </select>
-    <button class="btn btn-primary">Filtrar</button>
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">Gestion</span>
+    <h1>Solicitudes</h1>
+  </div>
+</div>
+
+<div class="panel-card filter-card">
+  <form method="get" class="filter-form">
+    <div class="filter-grid">
+      <div class="filter-field filter-field-wide">
+        <label for="solicitud-q">Buscar</label>
+        <input id="solicitud-q" type="search" name="q" value="{{ q }}" placeholder="Cliente, celular, producto o ID">
+      </div>
+      <div class="filter-field">
+        <label for="solicitud-estado">Estado</label>
+        <select id="solicitud-estado" name="estado">
+          <option value="">Todos</option>
+          {% for value,label in estados %}<option value="{{ value }}" {% if estado == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="filter-field">
+        <label for="solicitud-produccion">Produccion</label>
+        <select id="solicitud-produccion" name="estado_produccion">
+          <option value="">Todos</option>
+          {% for value,label in estados_produccion %}<option value="{{ value }}" {% if estado_produccion == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="filter-actions">
+        <button class="btn btn-primary" type="submit">Filtrar</button>
+        <a href="{% url 'panel_solicitudes' %}" class="btn btn-outline">Limpiar</a>
+      </div>
+    </div>
   </form>
   <div class="table-responsive">
   <table class="table">
-    <thead><tr><th>ID</th><th>Cliente</th><th>Celular</th><th>Producto</th><th>Estado</th><th>Producción</th><th>Precio</th><th>Acciones</th></tr></thead>
+    <thead><tr><th>ID</th><th>Cliente</th><th>Celular</th><th>Producto</th><th>Estado</th><th>Produccion</th><th>Precio</th><th>Acciones</th></tr></thead>
     <tbody>
       {% for s in solicitudes %}
       <tr><td>#{{ s.id }}</td><td>{{ s.cliente_nombre }}</td><td>{{ s.cliente_celular }}</td><td>{{ s.producto.nombre }}</td><td><span class="badge">{{ s.get_estado_display }}</span></td><td><span class="state-badge state-{{ s.estado_produccion }}">{{ s.get_estado_produccion_display }}</span></td><td>${{ s.precio_estimado|floatformat:0 }}</td><td class="actions-column"><div class="table-actions"><a href="{% url 'panel_solicitud_detalle' s.id %}" class="link-button">Gestionar</a></div></td></tr>

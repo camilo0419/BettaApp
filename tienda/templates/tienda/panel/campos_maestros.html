@@ -15,19 +15,19 @@
   </div>
 </div>
 
-<div class="panel-card">
+<div class="panel-card filter-card">
   <p class="muted">
     Estos campos sirven como base para asignarlos a productos. Cada producto conserva su propia configuración despues de agregarlos.
   </p>
 
-  <form method="get" class="dynamic-form admin-form">
-    <div class="form-grid two">
-      <div class="field">
+  <form method="get" class="filter-form">
+    <div class="filter-grid">
+      <div class="filter-field filter-field-wide">
         <label for="campo-maestro-q">Buscar</label>
         <input id="campo-maestro-q" type="search" name="q" value="{{ q }}" placeholder="Nombre, slug o etiqueta">
       </div>
 
-      <div class="field">
+      <div class="filter-field">
         <label for="campo-maestro-tipo">Tipo</label>
         <select id="campo-maestro-tipo" name="tipo">
           <option value="">Todos</option>
@@ -37,7 +37,7 @@
         </select>
       </div>
 
-      <div class="field">
+      <div class="filter-field">
         <label for="campo-maestro-activo">Activo</label>
         <select id="campo-maestro-activo" name="activo">
           <option value="">Todos</option>
@@ -47,7 +47,7 @@
       </div>
     </div>
 
-    <div class="head-actions">
+    <div class="filter-actions">
       <button type="submit" class="btn btn-primary">Filtrar</button>
       <a href="{% url 'panel_campos_maestros' %}" class="btn btn-outline">Limpiar</a>
     </div>

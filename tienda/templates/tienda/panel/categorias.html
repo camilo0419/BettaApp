@@ -12,15 +12,15 @@
   <a href="{% url 'panel_categoria_crear' %}" class="btn btn-primary">Crear categoría</a>
 </div>
 
-<div class="panel-card">
-  <form method="get" class="dynamic-form admin-form">
-    <div class="form-grid two">
-      <div class="field">
+<div class="panel-card filter-card">
+  <form method="get" class="filter-form">
+    <div class="filter-grid">
+      <div class="filter-field filter-field-wide">
         <label for="categoria-q">Buscar</label>
         <input id="categoría-q" type="search" name="q" value="{{ q }}" placeholder="Nombre o slug">
       </div>
 
-      <div class="field">
+      <div class="filter-field">
         <label for="categoria-activa">Activa</label>
         <select id="categoria-activa" name="activa">
           <option value="">Todas</option>
@@ -30,7 +30,7 @@
       </div>
     </div>
 
-    <div class="head-actions">
+    <div class="filter-actions">
       <button type="submit" class="btn btn-primary">Filtrar</button>
       <a href="{% url 'panel_categorias' %}" class="btn btn-outline">Limpiar</a>
     </div>

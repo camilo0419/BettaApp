@@ -5,29 +5,68 @@
 {% block content %}
 <div class="panel-head">
   <div>
-    <span class="eyebrow">Cotización</span>
+    <span class="eyebrow">Cotizacion</span>
     <h1>{{ titulo }}</h1>
   </div>
   <div class="head-actions">
-    {% if cotizacion %}<a href="{% url 'panel_cotizacion_detalle' cotizacion.id %}" class="btn btn-outline">Volver a cotización</a>{% endif %}
+    {% if cotizacion %}<a href="{% url 'panel_cotizacion_detalle' cotizacion.id %}" class="btn btn-outline">Volver a cotizacion</a>{% endif %}
     <a href="{% url 'panel_cotizaciones' %}" class="btn btn-outline">Volver</a>
   </div>
 </div>
 
 <div class="panel-card">
-  <form method="post" class="dynamic-form admin-form">
+  <form method="post" class="dynamic-form admin-form structured-form">
     {% csrf_token %}
-    <div class="form-grid two">
-      {% for field in form %}
-        <div class="field {% if field.name == 'descripcion' or field.name == 'observaciones_cliente' or field.name == 'condiciones_comerciales' %}full{% endif %}">
-          {{ field.label_tag }}
-          {{ field }}
-          {{ field.errors }}
-        </div>
-      {% endfor %}
-    </div>
     {{ form.non_field_errors }}
-    <button class="btn btn-primary btn-wide">Guardar cotización</button>
+
+    <section class="form-section-block">
+      <div class="form-section-head">
+        <h2>Informacion general</h2>
+      </div>
+      <div class="form-grid two">
+        <div class="field">{{ form.cliente.label_tag }}{{ form.cliente }}{{ form.cliente.errors }}</div>
+        <div class="field">{{ form.contacto.label_tag }}{{ form.contacto }}{{ form.contacto.errors }}</div>
+        <div class="field">{{ form.proyecto.label_tag }}{{ form.proyecto }}{{ form.proyecto.errors }}</div>
+        <div class="field">{{ form.solicitud.label_tag }}{{ form.solicitud }}{{ form.solicitud.errors }}</div>
+        <div class="field full">{{ form.titulo.label_tag }}{{ form.titulo }}{{ form.titulo.errors }}</div>
+        <div class="field full">{{ form.descripcion.label_tag }}{{ form.descripcion }}{{ form.descripcion.errors }}</div>
+        <div class="field">{{ form.fecha_emision.label_tag }}{{ form.fecha_emision }}{{ form.fecha_emision.errors }}</div>
+        <div class="field">{{ form.fecha_vencimiento.label_tag }}{{ form.fecha_vencimiento }}{{ form.fecha_vencimiento.errors }}</div>
+        <div class="field">{{ form.estado.label_tag }}{{ form.estado }}{{ form.estado.errors }}</div>
+        <div class="field checkbox-field">{{ form.activa }}{{ form.activa.label_tag }}{{ form.activa.errors }}</div>
+      </div>
+    </section>
+
+    <section class="form-section-block">
+      <div class="form-section-head">
+        <h2>Condiciones comerciales</h2>
+      </div>
+      <div class="form-grid two">
+        <div class="field">{{ form.moneda.label_tag }}{{ form.moneda }}{{ form.moneda.errors }}</div>
+        <div class="field">{{ form.validez_dias.label_tag }}{{ form.validez_dias }}{{ form.validez_dias.errors }}</div>
+        <div class="field">{{ form.tiempo_entrega.label_tag }}{{ form.tiempo_entrega }}{{ form.tiempo_entrega.errors }}</div>
+        <div class="field">{{ form.forma_pago.label_tag }}{{ form.forma_pago }}{{ form.forma_pago.errors }}</div>
+        <div class="field">{{ form.garantia.label_tag }}{{ form.garantia }}{{ form.garantia.errors }}</div>
+        <div class="field full">{{ form.observaciones_cliente.label_tag }}{{ form.observaciones_cliente }}{{ form.observaciones_cliente.errors }}</div>
+        <div class="field full">{{ form.condiciones_comerciales.label_tag }}{{ form.condiciones_comerciales }}{{ form.condiciones_comerciales.errors }}</div>
+      </div>
+    </section>
+
+    <section class="form-section-block">
+      <div class="form-section-head">
+        <h2>Items</h2>
+      </div>
+      {% if cotizacion %}
+        <p class="muted">Los productos, cantidades, descuentos e impuestos se gestionan desde el detalle de la cotizacion.</p>
+        <a href="{% url 'panel_cotizacion_detalle' cotizacion.id %}" class="btn btn-outline">Gestionar items</a>
+      {% else %}
+        <p class="muted">Guarda la cotizacion para agregar productos o servicios y calcular totales.</p>
+      {% endif %}
+    </section>
+
+    <div class="form-actions">
+      <button class="btn btn-primary">Guardar cotizacion</button>
+    </div>
   </form>
 </div>
 {% endblock %}

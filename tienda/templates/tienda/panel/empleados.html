@@ -11,14 +11,14 @@
   <a href="{% url 'panel_empleado_crear' %}" class="btn btn-primary">Crear empleado</a>
 </div>
 
-<div class="panel-card">
-  <form method="get" class="dynamic-form admin-form">
-    <div class="form-grid two">
-      <div class="field">
+<div class="panel-card filter-card">
+  <form method="get" class="filter-form">
+    <div class="filter-grid">
+      <div class="filter-field filter-field-wide">
         <label for="empleado-q">Buscar</label>
         <input id="empleado-q" type="search" name="q" value="{{ q }}" placeholder="Usuario, nombre, email o cargo">
       </div>
-      <div class="field">
+      <div class="filter-field">
         <label for="empleado-area">Área</label>
         <select id="empleado-area" name="area">
           <option value="">Todas</option>
@@ -27,7 +27,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="field">
+      <div class="filter-field">
         <label for="empleado-activo">Activo</label>
         <select id="empleado-activo" name="activo">
           <option value="">Todos</option>
@@ -36,7 +36,7 @@
         </select>
       </div>
     </div>
-    <div class="head-actions">
+    <div class="filter-actions">
       <button type="submit" class="btn btn-primary">Filtrar</button>
       <a href="{% url 'panel_empleados' %}" class="btn btn-outline">Limpiar</a>
     </div>

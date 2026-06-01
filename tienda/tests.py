@@ -236,6 +236,29 @@ class PortalClienteTests(TestCase):
             response = self.client.get(ruta)
             self.assertEqual(response.status_code, 200, ruta)
 
+    def test_formularios_admin_no_duplican_selector_cliente(self):
+        staff = User.objects.create_user(username="staff-forms", password="StaffTest123!", is_staff=True)
+        self.client.force_login(staff)
+        rutas = [
+            reverse("panel_cotizacion_crear"),
+            reverse("panel_proyecto_crear"),
+            reverse("panel_cotizacion_editar", args=[
+                Cotizacion.objects.create(cliente=self.cliente, contacto=self.contacto, proyecto=self.proyecto, solicitud=self.solicitud, titulo="Editar form").id
+            ]),
+            reverse("panel_proyecto_editar", args=[self.proyecto.id]),
+        ]
+        for ruta in rutas:
+            response = self.client.get(ruta)
+            self.assertEqual(response.status_code, 200, ruta)
+            html = response.content.decode()
+            self.assertEqual(html.count('name="cliente"'), 1, ruta)
+
+    def test_portal_proyectos_renderiza_cards_profesionales(self):
+        self.login_cliente()
+        response = self.client.get(reverse("cliente_proyectos"))
+        self.assertContains(response, "client-project-card")
+        self.assertContains(response, "Ver detalle")
+
     def test_panel_cliente_detalle_incluye_solicitudes_del_proyecto(self):
         staff = User.objects.create_user(username="staff-proyecto", password="StaffTest123!", is_staff=True)
         solicitud_proyecto = Solicitud.objects.create(

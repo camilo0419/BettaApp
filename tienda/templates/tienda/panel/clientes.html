@@ -11,14 +11,14 @@
   <a href="{% url 'panel_cliente_crear' %}" class="btn btn-primary">Crear cliente</a>
 </div>
 
-<div class="panel-card">
-  <form method="get" class="dynamic-form filters-form">
-    <div class="form-grid four">
-      <div class="field">
+<div class="panel-card filter-card">
+  <form method="get" class="filter-form">
+    <div class="filter-grid">
+      <div class="filter-field filter-field-wide">
         <label for="q">Buscar</label>
         <input id="q" type="search" name="q" value="{{ q }}" placeholder="Nombre, identificación, email o teléfono">
       </div>
-      <div class="field">
+      <div class="filter-field">
         <label for="tipo">Tipo</label>
         <select id="tipo" name="tipo">
           <option value="">Todos</option>
@@ -27,7 +27,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="field">
+      <div class="filter-field">
         <label for="activo">Activo</label>
         <select id="activo" name="activo">
           <option value="">Todos</option>
@@ -35,7 +35,7 @@
           <option value="0" {% if activo == '0' %}selected{% endif %}>Inactivos</option>
         </select>
       </div>
-      <div class="field">
+      <div class="filter-field">
         <label for="ciudad">Ciudad</label>
         <select id="ciudad" name="ciudad">
           <option value="">Todas</option>
@@ -45,7 +45,10 @@
         </select>
       </div>
     </div>
-    <button class="btn btn-primary">Filtrar</button>
+    <div class="filter-actions">
+      <button class="btn btn-primary" type="submit">Filtrar</button>
+      <a href="{% url 'panel_clientes' %}" class="btn btn-outline">Limpiar</a>
+    </div>
   </form>
 </div>
 

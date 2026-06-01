@@ -50,19 +50,29 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
     select.dataset.searchReady = "true";
-    const wrapper = document.createElement("div");
-    wrapper.className = "select-search";
-    const input = document.createElement("input");
-    input.type = "search";
-    input.className = "select-search-input";
-    input.placeholder = "Buscar...";
-    input.setAttribute("aria-label", "Buscar opciones");
-    select.parentNode.insertBefore(wrapper, select);
-    wrapper.appendChild(input);
-    wrapper.appendChild(select);
-    input.addEventListener("input", function () {
-      refreshSelect(select, input);
-    });
+    const optionCount = Array.from(select.options).filter(function (option) {
+      return option.value;
+    }).length;
+    const threshold = Number(select.getAttribute("data-search-threshold") || 8);
+    const shouldRenderSearch = optionCount >= threshold || select.getAttribute("data-always-searchable") === "true";
+    let input = null;
+
+    if (shouldRenderSearch) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "select-search";
+      input = document.createElement("input");
+      input.type = "search";
+      input.className = "select-search-input";
+      input.placeholder = select.getAttribute("data-search-placeholder") || "Filtrar opciones";
+      input.setAttribute("aria-label", "Filtrar opciones");
+      select.parentNode.insertBefore(wrapper, select);
+      wrapper.appendChild(input);
+      wrapper.appendChild(select);
+      input.addEventListener("input", function () {
+        refreshSelect(select, input);
+      });
+    }
+
     ["data-filter-client-source", "data-filter-project-source"].forEach(function (attr) {
       const sourceId = select.getAttribute(attr);
       const source = sourceId ? document.getElementById(sourceId) : null;

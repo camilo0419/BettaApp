@@ -15,18 +15,51 @@
 </div>
 
 <div class="panel-card">
-  <form method="post" class="dynamic-form admin-form">
+  <form method="post" class="dynamic-form admin-form structured-form">
     {% csrf_token %}
-    <div class="form-grid two">
-      {% for field in form %}
-        <div class="field {% if field.name == 'descripcion' or field.name == 'observaciones' %}full{% endif %}">
-          {{ field.label_tag }}
-          {{ field }}
-          {{ field.errors }}
-        </div>
-      {% endfor %}
+    {{ form.non_field_errors }}
+
+    <section class="form-section-block">
+      <div class="form-section-head">
+        <h2>Cliente y contacto</h2>
+      </div>
+      <div class="form-grid two">
+        <div class="field">{{ form.cliente.label_tag }}{{ form.cliente }}{{ form.cliente.errors }}</div>
+        <div class="field">{{ form.contacto.label_tag }}{{ form.contacto }}{{ form.contacto.errors }}</div>
+      </div>
+    </section>
+
+    <section class="form-section-block">
+      <div class="form-section-head">
+        <h2>Informacion del proyecto</h2>
+      </div>
+      <div class="form-grid two">
+        <div class="field full">{{ form.nombre.label_tag }}{{ form.nombre }}{{ form.nombre.errors }}</div>
+        <div class="field full">{{ form.descripcion.label_tag }}{{ form.descripcion }}{{ form.descripcion.errors }}</div>
+        <div class="field">{{ form.responsable.label_tag }}{{ form.responsable }}{{ form.responsable.errors }}</div>
+        <div class="field">{{ form.estado.label_tag }}{{ form.estado }}{{ form.estado.errors }}</div>
+        <div class="field">{{ form.prioridad.label_tag }}{{ form.prioridad }}{{ form.prioridad.errors }}</div>
+        <div class="field">{{ form.fecha_inicio.label_tag }}{{ form.fecha_inicio }}{{ form.fecha_inicio.errors }}</div>
+        <div class="field">{{ form.fecha_compromiso.label_tag }}{{ form.fecha_compromiso }}{{ form.fecha_compromiso.errors }}</div>
+        <div class="field">{{ form.fecha_cierre.label_tag }}{{ form.fecha_cierre }}{{ form.fecha_cierre.errors }}</div>
+        <div class="field full">{{ form.observaciones.label_tag }}{{ form.observaciones }}{{ form.observaciones.errors }}</div>
+        <div class="field checkbox-field">{{ form.activo }}{{ form.activo.label_tag }}{{ form.activo.errors }}</div>
+      </div>
+    </section>
+
+    <details class="form-secondary-section">
+      <summary>Datos historicos opcionales</summary>
+      <div class="form-grid two">
+        <div class="field">{{ form.cliente_nombre.label_tag }}{{ form.cliente_nombre }}{{ form.cliente_nombre.errors }}</div>
+        <div class="field">{{ form.cliente_contacto.label_tag }}{{ form.cliente_contacto }}{{ form.cliente_contacto.errors }}</div>
+        <div class="field">{{ form.cliente_telefono.label_tag }}{{ form.cliente_telefono }}{{ form.cliente_telefono.errors }}</div>
+        <div class="field">{{ form.cliente_email.label_tag }}{{ form.cliente_email }}{{ form.cliente_email.errors }}</div>
+      </div>
+    </details>
+
+    <div class="form-actions">
+      <button class="btn btn-primary">Guardar proyecto</button>
     </div>
-    <button class="btn btn-primary btn-wide">Guardar proyecto</button>
   </form>
 </div>
 {% endblock %}

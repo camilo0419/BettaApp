@@ -16,22 +16,22 @@
   </div>
 </div>
 
-<div class="panel-card">
+<div class="panel-card filter-card">
   <p class="muted">
     El orden define cómo se le pregunta al cliente cuando personaliza el producto.
     Estos campos pertenecen solo a este producto; otros productos pueden tener listas diferentes.
     Marca ancho, alto y cantidad para que el cálculo de precio funcione por m².
   </p>
 
-  <form method="get" class="dynamic-form admin-form">
-    <div class="form-grid two">
-      <div class="field">
+  <form method="get" class="filter-form">
+    <div class="filter-grid">
+      <div class="filter-field filter-field-wide">
         <label for="producto-campos-q">Buscar campos</label>
         <input id="producto-campos-q" type="search" name="q" value="{{ q }}" placeholder="Etiqueta, maestro o tipo">
       </div>
     </div>
 
-    <div class="head-actions">
+    <div class="filter-actions">
       <button type="submit" class="btn btn-primary">Buscar</button>
       <a href="{% url 'panel_producto_campos' producto.id %}" class="btn btn-outline">Limpiar</a>
     </div>

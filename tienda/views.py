@@ -855,7 +855,7 @@ def cliente_dashboard(request):
     proyectos = proyectos_para_cliente_usuario(
         cliente_usuario,
         Proyecto.objects.select_related("contacto", "responsable__user"),
-    )
+    ).annotate(num_solicitudes=Count("solicitudes", distinct=True))
     novedades = SolicitudNovedad.objects.filter(
         solicitud__in=solicitudes.values("pk"),
         visible_para_cliente=True,
@@ -1017,6 +1017,14 @@ def cliente_proyectos(request):
         proyectos = proyectos.filter(estado=estado)
     if prioridad:
         proyectos = proyectos.filter(prioridad=prioridad)
+    proyectos = list(proyectos)
+    if cliente_usuario.puede_ver_facturacion:
+        for proyecto in proyectos:
+            solicitudes_proyecto = solicitudes_para_cliente_usuario(
+                cliente_usuario,
+                proyecto.solicitudes.select_related("producto", "proyecto"),
+            )
+            proyecto.valor_visible_total = sum((valor_visible_solicitud(solicitud) or 0) for solicitud in solicitudes_proyecto)
     return render(
         request,
         "tienda/cliente/proyectos.html",

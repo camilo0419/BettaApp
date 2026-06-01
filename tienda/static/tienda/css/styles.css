@@ -1158,6 +1158,273 @@ header img {
     cursor: pointer;
 }
 
+.filter-card {
+    padding: 18px;
+}
+
+.filter-form {
+    display: grid;
+    gap: 14px;
+    margin: 0;
+}
+
+.filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 14px;
+    align-items: end;
+}
+
+.filter-field,
+.filter-form > label {
+    display: grid;
+    gap: 7px;
+    min-width: 0;
+    color: var(--deep);
+    font-weight: 900;
+}
+
+.filter-field-wide {
+    grid-column: span 2;
+}
+
+.filter-form input,
+.filter-form select,
+.filter-form textarea,
+.filter-field input,
+.filter-field select,
+.filter-field textarea,
+.filter-form > label input,
+.filter-form > label select {
+    width: 100%;
+    min-height: 44px;
+    border: 1px solid #cbdada;
+    border-radius: 14px;
+    padding: 11px 13px;
+    font: inherit;
+    background: #fff;
+    color: var(--ink);
+}
+
+.filter-actions,
+.filter-form > .btn,
+.filter-form > a.btn {
+    align-self: end;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.filter-actions .btn,
+.filter-form > .btn,
+.filter-form > a.btn {
+    width: auto;
+    min-width: 112px;
+    min-height: 44px;
+    padding-inline: 18px;
+}
+
+.structured-form {
+    display: grid;
+    gap: 22px;
+}
+
+.form-section-block {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 18px;
+    background: #fbffff;
+}
+
+.form-section-head {
+    margin-bottom: 14px;
+}
+
+.form-section-head h2 {
+    font-size: 20px;
+    margin: 0;
+}
+
+.form-secondary-section {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 14px 18px;
+    background: #fff;
+}
+
+.form-secondary-section summary {
+    cursor: pointer;
+    color: var(--deep);
+    font-weight: 900;
+}
+
+.form-secondary-section .form-grid {
+    margin-top: 16px;
+}
+
+.checkbox-field {
+    align-self: end;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+}
+
+.checkbox-field label {
+    margin: 0;
+}
+
+.form-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+
+.select-search {
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: #f8fcfc;
+}
+
+.select-search-input {
+    min-height: 38px;
+    font-size: 14px;
+}
+
+.client-project-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.client-project-card,
+.client-empty-state {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    box-shadow: 0 12px 34px rgba(3, 72, 96, 0.08);
+    padding: 20px;
+}
+
+.client-project-card {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
+}
+
+.project-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.project-card-top h2 {
+    font-size: 22px;
+    margin: 6px 0 0;
+}
+
+.project-card-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 0;
+}
+
+.project-card-meta div {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px;
+    background: #fbffff;
+}
+
+.project-card-meta dt {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.project-card-meta dd {
+    margin: 4px 0 0;
+    color: var(--deep);
+    font-weight: 900;
+}
+
+.project-card-progress {
+    height: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #e8eff0;
+}
+
+.project-card-progress span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(135deg, var(--green), var(--teal));
+}
+
+.project-card-actions {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.client-empty-state {
+    grid-column: 1 / -1;
+    display: grid;
+    justify-items: start;
+    gap: 10px;
+}
+
+.client-empty-state h2,
+.client-empty-state p {
+    margin: 0;
+}
+
+@media (max-width: 1120px) {
+    .client-project-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .filter-grid,
+    .client-filter-grid,
+    .production-filter-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .filter-field-wide {
+        grid-column: auto;
+    }
+
+    .filter-actions,
+    .filter-actions .btn,
+    .filter-form > .btn,
+    .filter-form > a.btn,
+    .form-actions,
+    .form-actions .btn,
+    .project-card-actions .btn {
+        width: 100%;
+    }
+
+    .client-project-grid,
+    .project-card-meta {
+        grid-template-columns: 1fr;
+    }
+
+    .project-card-top {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}
+
 /* Portal cliente */
 .client-body,
 .client-auth-body {
@@ -1564,5 +1831,70 @@ body {
     .kpi strong,
     .client-kpi strong {
         font-size: 30px;
+    }
+}
+
+/* Corrección scroll vertical del menú lateral del panel */
+.panel-sidebar {
+    max-height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+}
+
+.panel-sidebar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.panel-sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.panel-sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.28);
+    border-radius: 999px;
+}
+
+.panel-sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.42);
+}
+
+.panel-sidebar nav {
+    padding-bottom: 32px;
+}
+
+/* En tablet/móvil, el menú deja de ser lateral fijo */
+@media(max-width:1050px) {
+    .panel-sidebar {
+        max-height: none;
+        overflow-y: visible;
+        overflow-x: hidden;
+    }
+
+    .panel-sidebar nav {
+        display: flex;
+        gap: 10px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 8px;
+    }
+
+    .panel-sidebar nav a {
+        white-space: nowrap;
+        flex: 0 0 auto;
+    }
+}
+
+@media(max-width:680px) {
+    .panel-sidebar nav {
+        display: grid;
+        grid-template-columns: 1fr;
+        overflow-x: visible;
+        overflow-y: visible;
+    }
+
+    .panel-sidebar nav a {
+        white-space: normal;
     }
 }

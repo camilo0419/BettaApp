@@ -591,6 +591,7 @@ class CotizacionItemForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["producto"].queryset = Producto.objects.filter(activo=True).select_related("categoria")
         self.fields["producto"].required = False
+        mark_searchable_select(self.fields["producto"])
         if cotizacion is not None and not self.instance.pk:
             self.instance.cotizacion = cotizacion
 
@@ -639,6 +640,7 @@ class ProyectoForm(forms.ModelForm):
             user__is_active=True,
         ).select_related("user")
         self.fields["responsable"].required = False
+        mark_searchable_select(self.fields["responsable"])
         clientes = Cliente.objects.filter(activo=True)
         if self.instance.pk and self.instance.cliente_id:
             clientes = Cliente.objects.filter(models.Q(activo=True) | models.Q(pk=self.instance.cliente_id))
@@ -868,6 +870,7 @@ class SolicitudTareaForm(forms.ModelForm):
             user__is_active=True,
         ).select_related("user").order_by("user__first_name", "user__last_name", "user__username")
         self.fields["responsable"].required = False
+        mark_searchable_select(self.fields["responsable"])
 
     def clean_evidencia_archivo(self):
         return validate_user_upload(self.cleaned_data.get("evidencia_archivo"))
