@@ -1,8 +1,9 @@
 {% extends 'tienda/emails/base_email.html' %}
-{% block title %}Bienvenido al portal{% endblock %}
+{% block title %}Bienvenido al portal de clientes{% endblock %}
+{% block preview %}Tu acceso al portal de clientes Betta ya está activo.{% endblock %}
 {% block content %}
-<h1 style="margin:0 0 12px;font-size:24px;color:#172033;">Bienvenido al portal de clientes</h1>
-<p style="margin:0 0 18px;line-height:1.6;">Hola {{ cliente.contacto_principal|default:cliente }}, tu acceso al portal de clientes Betta quedo activo.</p>
-<p style="margin:0 0 22px;line-height:1.6;">Desde el portal podrás consultar pedidos, proyectos, estados, documentos visibles y notificaciones de tu cuenta.</p>
-<a href="{{ site_url }}{% url 'cliente_dashboard' %}" style="display:inline-block;background:#172033;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold;">Entrar al portal</a>
+<p style="margin:0 0 16px;line-height:1.6;">Hola {{ cliente.contacto_principal|default:cliente }},</p>
+<h1 style="margin:0 0 12px;font-size:24px;color:#034860;">Bienvenido al portal de clientes</h1>
+<p style="margin:0 0 18px;line-height:1.6;">Tu acceso quedó activo. Desde el portal podrás consultar pedidos, proyectos, cotizaciones, documentos visibles y notificaciones de tu cuenta.</p>
+<a href="{{ site_url }}{% url 'cliente_dashboard' %}" style="display:inline-block;background:#00a28b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold;">Entrar al portal</a>
 {% endblock %}

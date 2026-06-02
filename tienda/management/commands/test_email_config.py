@@ -1,21 +1,28 @@
+from email.header import decode_header, make_header
+from email.utils import parseaddr
+
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from tienda.services.email_service import remitente_betta
+from tienda.services.email_service import asunto_betta, remitente_betta
 
 
 def mask_email(value):
     if not value:
         return "-"
-    email = value
-    if "<" in value and ">" in value:
-        email = value.split("<", 1)[1].split(">", 1)[0]
+    display_name, email = parseaddr(value)
     if "@" not in email:
         return "configurado"
     local, domain = email.split("@", 1)
-    return f"{local[:1] or '*'}***@{domain}"
+    masked = f"{local[:1] or '*'}***@{domain}"
+    if display_name:
+        try:
+            display_name = str(make_header(decode_header(display_name)))
+        except Exception:
+            pass
+    return f"{display_name} <{masked}>" if display_name else masked
 
 
 class Command(BaseCommand):
@@ -54,7 +61,7 @@ class Command(BaseCommand):
             f'<p style="color:#6b7280;font-size:13px">Fecha: {fecha}</p>'
             "</div>"
         )
-        mensaje = EmailMultiAlternatives("Prueba de correo Betta", texto, remitente, [destinatario])
+        mensaje = EmailMultiAlternatives(asunto_betta("Prueba de correo"), texto, remitente, [destinatario])
         mensaje.attach_alternative(html, "text/html")
 
         try:

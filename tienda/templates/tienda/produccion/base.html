@@ -30,6 +30,10 @@
       {% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}
     {% endif %}
     {% block content %}{% endblock %}
+    <footer class="app-footer production-footer">
+      <strong>Betta Diseño · Producción</strong>
+      <span>Gestión interna de pedidos y tareas.</span>
+    </footer>
   </main>
 
   <script>

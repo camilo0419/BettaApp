@@ -16,6 +16,7 @@
     {% with active=request.resolver_match.url_name %}
     <nav class="client-nav">
       <a href="{% url 'cliente_dashboard' %}" class="{% if active == 'cliente_dashboard' %}active{% endif %}">Inicio</a>
+      <a href="{% url 'productos_catalogo' %}" class="client-nav-shop">Ir a la tienda</a>
       <a href="{% url 'cliente_pedidos' %}" class="{% if active == 'cliente_pedidos' or active == 'cliente_pedido_detalle' %}active{% endif %}">Pedidos</a>
       <a href="{% url 'cliente_proyectos' %}" class="{% if active == 'cliente_proyectos' or active == 'cliente_proyecto_detalle' %}active{% endif %}">Proyectos</a>
       {% if request.user.cliente_usuario.puede_ver_facturacion %}<a href="{% url 'cliente_cotizaciones' %}" class="{% if active == 'cliente_cotizaciones' or active == 'cliente_cotizacion_detalle' %}active{% endif %}">Cotizaciones</a>{% endif %}
@@ -34,6 +35,10 @@
     {% endif %}
     {% block content %}{% endblock %}
   </main>
+  <footer class="app-footer client-footer">
+    <strong>Betta Diseño · Portal de clientes</strong>
+    <span>Consulta tus pedidos, proyectos y cotizaciones en línea.</span>
+  </footer>
   <script src="{% static 'tienda/js/ui_helpers.js' %}"></script>
 </body>
 </html>

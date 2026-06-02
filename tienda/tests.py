@@ -4,6 +4,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
+from .forms import CotizacionForm, ProyectoForm
 from .models import (
     Categoria,
     Cliente,
@@ -221,6 +222,12 @@ class PortalClienteTests(TestCase):
         self.assertContains(response, self.contacto.nombre)
         self.assertNotContains(response, "Iniciar sesi")
 
+    def test_menu_cliente_incluye_ir_a_la_tienda(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("cliente_dashboard"))
+        self.assertContains(response, "Ir a la tienda")
+        self.assertContains(response, reverse("productos_catalogo"))
+
     def test_panel_staff_y_orden_produccion_siguen_funcionando(self):
         staff = User.objects.create_user(username="staff", password="StaffTest123!", is_staff=True)
         self.client.force_login(staff)
@@ -252,6 +259,84 @@ class PortalClienteTests(TestCase):
             self.assertEqual(response.status_code, 200, ruta)
             html = response.content.decode()
             self.assertEqual(html.count('name="cliente"'), 1, ruta)
+
+    def test_ajax_dependientes_filtran_por_cliente_y_proyecto(self):
+        staff = User.objects.create_user(username="staff-ajax", password="StaffTest123!", is_staff=True)
+        otro_contacto = ClienteContacto.objects.create(cliente=self.otro_cliente, nombre="Contacto Ajeno", email="ajeno@example.com")
+        otro_proyecto = Proyecto.objects.create(nombre="Proyecto Ajeno", cliente=self.otro_cliente, contacto=otro_contacto)
+        Solicitud.objects.create(
+            producto=self.producto,
+            cliente=self.otro_cliente,
+            contacto=otro_contacto,
+            proyecto=otro_proyecto,
+            cliente_nombre="Ajeno",
+            cliente_celular="300",
+            cliente_email="ajeno@example.com",
+        )
+
+        self.client.force_login(staff)
+        response = self.client.get(reverse("panel_ajax_cliente_contactos", args=[self.cliente.id]))
+        self.assertEqual(response.status_code, 200)
+        labels = [item["label"] for item in response.json()["results"]]
+        self.assertTrue(any("Contacto Uno" in label for label in labels))
+        self.assertFalse(any("Contacto Ajeno" in label for label in labels))
+
+        response = self.client.get(reverse("panel_ajax_cliente_proyectos", args=[self.cliente.id]))
+        labels = [item["label"] for item in response.json()["results"]]
+        self.assertTrue(any("Proyecto Cliente" in label for label in labels))
+        self.assertFalse(any("Proyecto Ajeno" in label for label in labels))
+
+        response = self.client.get(reverse("panel_ajax_cliente_solicitudes", args=[self.cliente.id]))
+        ids = [item["id"] for item in response.json()["results"]]
+        self.assertIn(self.solicitud.id, ids)
+        self.assertNotIn(self.otra_solicitud.id, ids)
+
+        response = self.client.get(reverse("panel_ajax_proyecto_solicitudes", args=[self.proyecto.id]))
+        ids = [item["id"] for item in response.json()["results"]]
+        self.assertEqual(ids, [self.solicitud.id])
+
+    def test_forms_dependientes_rechazan_relaciones_cruzadas(self):
+        otro_contacto = ClienteContacto.objects.create(cliente=self.otro_cliente, nombre="Contacto Ajeno", email="ajeno@example.com")
+        otro_proyecto = Proyecto.objects.create(nombre="Proyecto Ajeno", cliente=self.otro_cliente, contacto=otro_contacto)
+        otra_solicitud = Solicitud.objects.create(
+            producto=self.producto,
+            cliente=self.otro_cliente,
+            contacto=otro_contacto,
+            proyecto=otro_proyecto,
+            cliente_nombre="Ajeno",
+            cliente_celular="300",
+            cliente_email="ajeno@example.com",
+        )
+
+        proyecto_form = ProyectoForm(
+            data={
+                "cliente": self.cliente.id,
+                "contacto": otro_contacto.id,
+                "nombre": "Proyecto cruzado",
+                "estado": Proyecto.ESTADO_BORRADOR,
+                "prioridad": Proyecto.PRIORIDAD_NORMAL,
+            }
+        )
+        self.assertFalse(proyecto_form.is_valid())
+        self.assertIn("contacto", proyecto_form.errors)
+
+        cotizacion_form = CotizacionForm(
+            data={
+                "cliente": self.cliente.id,
+                "contacto": otro_contacto.id,
+                "proyecto": otro_proyecto.id,
+                "solicitud": otra_solicitud.id,
+                "titulo": "Cotización cruzada",
+                "estado": Cotizacion.ESTADO_BORRADOR,
+                "moneda": Cotizacion.MONEDA_COP,
+                "validez_dias": 15,
+                "activa": "on",
+            }
+        )
+        self.assertFalse(cotizacion_form.is_valid())
+        self.assertIn("contacto", cotizacion_form.errors)
+        self.assertIn("proyecto", cotizacion_form.errors)
+        self.assertIn("solicitud", cotizacion_form.errors)
 
     def test_portal_proyectos_renderiza_cards_profesionales(self):
         self.login_cliente()

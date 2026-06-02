@@ -321,6 +321,21 @@
       text-align: center;
     }
 
+    .order-footer {
+      padding: 14px 18px 18px;
+      background: var(--op-soft);
+      border-top: 1px solid var(--op-line);
+      color: var(--op-muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .order-footer strong {
+      display: block;
+      color: var(--op-deep);
+      margin-bottom: 3px;
+    }
+
     @page {
       size: A4;
       margin: 8mm;
@@ -537,6 +552,11 @@
       .signature-box {
         padding-top: 18px;
         font-size: 8.8px;
+      }
+
+      .order-footer {
+        padding: 5px 6px;
+        font-size: 7.5px;
       }
 
       p.muted {
@@ -783,6 +803,10 @@
         </div>
       </section>
     </div>
+    <footer class="order-footer">
+      <strong>Betta Diseño · Orden de producción</strong>
+      Documento interno para gestión de pedidos y tareas.
+    </footer>
   </main>
 </body>
 </html>

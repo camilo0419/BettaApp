@@ -81,7 +81,7 @@ from .models import (
     SolicitudRespuesta,
     SolicitudTarea,
 )
-from .services.email_service import enviar_confirmacion_registro_cliente, enviar_confirmacion_solicitud, enviar_correo_cliente, enviar_notificacion_cliente
+from .services.email_service import enviar_confirmacion_registro_cliente, enviar_confirmacion_solicitud, enviar_correo_cliente, enviar_notificacion_cliente, remitente_betta
 
 WHATSAPP_EMPRESA = "573026491143" 
 COTIZACION_TOKEN_SALT = "tienda.cotizacion_exito"
@@ -830,6 +830,10 @@ class ClientePasswordResetView(PasswordResetView):
     subject_template_name = "tienda/emails/password_reset_cliente_subject.txt"
     success_url = reverse_lazy("cliente_password_reset_done")
 
+    def form_valid(self, form):
+        self.from_email = remitente_betta()
+        return super().form_valid(form)
+
     def get_extra_email_context(self):
         contexto = super().get_extra_email_context() or {}
         contexto.setdefault("site_url", getattr(settings, "SITE_URL", "").rstrip("/"))
@@ -1315,6 +1319,74 @@ def cotizacion_initial_from_request(request):
     return initial
 
 
+def contacto_option(contacto):
+    detalle = contacto.email or contacto.whatsapp or contacto.telefono or "Sin datos de contacto"
+    return {
+        "id": contacto.id,
+        "label": f"{contacto.nombre} · {detalle}",
+        "client_id": contacto.cliente_id,
+        "is_principal": contacto.es_principal,
+    }
+
+
+def proyecto_option(proyecto):
+    return {
+        "id": proyecto.id,
+        "label": f"{proyecto.nombre} · {proyecto.get_estado_display()}",
+        "client_id": proyecto.cliente_id,
+    }
+
+
+def solicitud_option(solicitud):
+    producto = solicitud.producto.nombre if solicitud.producto_id else "Solicitud"
+    proyecto = f" · {solicitud.proyecto.nombre}" if solicitud.proyecto_id else ""
+    return {
+        "id": solicitud.id,
+        "label": f"OP-{solicitud.id:06d} · {producto}{proyecto}",
+        "client_id": solicitud.cliente_id or getattr(solicitud.proyecto, "cliente_id", None),
+        "project_id": solicitud.proyecto_id,
+    }
+
+
+@panel_staff_required
+def panel_ajax_cliente_contactos(request, cliente_id):
+    contactos = ClienteContacto.objects.filter(
+        activo=True,
+        cliente_id=cliente_id,
+    ).select_related("cliente").order_by("-es_principal", "nombre")
+    return JsonResponse({"results": [contacto_option(contacto) for contacto in contactos]})
+
+
+@panel_staff_required
+def panel_ajax_cliente_proyectos(request, cliente_id):
+    proyectos = Proyecto.objects.filter(
+        activo=True,
+        cliente_id=cliente_id,
+    ).select_related("cliente").order_by("-fecha_creacion", "nombre")
+    return JsonResponse({"results": [proyecto_option(proyecto) for proyecto in proyectos]})
+
+
+@panel_staff_required
+def panel_ajax_cliente_solicitudes(request, cliente_id):
+    solicitudes = (
+        Solicitud.objects.filter(Q(cliente_id=cliente_id) | Q(proyecto__cliente_id=cliente_id))
+        .select_related("producto", "cliente", "proyecto")
+        .distinct()
+        .order_by("-creado")
+    )
+    return JsonResponse({"results": [solicitud_option(solicitud) for solicitud in solicitudes]})
+
+
+@panel_staff_required
+def panel_ajax_proyecto_solicitudes(request, proyecto_id):
+    solicitudes = (
+        Solicitud.objects.filter(proyecto_id=proyecto_id)
+        .select_related("producto", "cliente", "proyecto")
+        .order_by("-creado")
+    )
+    return JsonResponse({"results": [solicitud_option(solicitud) for solicitud in solicitudes]})
+
+
 def crear_item_desde_solicitud(cotizacion):
     if not cotizacion.solicitud_id or cotizacion.items.exists():
         return None
@@ -1502,7 +1574,7 @@ def cotizacion_enviar(request, cotizacion_id):
     cotizacion.recalcular_totales()
     enviado = enviar_correo_cliente(
         email,
-        f"Cotización {cotizacion.numero} - Betta",
+        f"Cotización {cotizacion.numero}",
         "tienda/emails/cotizacion_cliente.html",
         {"cotizacion": cotizacion, "cliente": cotizacion.cliente},
     )
@@ -1816,6 +1888,7 @@ def cliente_portal_password_reset(request, usuario_id):
             email_template_name="tienda/emails/password_reset_cliente.txt",
             html_email_template_name="tienda/emails/password_reset_cliente.html",
             subject_template_name="tienda/emails/password_reset_cliente_subject.txt",
+            from_email=remitente_betta(),
             extra_email_context={
                 "site_url": getattr(settings, "SITE_URL", "").rstrip("/"),
                 "from_name": getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseño"),

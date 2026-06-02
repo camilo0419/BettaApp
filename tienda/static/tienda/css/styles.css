@@ -1707,6 +1707,53 @@ body {
     max-width: 100%;
 }
 
+.app-footer {
+    width: min(1180px, 92vw);
+    margin: 18px auto 0;
+    padding: 18px 0 24px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    font-size: 14px;
+}
+
+.app-footer strong {
+    color: var(--deep);
+}
+
+.app-footer span {
+    text-align: right;
+}
+
+.client-nav-shop {
+    border: 1px solid rgba(0, 162, 139, .26) !important;
+    background: #e8f8f6 !important;
+}
+
+.client-footer,
+.production-footer {
+    margin-bottom: 20px;
+}
+
+.panel-footer {
+    width: 100%;
+    margin-top: 28px;
+}
+
+@media (max-width: 760px) {
+    .app-footer {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .app-footer span {
+        text-align: left;
+    }
+}
+
 body {
     overflow-x: hidden;
 }

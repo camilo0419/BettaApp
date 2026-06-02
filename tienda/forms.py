@@ -59,6 +59,52 @@ def mark_searchable_select(field, **attrs):
         field.widget.attrs[key] = value
 
 
+def selected_form_id(form, field_name):
+    if form.is_bound:
+        value = form.data.get(form.add_prefix(field_name)) or form.data.get(field_name)
+    else:
+        value = form.initial.get(field_name)
+        if value in [None, ""]:
+            value = getattr(form.instance, f"{field_name}_id", None)
+    if hasattr(value, "pk"):
+        value = value.pk
+    if value in [None, ""]:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def include_selected(qs, model, selected_id):
+    if not selected_id:
+        return qs
+    return model.objects.filter(models.Q(pk__in=qs.values("pk")) | models.Q(pk=selected_id)).distinct()
+
+
+def contactos_de_cliente_qs(cliente_id):
+    if not cliente_id:
+        return ClienteContacto.objects.none()
+    return ClienteContacto.objects.filter(activo=True, cliente_id=cliente_id).select_related("cliente")
+
+
+def proyectos_de_cliente_qs(cliente_id):
+    if not cliente_id:
+        return Proyecto.objects.none()
+    return Proyecto.objects.filter(activo=True, cliente_id=cliente_id).select_related("cliente")
+
+
+def solicitudes_de_cliente_qs(cliente_id, proyecto_id=None):
+    qs = Solicitud.objects.select_related("producto", "cliente", "proyecto")
+    if proyecto_id:
+        return qs.filter(proyecto_id=proyecto_id).order_by("-creado")
+    if not cliente_id:
+        return qs.none()
+    return qs.filter(
+        models.Q(cliente_id=cliente_id) | models.Q(proyecto__cliente_id=cliente_id)
+    ).distinct().order_by("-creado")
+
+
 BLOCKED_UPLOAD_EXTENSIONS = {
     ".bat", ".cmd", ".com", ".dll", ".exe", ".hta", ".html", ".htm",
     ".js", ".msi", ".php", ".ps1", ".py", ".sh", ".svg", ".vbs",
@@ -534,14 +580,22 @@ class CotizacionForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        cliente_id = selected_form_id(self, "cliente")
+        contacto_id = selected_form_id(self, "contacto")
+        proyecto_id = selected_form_id(self, "proyecto")
+        solicitud_id = selected_form_id(self, "solicitud")
+
         self.fields["cliente"].queryset = Cliente.objects.filter(activo=True).order_by("nombre", "razon_social")
         if self.instance.pk and self.instance.cliente_id:
             self.fields["cliente"].queryset = Cliente.objects.filter(
                 models.Q(activo=True) | models.Q(pk=self.instance.cliente_id)
             ).order_by("nombre", "razon_social")
-        self.fields["contacto"].queryset = ClienteContacto.objects.filter(activo=True).select_related("cliente")
-        self.fields["proyecto"].queryset = Proyecto.objects.filter(activo=True).select_related("cliente")
-        self.fields["solicitud"].queryset = Solicitud.objects.select_related("producto", "cliente", "proyecto")
+        contactos = contactos_de_cliente_qs(cliente_id).order_by("-es_principal", "nombre")
+        proyectos = proyectos_de_cliente_qs(cliente_id).order_by("-fecha_creacion", "nombre")
+        solicitudes = solicitudes_de_cliente_qs(cliente_id, proyecto_id)
+        self.fields["contacto"].queryset = include_selected(contactos, ClienteContacto, contacto_id)
+        self.fields["proyecto"].queryset = include_selected(proyectos, Proyecto, proyecto_id)
+        self.fields["solicitud"].queryset = include_selected(solicitudes, Solicitud, solicitud_id)
         self.fields["contacto"].required = False
         self.fields["proyecto"].required = False
         self.fields["solicitud"].required = False
@@ -549,11 +603,31 @@ class CotizacionForm(forms.ModelForm):
         use_related_data_select(self.fields["proyecto"])
         use_related_data_select(self.fields["solicitud"])
         mark_searchable_select(self.fields["cliente"])
-        mark_searchable_select(self.fields["contacto"], **{"data-filter-client-source": "id_cliente"})
-        mark_searchable_select(self.fields["proyecto"], **{"data-filter-client-source": "id_cliente"})
+        mark_searchable_select(
+            self.fields["contacto"],
+            **{
+                "data-filter-client-source": "id_cliente",
+                "data-always-searchable": "true",
+                "data-empty-label": "Sin contactos disponibles",
+                "data-prefer-principal": "true",
+            },
+        )
+        mark_searchable_select(
+            self.fields["proyecto"],
+            **{
+                "data-filter-client-source": "id_cliente",
+                "data-always-searchable": "true",
+                "data-empty-label": "Sin proyectos disponibles",
+            },
+        )
         mark_searchable_select(
             self.fields["solicitud"],
-            **{"data-filter-client-source": "id_cliente", "data-filter-project-source": "id_proyecto"},
+            **{
+                "data-filter-client-source": "id_cliente",
+                "data-filter-project-source": "id_proyecto",
+                "data-always-searchable": "true",
+                "data-empty-label": "Sin solicitudes disponibles",
+            },
         )
 
     def clean(self):
@@ -564,13 +638,13 @@ class CotizacionForm(forms.ModelForm):
         solicitud = cleaned_data.get("solicitud")
         if contacto and cliente and contacto.cliente_id != cliente.id:
             self.add_error("contacto", "El contacto no pertenece al cliente seleccionado.")
-        if proyecto and cliente and proyecto.cliente_id and proyecto.cliente_id != cliente.id:
+        if proyecto and cliente and proyecto.cliente_id != cliente.id:
             self.add_error("proyecto", "El proyecto pertenece a otro cliente.")
         if solicitud and cliente:
             solicitud_cliente_id = solicitud.cliente_id or getattr(solicitud.proyecto, "cliente_id", None)
-            if solicitud_cliente_id and solicitud_cliente_id != cliente.id:
+            if solicitud_cliente_id != cliente.id:
                 self.add_error("solicitud", "La solicitud pertenece a otro cliente.")
-        if solicitud and proyecto and solicitud.proyecto_id and solicitud.proyecto_id != proyecto.id:
+        if solicitud and proyecto and solicitud.proyecto_id != proyecto.id:
             self.add_error("solicitud", "La solicitud pertenece a otro proyecto.")
         return cleaned_data
 
@@ -635,6 +709,8 @@ class ProyectoForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        cliente_id = selected_form_id(self, "cliente")
+        contacto_id = selected_form_id(self, "contacto")
         self.fields["responsable"].queryset = EmpleadoPerfil.objects.filter(
             activo=True,
             user__is_active=True,
@@ -646,11 +722,20 @@ class ProyectoForm(forms.ModelForm):
             clientes = Cliente.objects.filter(models.Q(activo=True) | models.Q(pk=self.instance.cliente_id))
         self.fields["cliente"].queryset = clientes.order_by("nombre", "razon_social")
         self.fields["cliente"].required = False
-        self.fields["contacto"].queryset = ClienteContacto.objects.filter(activo=True).select_related("cliente")
+        contactos = contactos_de_cliente_qs(cliente_id).order_by("-es_principal", "nombre")
+        self.fields["contacto"].queryset = include_selected(contactos, ClienteContacto, contacto_id)
         self.fields["contacto"].required = False
         use_related_data_select(self.fields["contacto"])
         mark_searchable_select(self.fields["cliente"])
-        mark_searchable_select(self.fields["contacto"], **{"data-filter-client-source": "id_cliente"})
+        mark_searchable_select(
+            self.fields["contacto"],
+            **{
+                "data-filter-client-source": "id_cliente",
+                "data-always-searchable": "true",
+                "data-empty-label": "Sin contactos disponibles",
+                "data-prefer-principal": "true",
+            },
+        )
 
     def clean(self):
         cleaned_data = super().clean()
