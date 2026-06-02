@@ -1,18 +1,22 @@
 import logging
+from email.utils import formataddr, parseaddr
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
+from django.utils.html import strip_tags
 
 logger = logging.getLogger(__name__)
 
 
 def remitente_betta():
     nombre = getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseño")
-    email = getattr(settings, "DEFAULT_FROM_EMAIL", "") or getattr(settings, "SERVER_EMAIL", "")
-    if email and nombre:
-        return f"{nombre} <{email}>"
-    return email or None
+    configurado = getattr(settings, "DEFAULT_FROM_EMAIL", "") or getattr(settings, "SERVER_EMAIL", "")
+    nombre_configurado, email = parseaddr(configurado)
+    if email:
+        nombre_final = nombre or nombre_configurado
+        return formataddr((nombre_final, email)) if nombre_final else email
+    return configurado or None
 
 
 def enviar_correo_cliente(destinatarios, asunto, template_html, contexto=None, template_texto=None):
@@ -27,8 +31,8 @@ def enviar_correo_cliente(destinatarios, asunto, template_html, contexto=None, t
     contexto.setdefault("from_name", getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseño"))
 
     try:
-        texto = render_to_string(template_texto, contexto) if template_texto else ""
         html = render_to_string(template_html, contexto)
+        texto = render_to_string(template_texto, contexto) if template_texto else strip_tags(html)
         mensaje = EmailMultiAlternatives(asunto, texto or asunto, remitente_betta(), destinatarios)
         mensaje.attach_alternative(html, "text/html")
         mensaje.send(fail_silently=False)

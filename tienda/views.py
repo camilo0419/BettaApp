@@ -4,6 +4,7 @@ from functools import wraps
 import logging
 import unicodedata
 from urllib.parse import quote
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import REDIRECT_FIELD_NAME, login, logout
 from django.contrib.auth.decorators import login_required
@@ -828,6 +829,12 @@ class ClientePasswordResetView(PasswordResetView):
     html_email_template_name = "tienda/emails/password_reset_cliente.html"
     subject_template_name = "tienda/emails/password_reset_cliente_subject.txt"
     success_url = reverse_lazy("cliente_password_reset_done")
+
+    def get_extra_email_context(self):
+        contexto = super().get_extra_email_context() or {}
+        contexto.setdefault("site_url", getattr(settings, "SITE_URL", "").rstrip("/"))
+        contexto.setdefault("from_name", getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseño"))
+        return contexto
 
 
 class ClientePasswordResetDoneView(PasswordResetDoneView):
@@ -1809,6 +1816,10 @@ def cliente_portal_password_reset(request, usuario_id):
             email_template_name="tienda/emails/password_reset_cliente.txt",
             html_email_template_name="tienda/emails/password_reset_cliente.html",
             subject_template_name="tienda/emails/password_reset_cliente_subject.txt",
+            extra_email_context={
+                "site_url": getattr(settings, "SITE_URL", "").rstrip("/"),
+                "from_name": getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseño"),
+            },
         )
         messages.success(request, "Correo de recuperación enviado o preparado según la configuración de email.")
     else:
