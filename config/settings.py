@@ -171,6 +171,7 @@ if EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend" and (not EMAIL
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 BETTA_EMAIL_FROM_NAME = os.environ.get("BETTA_EMAIL_FROM_NAME", "Betta Diseño").strip()
+BETTA_EMAIL_LOGO_URL = os.environ.get("BETTA_EMAIL_LOGO_URL", "").strip()
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "").strip() or EMAIL_HOST_USER or "webmaster@localhost"
 SERVER_EMAIL = os.environ.get("SERVER_EMAIL", "").strip() or DEFAULT_FROM_EMAIL
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000").strip().rstrip("/")

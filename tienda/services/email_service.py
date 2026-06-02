@@ -1,5 +1,6 @@
 import logging
 from email.utils import formataddr, parseaddr
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
@@ -27,6 +28,16 @@ def asunto_betta(asunto):
     return f"{asunto} | {nombre}"
 
 
+def logo_email_url():
+    url = getattr(settings, "BETTA_EMAIL_LOGO_URL", "").strip()
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return url
+    return ""
+
+
 def enviar_correo_cliente(destinatarios, asunto, template_html, contexto=None, template_texto=None):
     if isinstance(destinatarios, str):
         destinatarios = [destinatarios]
@@ -37,6 +48,7 @@ def enviar_correo_cliente(destinatarios, asunto, template_html, contexto=None, t
     contexto = contexto or {}
     contexto.setdefault("site_url", getattr(settings, "SITE_URL", ""))
     contexto.setdefault("from_name", getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseño"))
+    contexto.setdefault("email_logo_url", logo_email_url())
 
     try:
         html = render_to_string(template_html, contexto)

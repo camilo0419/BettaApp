@@ -14,7 +14,12 @@
       <span>Portal cliente</span>
     </a>
     {% with active=request.resolver_match.url_name %}
-    <nav class="client-nav">
+    <button type="button" class="client-menu-toggle" data-client-menu-toggle aria-controls="client-nav" aria-expanded="false" aria-label="Abrir o cerrar menú">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+    <nav class="client-nav" id="client-nav" data-client-nav>
       <a href="{% url 'cliente_dashboard' %}" class="{% if active == 'cliente_dashboard' %}active{% endif %}">Inicio</a>
       <a href="{% url 'productos_catalogo' %}" class="client-nav-shop">Ir a la tienda</a>
       <a href="{% url 'cliente_pedidos' %}" class="{% if active == 'cliente_pedidos' or active == 'cliente_pedido_detalle' %}active{% endif %}">Pedidos</a>

@@ -1,7 +1,8 @@
 from decimal import Decimal
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.template.loader import render_to_string
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from .forms import CotizacionForm, ProyectoForm
@@ -20,6 +21,7 @@ from .models import (
     SolicitudNovedad,
     SolicitudTarea,
 )
+from .services.email_service import logo_email_url
 
 
 class PortalClienteTests(TestCase):
@@ -227,6 +229,33 @@ class PortalClienteTests(TestCase):
         response = self.client.get(reverse("cliente_dashboard"))
         self.assertContains(response, "Ir a la tienda")
         self.assertContains(response, reverse("productos_catalogo"))
+        self.assertContains(response, "data-client-menu-toggle")
+        self.assertContains(response, 'aria-expanded="false"')
+
+    def test_email_no_renderiza_logo_roto_sin_url_publica(self):
+        html = render_to_string(
+            "tienda/emails/cliente_bienvenida.html",
+            {
+                "cliente_usuario": self.cliente_usuario,
+                "cliente": self.cliente,
+                "site_url": "https://betta.example.com",
+                "from_name": "Betta Diseño",
+                "email_logo_url": "",
+            },
+        )
+        self.assertNotIn("<img", html)
+        self.assertIn("Betta Diseño", html)
+
+    @override_settings(BETTA_EMAIL_LOGO_URL="https://betta.example.com/static/tienda/img/marca/betta-logo-text.jpeg")
+    def test_email_logo_url_solo_acepta_url_absoluta(self):
+        self.assertEqual(
+            logo_email_url(),
+            "https://betta.example.com/static/tienda/img/marca/betta-logo-text.jpeg",
+        )
+
+    @override_settings(BETTA_EMAIL_LOGO_URL="/static/tienda/img/marca/betta-logo-text.jpeg")
+    def test_email_logo_url_rechaza_ruta_relativa(self):
+        self.assertEqual(logo_email_url(), "")
 
     def test_panel_staff_y_orden_produccion_siguen_funcionando(self):
         staff = User.objects.create_user(username="staff", password="StaffTest123!", is_staff=True)
@@ -242,6 +271,13 @@ class PortalClienteTests(TestCase):
         for ruta in rutas:
             response = self.client.get(ruta)
             self.assertEqual(response.status_code, 200, ruta)
+
+    def test_panel_drawer_inicia_cerrado(self):
+        staff = User.objects.create_user(username="staff-drawer", password="StaffTest123!", is_staff=True)
+        self.client.force_login(staff)
+        response = self.client.get(reverse("panel_dashboard"))
+        self.assertContains(response, "data-panel-menu-toggle")
+        self.assertContains(response, 'aria-expanded="false"')
 
     def test_formularios_admin_no_duplican_selector_cliente(self):
         staff = User.objects.create_user(username="staff-forms", password="StaffTest123!", is_staff=True)

@@ -2125,3 +2125,110 @@ body {
         left: min(238px, calc(88vw - 62px));
     }
 }
+
+/* Menú móvil portal cliente */
+.client-menu-toggle {
+    display: none;
+}
+
+@media (min-width: 761px) {
+    .client-nav {
+        display: flex !important;
+    }
+}
+
+@media (max-width: 760px) {
+    .client-topbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+    }
+
+    .client-brand {
+        min-width: 0;
+    }
+
+    .client-brand span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .client-menu-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 5px;
+        width: 44px;
+        height: 44px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #fff;
+        box-shadow: 0 10px 24px rgba(3, 72, 96, .12);
+        cursor: pointer;
+    }
+
+    .client-menu-toggle span {
+        display: block;
+        width: 20px;
+        height: 2px;
+        border-radius: 999px;
+        background: var(--deep);
+        transition: transform .2s ease, opacity .2s ease;
+    }
+
+    .client-menu-toggle.is-open span:nth-child(1) {
+        transform: translateY(7px) rotate(45deg);
+    }
+
+    .client-menu-toggle.is-open span:nth-child(2) {
+        opacity: 0;
+    }
+
+    .client-menu-toggle.is-open span:nth-child(3) {
+        transform: translateY(-7px) rotate(-45deg);
+    }
+
+    .client-nav {
+        grid-column: 1 / -1;
+        display: none;
+        width: 100%;
+        padding-top: 10px;
+        border-top: 1px solid var(--line);
+    }
+
+    .client-body.client-menu-open .client-nav {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .client-main {
+        padding-top: 18px;
+    }
+}
+
+/* Ajustes finales panel móvil/cotizaciones */
+@media (max-width: 760px) {
+    .panel-main .split-grid,
+    .panel-main .kpi-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .panel-main .table-responsive {
+        max-width: 100%;
+        border-radius: 14px;
+    }
+
+    .panel-main .table-responsive .table {
+        min-width: 760px;
+    }
+
+    .panel-main .filter-grid,
+    .panel-main .filter-form {
+        grid-template-columns: 1fr;
+    }
+}

@@ -287,6 +287,44 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 
+  function initClientMenu() {
+    const body = document.querySelector(".client-body");
+    const toggle = document.querySelector("[data-client-menu-toggle]");
+    const nav = document.querySelector("[data-client-nav]");
+
+    if (!body || !toggle || !nav) {
+      return;
+    }
+
+    function isOpen() {
+      return body.classList.contains("client-menu-open");
+    }
+
+    function setState(open) {
+      body.classList.toggle("client-menu-open", open);
+      toggle.classList.toggle("is-open", open);
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+
+    toggle.addEventListener("click", function () {
+      setState(!isOpen());
+    });
+
+    nav.querySelectorAll("a").forEach(function (link) {
+      link.addEventListener("click", function () {
+        setState(false);
+      });
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") {
+        setState(false);
+      }
+    });
+
+    setState(false);
+  }
+
   function initPanelSidebar() {
     const body = document.querySelector("[data-panel-layout]");
     const toggle = document.querySelector("[data-panel-menu-toggle]");
@@ -345,6 +383,7 @@ document.addEventListener("DOMContentLoaded", function () {
     closeSidebar();
   }
 
+  initClientMenu();
   initPanelSidebar();
 
   document.addEventListener("keydown", function (event) {

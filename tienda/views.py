@@ -81,7 +81,7 @@ from .models import (
     SolicitudRespuesta,
     SolicitudTarea,
 )
-from .services.email_service import enviar_confirmacion_registro_cliente, enviar_confirmacion_solicitud, enviar_correo_cliente, enviar_notificacion_cliente, remitente_betta
+from .services.email_service import enviar_confirmacion_registro_cliente, enviar_confirmacion_solicitud, enviar_correo_cliente, enviar_notificacion_cliente, logo_email_url, remitente_betta
 
 WHATSAPP_EMPRESA = "573026491143" 
 COTIZACION_TOKEN_SALT = "tienda.cotizacion_exito"
@@ -838,6 +838,7 @@ class ClientePasswordResetView(PasswordResetView):
         contexto = super().get_extra_email_context() or {}
         contexto.setdefault("site_url", getattr(settings, "SITE_URL", "").rstrip("/"))
         contexto.setdefault("from_name", getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseño"))
+        contexto.setdefault("email_logo_url", logo_email_url())
         return contexto
 
 
@@ -1892,6 +1893,7 @@ def cliente_portal_password_reset(request, usuario_id):
             extra_email_context={
                 "site_url": getattr(settings, "SITE_URL", "").rstrip("/"),
                 "from_name": getattr(settings, "BETTA_EMAIL_FROM_NAME", "Betta Diseño"),
+                "email_logo_url": logo_email_url(),
             },
         )
         messages.success(request, "Correo de recuperación enviado o preparado según la configuración de email.")
