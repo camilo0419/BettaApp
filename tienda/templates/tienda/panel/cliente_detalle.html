@@ -160,7 +160,7 @@
             {% for tarea in tareas %}
             <tr>
               <td><strong>{{ tarea.titulo }}</strong><br><small>{{ tarea.get_area_display }}</small></td>
-              <td>OP-{{ tarea.solicitud.id|stringformat:"06d" }}</td>
+              <td>{% if tarea.solicitud %}OP-{{ tarea.solicitud.id|stringformat:"06d" }}{% elif tarea.proyecto %}{{ tarea.proyecto.nombre }}{% else %}General{% endif %}</td>
               <td>{{ tarea.responsable|default:'-' }}</td>
               <td>{{ tarea.get_estado_display }}</td>
               <td class="actions-column"><div class="table-actions"><a href="{% url 'panel_tarea_editar' tarea.id %}" class="link-button">Editar</a></div></td>

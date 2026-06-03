@@ -38,7 +38,7 @@ def logo_email_url():
     return ""
 
 
-def enviar_correo_cliente(destinatarios, asunto, template_html, contexto=None, template_texto=None):
+def enviar_correo_cliente(destinatarios, asunto, template_html, contexto=None, template_texto=None, adjuntos=None):
     if isinstance(destinatarios, str):
         destinatarios = [destinatarios]
     destinatarios = [email for email in destinatarios if email]
@@ -55,6 +55,8 @@ def enviar_correo_cliente(destinatarios, asunto, template_html, contexto=None, t
         texto = render_to_string(template_texto, contexto) if template_texto else strip_tags(html)
         mensaje = EmailMultiAlternatives(asunto_betta(asunto), texto or asunto, remitente_betta(), destinatarios)
         mensaje.attach_alternative(html, "text/html")
+        for adjunto in adjuntos or []:
+            mensaje.attach(adjunto["filename"], adjunto["content"], adjunto["mimetype"])
         mensaje.send(fail_silently=False)
         return True
     except Exception:

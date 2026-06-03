@@ -5,11 +5,11 @@
 {% block content %}
 <div class="production-head">
   <div>
-    <span class="eyebrow">Tarea #{{ tarea.id }} · OP-{{ solicitud.id|stringformat:"06d" }}</span>
+    <span class="eyebrow">Tarea #{{ tarea.id }}{% if solicitud %} · OP-{{ solicitud.id|stringformat:"06d" }}{% else %} · Proyecto{% endif %}</span>
     <h1>{{ tarea.titulo }}</h1>
   </div>
   <div class="head-actions">
-    <a href="{% url 'panel_solicitud_orden_produccion' solicitud.id %}" class="btn btn-primary" target="_blank" rel="noopener">Orden de producción</a>
+    {% if solicitud %}<a href="{% url 'panel_solicitud_orden_produccion' solicitud.id %}" class="btn btn-primary" target="_blank" rel="noopener">Orden de producción</a>{% endif %}
     <a href="{% url 'produccion_dashboard' %}" class="btn btn-outline">Volver</a>
   </div>
 </div>
@@ -23,10 +23,10 @@
       </div>
       <h2>Resumen de tarea</h2>
       <dl class="detail-list">
-        <dt>Proyecto</dt><dd>{{ solicitud.proyecto.nombre|default:'-' }}</dd>
-        <dt>Pedido</dt><dd>OP-{{ solicitud.id|stringformat:"06d" }}</dd>
-        <dt>Cliente</dt><dd>{{ solicitud.cliente_nombre }}</dd>
-        <dt>Producto</dt><dd>{{ solicitud.producto.nombre }}</dd>
+        <dt>Proyecto</dt><dd>{% if solicitud %}{{ solicitud.proyecto.nombre|default:'-' }}{% else %}{{ tarea.proyecto.nombre|default:'-' }}{% endif %}</dd>
+        <dt>Pedido</dt><dd>{% if solicitud %}OP-{{ solicitud.id|stringformat:"06d" }}{% else %}General{% endif %}</dd>
+        <dt>Cliente</dt><dd>{% if solicitud %}{{ solicitud.cliente_nombre }}{% elif tarea.proyecto.cliente %}{{ tarea.proyecto.cliente }}{% else %}-{% endif %}</dd>
+        <dt>Producto</dt><dd>{% if solicitud %}{{ solicitud.producto.nombre }}{% else %}-{% endif %}</dd>
         <dt>Área</dt><dd>{{ tarea.get_area_display }}</dd>
         <dt>Responsable</dt><dd>{{ tarea.responsable|default:'-' }}</dd>
         <dt>Fecha límite</dt><dd>{{ tarea.fecha_limite|date:'d/m/Y'|default:'-' }}</dd>

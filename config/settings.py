@@ -101,6 +101,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "tienda.context_processors.betta_global_context",
             ],
         },
     },
@@ -186,6 +187,11 @@ if EMAIL_BACKEND == "django.core.mail.backends.smtp.EmailBackend" and (not EMAIL
 
 BETTA_EMAIL_FROM_NAME = os.environ.get("BETTA_EMAIL_FROM_NAME", "Betta Diseño").strip()
 BETTA_EMAIL_LOGO_URL = os.environ.get("BETTA_EMAIL_LOGO_URL", "").strip()
+BETTA_WHATSAPP_NUMBER = os.environ.get("BETTA_WHATSAPP_NUMBER", "").strip()
+BETTA_WHATSAPP_MESSAGE = os.environ.get(
+    "BETTA_WHATSAPP_MESSAGE",
+    "Hola, estoy visitando la pagina de Betta Diseno y necesito asesoria personalizada para un producto o proyecto que no encontre en la tienda.",
+).strip()
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "").strip() or EMAIL_HOST_USER or "webmaster@localhost"
 SERVER_EMAIL = os.environ.get("SERVER_EMAIL", "").strip() or DEFAULT_FROM_EMAIL
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000").strip().rstrip("/")

@@ -12,7 +12,7 @@
       <div class="price-box">Precio estimado: <strong>${{ solicitud.precio_estimado|floatformat:0 }}</strong></div>
     {% endif %}
     <div class="success-actions">
-      <a href="{{ whatsapp_url }}" class="btn btn-primary">Continuar por WhatsApp</a>
+      {% if whatsapp_url %}<a href="{{ whatsapp_url }}" class="btn btn-primary" target="_blank" rel="noopener">Continuar por WhatsApp</a>{% endif %}
       <a href="{% url 'home' %}" class="btn btn-outline">Volver al catálogo</a>
     </div>
   </div>

@@ -138,19 +138,19 @@
             {% for tarea in tareas %}
             <tr>
               <td><strong>{{ tarea.titulo }}</strong><br><small>{{ tarea.get_area_display }}</small></td>
-              <td>OP-{{ tarea.solicitud.id|stringformat:"06d" }}</td>
+              <td>{% if tarea.solicitud %}OP-{{ tarea.solicitud.id|stringformat:"06d" }}{% else %}General{% endif %}</td>
               <td>{{ tarea.responsable|default:'-' }}</td>
               <td>{{ tarea.get_estado_display }}</td>
               <td>{{ tarea.fecha_limite|date:'d/m/Y'|default:'-' }}</td>
               <td class="actions-column">
                 <div class="table-actions">
                   <a href="{% url 'panel_tarea_editar' tarea.id %}" class="link-button">Editar</a>
-                  <a href="{% url 'panel_solicitud_detalle' tarea.solicitud.id %}" class="link-button">Solicitud</a>
+                  {% if tarea.solicitud %}<a href="{% url 'panel_solicitud_detalle' tarea.solicitud.id %}" class="link-button">Solicitud</a>{% endif %}
                 </div>
               </td>
             </tr>
             {% empty %}
-            <tr><td colspan="6">No hay tareas registradas en las solicitudes del proyecto.</td></tr>
+            <tr><td colspan="6">No hay tareas registradas en este proyecto.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -159,6 +159,16 @@
   </div>
 
   <div>
+    <div class="panel-card">
+      <h2>Crear tarea general</h2>
+      <form method="post" enctype="multipart/form-data" class="dynamic-form project-task-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="crear_tarea_proyecto">
+        {{ tarea_form.as_p }}
+        <button class="btn btn-primary btn-wide">Crear tarea</button>
+      </form>
+    </div>
+
     <div class="panel-card">
       <h2>Asociar solicitudes existentes</h2>
       <form method="post" class="dynamic-form">

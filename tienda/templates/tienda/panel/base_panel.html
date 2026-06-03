@@ -5,6 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Admin productos | Betta Dise&ntilde;o{% endblock %}</title>
+  {% include 'tienda/partials/favicon.html' %}
   <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
 </head>
 
@@ -49,7 +50,10 @@
 
     <a href="{% url 'panel_campos_maestros' %}" class="{% if active == 'panel_campos_maestros' or active == 'panel_campo_maestro_crear' or active == 'panel_campo_maestro_editar' or active == 'panel_campo_maestro_opciones' or active == 'panel_campo_maestro_opcion_crear' or active == 'panel_campo_maestro_opcion_editar' %}active{% endif %}">Campos maestros</a>
 
-    <a href="{% url 'produccion_dashboard' %}" class="{% if active == 'produccion_dashboard' or active == 'produccion_pedido_detalle' or active == 'produccion_tarea_detalle' %}active{% endif %}">Producci&oacute;n</a>
+    <a href="{% url 'produccion_dashboard' %}" class="notification-link {% if active == 'produccion_dashboard' or active == 'produccion_pedido_detalle' or active == 'produccion_tarea_detalle' %}active{% endif %}">
+      <span>Producci&oacute;n</span>
+      {% if empleado_unread_notifications_count %}<span class="notification-badge">{{ empleado_unread_notifications_count }}</span>{% endif %}
+    </a>
 
     <a href="{% url 'home' %}" target="_blank">Ver tienda</a>
 

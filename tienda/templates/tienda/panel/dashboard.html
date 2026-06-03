@@ -21,6 +21,16 @@
   <div class="kpi"><span>Con novedad</span><strong>{{ produccion.con_novedad }}</strong></div>
   <div class="kpi"><span>Terminadas</span><strong>{{ produccion.terminado }}</strong></div>
 </div>
+<section class="ops-card-grid" aria-label="Accesos operativos">
+  {% for card in dashboard_cards %}
+    <a href="{{ card.url }}" class="ops-card">
+      <span class="ops-card-icon">{{ card.icono }}</span>
+      <span>{{ card.titulo }}</span>
+      <strong>{{ card.valor }}</strong>
+      <span class="badge">{{ card.estado }}</span>
+    </a>
+  {% endfor %}
+</section>
 <div class="panel-card">
   <div class="panel-card-head"><h2>Solicitudes recientes</h2><a href="{% url 'panel_solicitudes' %}">Ver todas</a></div>
   <div class="table-responsive">

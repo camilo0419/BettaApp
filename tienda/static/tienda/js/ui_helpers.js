@@ -383,8 +383,26 @@ document.addEventListener("DOMContentLoaded", function () {
     closeSidebar();
   }
 
+  function refreshTableHints() {
+    document.querySelectorAll(".table-responsive").forEach(function (wrapper) {
+      const table = wrapper.querySelector("table");
+      if (!table) {
+        wrapper.removeAttribute("data-scroll-hint");
+        return;
+      }
+      const hasOverflow = table.scrollWidth > wrapper.clientWidth + 8;
+      if (hasOverflow) {
+        wrapper.setAttribute("data-scroll-hint", "true");
+      } else {
+        wrapper.removeAttribute("data-scroll-hint");
+      }
+    });
+  }
+
   initClientMenu();
   initPanelSidebar();
+  refreshTableHints();
+  window.addEventListener("resize", refreshTableHints);
 
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {

@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.core import mail
 from django.contrib.auth.models import User
 from django.template.loader import render_to_string
 from django.test import TestCase, override_settings
@@ -14,6 +15,8 @@ from .models import (
     Cotizacion,
     CotizacionItem,
     EmpleadoPerfil,
+    Notificacion,
+    NotificacionCliente,
     Producto,
     Proyecto,
     Solicitud,
@@ -21,9 +24,11 @@ from .models import (
     SolicitudNovedad,
     SolicitudTarea,
 )
+from .services.cotizacion_pdf import generar_pdf_cotizacion, nombre_archivo_cotizacion
 from .services.email_service import logo_email_url
 
 
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class PortalClienteTests(TestCase):
     def setUp(self):
         self.categoria = Categoria.objects.create(nombre="Categoría Test", activa=True)
@@ -545,6 +550,112 @@ class PortalClienteTests(TestCase):
         otra = Cotizacion.objects.create(cliente=self.otro_cliente, titulo="Ajena", estado=Cotizacion.ESTADO_ENVIADA)
         self.assertEqual(self.client.get(reverse("cliente_cotizacion_detalle", args=[otra.id])).status_code, 404)
 
+    @override_settings(BETTA_WHATSAPP_NUMBER="57 300-123-4567", BETTA_WHATSAPP_MESSAGE="Hola Betta, necesito asesoria")
+    def test_home_favicon_y_whatsapp_configurable(self):
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "tienda/img/favicon/favicon.ico")
+        self.assertContains(response, "tienda/img/favicon/site.webmanifest")
+        self.assertContains(response, "https://wa.me/573001234567?text=Hola%20Betta%2C%20necesito%20asesoria")
+        self.assertContains(response, "No encuentras lo que buscas")
+
+    @override_settings(BETTA_WHATSAPP_NUMBER="")
+    def test_home_no_muestra_whatsapp_sin_numero(self):
+        response = self.client.get(reverse("home"))
+        self.assertNotContains(response, "https://wa.me/")
+
+    def test_bases_principales_incluyen_favicon_y_badges(self):
+        staff = User.objects.create_user(username="staff-badge", password="StaffTest123!", is_staff=True)
+        user_prod = User.objects.create_user(username="prod-badge", password="ProdTest123!")
+        EmpleadoPerfil.objects.create(user=user_prod, activo=True, puede_recibir_pedidos=True)
+        Notificacion.objects.create(usuario_destino=user_prod, titulo="Pendiente", mensaje="Tarea asignada")
+        NotificacionCliente.objects.create(
+            cliente_usuario=self.cliente_usuario,
+            cliente=self.cliente,
+            titulo="Pedido",
+            mensaje="Actualizacion",
+        )
+
+        self.client.force_login(staff)
+        self.assertContains(self.client.get(reverse("panel_dashboard")), "tienda/img/favicon/favicon.ico")
+
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("cliente_dashboard"))
+        self.assertContains(response, "tienda/img/favicon/favicon.ico")
+        self.assertContains(response, "notification-badge")
+        self.assertContains(response, ">1<")
+
+        self.client.force_login(user_prod)
+        response = self.client.get(reverse("produccion_dashboard"))
+        self.assertContains(response, "tienda/img/favicon/favicon.ico")
+        self.assertContains(response, "notification-badge")
+
+    def test_pdf_cotizacion_real_incluye_item_manual(self):
+        cotizacion = Cotizacion.objects.create(cliente=self.cliente, titulo="PDF manual")
+        CotizacionItem.objects.create(
+            cotizacion=cotizacion,
+            producto=None,
+            descripcion="Item manual completo",
+            detalle="Servicio fuera de catalogo",
+            cantidad=Decimal("2"),
+            unidad="und",
+            valor_unitario=Decimal("15000"),
+            impuesto_porcentaje=Decimal("19"),
+        )
+        pdf = generar_pdf_cotizacion(cotizacion)
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertEqual(nombre_archivo_cotizacion(cotizacion), f"Cotizacion-{cotizacion.numero}-Betta-Diseno.pdf")
+
+    def test_tarea_general_de_proyecto_aparece_en_produccion(self):
+        staff = User.objects.create_user(username="staff-task", password="StaffTest123!", is_staff=True)
+        user_prod = User.objects.create_user(username="prod-task", password="ProdTest123!")
+        empleado = EmpleadoPerfil.objects.create(user=user_prod, activo=True, puede_recibir_pedidos=True)
+        self.client.force_login(staff)
+        response = self.client.post(
+            reverse("panel_proyecto_detalle", args=[self.proyecto.id]),
+            {
+                "action": "crear_tarea_proyecto",
+                "titulo": "Confirmar medidas",
+                "descripcion": "Llamar al cliente",
+                "responsable": empleado.id,
+                "area": SolicitudTarea.AREA_APOYO,
+                "estado": SolicitudTarea.ESTADO_PENDIENTE,
+                "prioridad": SolicitudTarea.PRIORIDAD_NORMAL,
+                "orden": 1,
+                "activa": "on",
+            },
+        )
+        self.assertRedirects(response, reverse("panel_proyecto_detalle", args=[self.proyecto.id]))
+        tarea = SolicitudTarea.objects.get(titulo="Confirmar medidas")
+        self.assertIsNone(tarea.solicitud)
+        self.assertEqual(tarea.proyecto, self.proyecto)
+        self.assertTrue(Notificacion.objects.filter(usuario_destino=user_prod, tarea=tarea).exists())
+
+        self.client.force_login(user_prod)
+        response = self.client.get(reverse("produccion_dashboard"))
+        self.assertContains(response, "Confirmar medidas")
+        self.assertContains(response, "Tarea general")
+        response = self.client.get(reverse("produccion_tarea_detalle", args=[tarea.id]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "General")
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_envio_cotizacion_adjunta_pdf_real(self):
+        staff = User.objects.create_user(username="staff-pdf", password="StaffTest123!", is_staff=True)
+        self.client.force_login(staff)
+        cotizacion = Cotizacion.objects.create(cliente=self.cliente, contacto=self.contacto, titulo="Envio PDF", creada_por=staff)
+        CotizacionItem.objects.create(cotizacion=cotizacion, descripcion="Item PDF", cantidad=Decimal("1"), valor_unitario=Decimal("1000"))
+        mail.outbox = []
+        response = self.client.post(reverse("panel_cotizacion_enviar", args=[cotizacion.id]), {"email": self.contacto.email})
+        self.assertRedirects(response, reverse("panel_cotizacion_detalle", args=[cotizacion.id]))
+        cotizacion.refresh_from_db()
+        self.assertEqual(cotizacion.estado, Cotizacion.ESTADO_ENVIADA)
+        self.assertEqual(cotizacion.enviada_a_email, self.contacto.email)
+        self.assertEqual(len(mail.outbox), 1)
+        adjuntos_pdf = [attachment for attachment in mail.outbox[0].attachments if attachment[2] == "application/pdf"]
+        self.assertEqual(len(adjuntos_pdf), 1)
+        self.assertTrue(adjuntos_pdf[0][1].startswith(b"%PDF"))
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_envio_cotizacion_cambia_estado_con_backend_consola(self):
         staff = User.objects.create_user(username="staff3", password="StaffTest123!", is_staff=True)
         self.client.force_login(staff)

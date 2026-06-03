@@ -2,12 +2,13 @@
 {% block title %}Cotización {{ cotizacion.numero }}{% endblock %}
 {% block preview %}Compartimos la información de tu cotización.{% endblock %}
 {% block content %}
-<p style="margin:0 0 16px;line-height:1.6;">Hola {% if cliente.contacto_principal %}{{ cliente.contacto_principal }}{% else %}{{ cliente }}{% endif %},</p>
+<p style="margin:0 0 16px;line-height:1.6;">Hola {{ nombre_destinatario|default:cliente.contacto_principal|default:cliente }},</p>
 <h1 style="margin:0 0 12px;font-size:22px;color:#034860;">Cotización {{ cotizacion.numero }}</h1>
-<p style="margin:0 0 12px;line-height:1.6;">Preparamos una cotización para tu solicitud.</p>
-<p style="margin:0 0 18px;line-height:1.6;"><strong>Total:</strong> ${{ cotizacion.total|floatformat:0 }} {{ cotizacion.moneda }}</p>
-{% if cotizacion.fecha_vencimiento %}<p style="margin:0 0 18px;line-height:1.6;"><strong>Vigente hasta:</strong> {{ cotizacion.fecha_vencimiento|date:'d/m/Y' }}</p>{% endif %}
-<p style="margin:0 0 22px;line-height:1.6;">Puedes revisar el detalle en tu portal o contactarnos por los canales oficiales si necesitas ajustes.</p>
+<p style="margin:0 0 12px;line-height:1.6;">Adjuntamos la cotización {{ cotizacion.numero }} con la información solicitada.</p>
+<p style="margin:0 0 8px;line-height:1.6;"><strong>Cotización:</strong> {{ cotizacion.numero }}</p>
+<p style="margin:0 0 8px;line-height:1.6;"><strong>Valor total:</strong> ${{ cotizacion.total|floatformat:0 }} {{ cotizacion.moneda }}</p>
+<p style="margin:0 0 18px;line-height:1.6;"><strong>Vigencia:</strong> {% if cotizacion.fecha_vencimiento %}{{ cotizacion.fecha_vencimiento|date:'d/m/Y' }}{% else %}Por confirmar{% endif %}</p>
+<p style="margin:0 0 22px;line-height:1.6;">Quedamos atentos a tus comentarios. Encontrarás el PDF de la cotización adjunto a este correo.</p>
 {% if cotizacion.visible_para_cliente %}
 <a href="{{ site_url }}{% url 'cliente_cotizacion_detalle' cotizacion.id %}" style="display:inline-block;background:#00a28b;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:bold;">Ver cotización</a>
 {% endif %}

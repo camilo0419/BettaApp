@@ -645,7 +645,10 @@ class Proyecto(models.Model):
 
     @property
     def avance_porcentaje(self):
-        tareas = SolicitudTarea.objects.filter(solicitud__proyecto=self, activa=True)
+        tareas = SolicitudTarea.objects.filter(
+            models.Q(solicitud__proyecto=self) | models.Q(proyecto=self),
+            activa=True,
+        ).distinct()
         total_tareas = tareas.count()
         if total_tareas:
             terminadas = tareas.filter(estado__in=[SolicitudTarea.ESTADO_TERMINADA, SolicitudTarea.ESTADO_APROBADA]).count()
@@ -1084,7 +1087,8 @@ class SolicitudTarea(models.Model):
         (AREA_APOYO, "Apoyo"),
     ]
 
-    solicitud = models.ForeignKey(Solicitud, on_delete=models.CASCADE, related_name="tareas")
+    solicitud = models.ForeignKey(Solicitud, on_delete=models.CASCADE, related_name="tareas", null=True, blank=True)
+    proyecto = models.ForeignKey(Proyecto, on_delete=models.SET_NULL, related_name="tareas", null=True, blank=True)
     titulo = models.CharField(max_length=180)
     descripcion = models.TextField(blank=True)
     responsable = models.ForeignKey(
@@ -1123,16 +1127,33 @@ class SolicitudTarea(models.Model):
     fecha_actualizacion = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["solicitud", "orden", "fecha_limite", "id"]
+        ordering = ["proyecto", "solicitud", "orden", "fecha_limite", "id"]
         verbose_name = "Tarea de producción"
         verbose_name_plural = "Tareas de producción"
 
     def __str__(self):
-        return f"Solicitud #{self.solicitud_id} - {self.titulo}"
+        if self.solicitud_id:
+            return f"Solicitud #{self.solicitud_id} - {self.titulo}"
+        if self.proyecto_id:
+            return f"Proyecto #{self.proyecto_id} - {self.titulo}"
+        return self.titulo
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if not self.solicitud_id and not self.proyecto_id:
+            errors["proyecto"] = "Selecciona un proyecto cuando la tarea no pertenece a una solicitud."
+        if self.solicitud_id and self.proyecto_id and self.solicitud.proyecto_id and self.solicitud.proyecto_id != self.proyecto_id:
+            errors["proyecto"] = "El proyecto debe coincidir con el proyecto de la solicitud."
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        if self.solicitud_id and not self.proyecto_id:
+            self.proyecto = self.solicitud.proyecto
         if self.responsable_id and self.estado == self.ESTADO_PENDIENTE:
             self.estado = self.ESTADO_ASIGNADA
+        self.full_clean()
         super().save(*args, **kwargs)
 
 
@@ -1167,7 +1188,8 @@ class SolicitudNovedad(models.Model):
         (TIPO_TAREA_FINALIZADA, "Tarea finalizada"),
     ]
 
-    solicitud = models.ForeignKey(Solicitud, on_delete=models.CASCADE, related_name="novedades")
+    solicitud = models.ForeignKey(Solicitud, on_delete=models.CASCADE, related_name="novedades", null=True, blank=True)
+    proyecto = models.ForeignKey(Proyecto, on_delete=models.SET_NULL, related_name="novedades", null=True, blank=True)
     tarea = models.ForeignKey(SolicitudTarea, on_delete=models.SET_NULL, related_name="novedades", null=True, blank=True)
     usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="novedades_solicitud")
     tipo = models.CharField(max_length=30, choices=TIPOS, default=TIPO_COMENTARIO)
@@ -1186,7 +1208,11 @@ class SolicitudNovedad(models.Model):
         verbose_name_plural = "Novedades de solicitud"
 
     def __str__(self):
-        return f"Solicitud #{self.solicitud_id} - {self.get_tipo_display()}"
+        if self.solicitud_id:
+            return f"Solicitud #{self.solicitud_id} - {self.get_tipo_display()}"
+        if self.proyecto_id:
+            return f"Proyecto #{self.proyecto_id} - {self.get_tipo_display()}"
+        return self.get_tipo_display()
 
 
 class Notificacion(models.Model):

@@ -5,6 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Portal cliente | Betta Dise&ntilde;o{% endblock %}</title>
+  {% include 'tienda/partials/favicon.html' %}
   <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
 </head>
 <body class="client-body">
@@ -25,7 +26,11 @@
       <a href="{% url 'cliente_pedidos' %}" class="{% if active == 'cliente_pedidos' or active == 'cliente_pedido_detalle' %}active{% endif %}">Pedidos</a>
       <a href="{% url 'cliente_proyectos' %}" class="{% if active == 'cliente_proyectos' or active == 'cliente_proyecto_detalle' %}active{% endif %}">Proyectos</a>
       {% if request.user.cliente_usuario.puede_ver_facturacion %}<a href="{% url 'cliente_cotizaciones' %}" class="{% if active == 'cliente_cotizaciones' or active == 'cliente_cotizacion_detalle' %}active{% endif %}">Cotizaciones</a>{% endif %}
-      <a href="{% url 'cliente_notificaciones' %}" class="{% if active == 'cliente_notificaciones' %}active{% endif %}">Notificaciones</a>
+      <a href="{% url 'cliente_notificaciones' %}" class="notification-link {% if active == 'cliente_notificaciones' %}active{% endif %}" aria-label="Notificaciones">
+        <span class="notification-icon" aria-hidden="true"></span>
+        <span>Notificaciones</span>
+        {% if cliente_unread_notifications_count %}<span class="notification-badge">{{ cliente_unread_notifications_count }}</span>{% endif %}
+      </a>
       <a href="{% url 'cliente_perfil' %}" class="{% if active == 'cliente_perfil' %}active{% endif %}">Perfil</a>
       <form method="post" action="{% url 'cliente_logout' %}">
         {% csrf_token %}

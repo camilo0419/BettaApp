@@ -5,6 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Producción | Betta Diseño{% endblock %}</title>
+  {% include 'tienda/partials/favicon.html' %}
   <link rel="stylesheet" href="{% static 'tienda/css/styles.css' %}">
 </head>
 <body class="production-body">
@@ -15,7 +16,11 @@
     </a>
     {% with active=request.resolver_match.url_name %}
     <nav class="production-nav">
-      <a href="{% url 'produccion_dashboard' %}" class="{% if active == 'produccion_dashboard' or active == 'produccion_pedido_detalle' or active == 'produccion_tarea_detalle' %}active{% endif %}">Mis pedidos y tareas</a>
+      <a href="{% url 'produccion_dashboard' %}" class="notification-link {% if active == 'produccion_dashboard' or active == 'produccion_pedido_detalle' or active == 'produccion_tarea_detalle' %}active{% endif %}">
+        <span class="notification-icon" aria-hidden="true"></span>
+        <span>Mis pedidos y tareas</span>
+        {% if empleado_unread_notifications_count %}<span class="notification-badge">{{ empleado_unread_notifications_count }}</span>{% endif %}
+      </a>
       {% if user.is_staff %}<a href="{% url 'panel_dashboard' %}">Panel admin</a>{% endif %}
       <form method="post" action="{% url 'produccion_logout' %}">
         {% csrf_token %}

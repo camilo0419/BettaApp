@@ -100,17 +100,21 @@
         </div>
         <h2>{{ tarea.titulo }}</h2>
         <p>
-          {% if tarea.solicitud.proyecto %}{{ tarea.solicitud.proyecto.nombre }} · {% endif %}
-          OP-{{ tarea.solicitud.id|stringformat:"06d" }} · {{ tarea.solicitud.producto.nombre }}
+          {% if tarea.solicitud %}
+            {% if tarea.solicitud.proyecto %}{{ tarea.solicitud.proyecto.nombre }} · {% endif %}
+            OP-{{ tarea.solicitud.id|stringformat:"06d" }} · {{ tarea.solicitud.producto.nombre }}
+          {% else %}
+            {{ tarea.proyecto.nombre|default:'Proyecto general' }} · Tarea general
+          {% endif %}
         </p>
         <dl class="mini-detail">
           <dt>Área</dt><dd>{{ tarea.get_area_display }}</dd>
           <dt>Límite</dt><dd>{{ tarea.fecha_limite|date:'d/m/Y'|default:'-' }}</dd>
-          <dt>Cliente</dt><dd>{{ tarea.solicitud.cliente_nombre }}</dd>
+          <dt>Cliente</dt><dd>{% if tarea.solicitud %}{{ tarea.solicitud.cliente_nombre }}{% elif tarea.proyecto.cliente %}{{ tarea.proyecto.cliente }}{% else %}-{% endif %}</dd>
         </dl>
         <div class="production-actions">
           <a href="{% url 'produccion_tarea_detalle' tarea.id %}" class="btn btn-primary">Ver tarea</a>
-          <a href="{% url 'panel_solicitud_orden_produccion' tarea.solicitud.id %}" class="btn btn-outline" target="_blank" rel="noopener">Orden</a>
+          {% if tarea.solicitud %}<a href="{% url 'panel_solicitud_orden_produccion' tarea.solicitud.id %}" class="btn btn-outline" target="_blank" rel="noopener">Orden</a>{% endif %}
         </div>
       </article>
     {% empty %}

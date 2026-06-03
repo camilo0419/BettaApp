@@ -12,7 +12,9 @@
       <p>Selecciona un producto, define medidas, materiales, acabados, archivos y extras. El equipo Betta recibe la solicitud completa para revisarla y gestionarla.</p>
       <div class="hero-actions">
         <a href="{% url 'productos_catalogo' %}" class="btn btn-primary">Ver productos</a>
-        <a href="https://wa.me/573026491143" class="btn btn-outline">Hablar por WhatsApp</a>
+        {% if betta_whatsapp_url %}
+          <a href="{{ betta_whatsapp_url }}" class="btn btn-outline" target="_blank" rel="noopener">Hablar por WhatsApp</a>
+        {% endif %}
       </div>
     </div>
 
@@ -66,4 +68,17 @@
     </div>
   </div>
 </section>
+
+{% if betta_whatsapp_url %}
+<section class="section whatsapp-cta-section">
+  <div class="container whatsapp-cta">
+    <div>
+      <span class="eyebrow">Asesor&iacute;a personalizada</span>
+      <h2>&iquest;No encuentras lo que buscas?</h2>
+      <p>Recibe asesor&iacute;a personalizada para tu proyecto.</p>
+    </div>
+    <a href="{{ betta_whatsapp_url }}" class="btn btn-primary" target="_blank" rel="noopener">Hablar por WhatsApp</a>
+  </div>
+</section>
+{% endif %}
 {% endblock %}

@@ -8,7 +8,11 @@
     <span class="eyebrow">Tarea de producción</span>
     <h1>{{ titulo }}</h1>
   </div>
-  <a href="{% url 'panel_solicitud_detalle' tarea.solicitud.id %}" class="btn btn-outline">Volver a la solicitud</a>
+  {% if tarea.solicitud %}
+    <a href="{% url 'panel_solicitud_detalle' tarea.solicitud.id %}" class="btn btn-outline">Volver a la solicitud</a>
+  {% elif tarea.proyecto %}
+    <a href="{% url 'panel_proyecto_detalle' tarea.proyecto.id %}" class="btn btn-outline">Volver al proyecto</a>
+  {% endif %}
 </div>
 
 <div class="panel-card">

@@ -944,11 +944,16 @@ class SolicitudTareaForm(forms.ModelForm):
             "fecha_limite": forms.DateInput(attrs={"type": "date"}),
         }
 
-    def __init__(self, *args, solicitud=None, **kwargs):
+    def __init__(self, *args, solicitud=None, proyecto=None, **kwargs):
         self.solicitud = solicitud
+        self.proyecto = proyecto
         super().__init__(*args, **kwargs)
         if solicitud is not None and not self.instance.pk:
             self.instance.solicitud = solicitud
+            if solicitud.proyecto_id:
+                self.instance.proyecto = solicitud.proyecto
+        elif proyecto is not None and not self.instance.pk:
+            self.instance.proyecto = proyecto
         self.fields["responsable"].queryset = EmpleadoPerfil.objects.filter(
             activo=True,
             puede_recibir_pedidos=True,
