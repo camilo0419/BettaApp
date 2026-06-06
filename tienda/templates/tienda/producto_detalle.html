@@ -1,5 +1,5 @@
 {% extends 'tienda/base.html' %}
-{% load static %}
+{% load static media_extras %}
 
 {% block title %}{{ producto.nombre }} | Betta Diseño{% endblock %}
 
@@ -9,18 +9,20 @@
     <aside class="detail-side">
 
       <div class="detail-image">
-        {% if producto.imagen_principal %}
+        {% with imagen_url=producto.imagen_principal|safe_media_url %}
+        {% if imagen_url %}
           <img
             id="main-product-image"
-            src="{{ producto.imagen_principal.url }}"
+            src="{{ imagen_url }}"
             alt="{{ producto.nombre }}"
           >
         {% else %}
           {% with portada=producto.imagenes.first %}
-            {% if portada %}
+            {% with portada_url=portada.imagen|safe_media_url %}
+            {% if portada_url %}
               <img
                 id="main-product-image"
-                src="{{ portada.imagen.url }}"
+                src="{{ portada_url }}"
                 alt="{{ producto.nombre }}"
               >
             {% elif producto.imagen_estatica %}
@@ -30,23 +32,29 @@
                 alt="{{ producto.nombre }}"
               >
             {% else %}
-              <div class="placeholder-img">Betta</div>
+              <div class="placeholder-img">Sin imagen</div>
             {% endif %}
+            {% endwith %}
           {% endwith %}
         {% endif %}
+        {% endwith %}
       </div>
 
       {% if galeria %}
       <div class="thumb-grid product-gallery">
         {% for img in galeria %}
+          {% with img_url=img.imagen|safe_media_url %}
+          {% if img_url %}
           <button
             type="button"
             class="thumb-button"
-            data-image-src="{{ img.imagen.url }}"
+            data-image-src="{{ img_url }}"
             data-image-alt="{{ img.titulo|default:producto.nombre }}"
           >
-            <img src="{{ img.imagen.url }}" alt="{{ img.titulo|default:producto.nombre }}">
+            <img src="{{ img_url }}" alt="{{ img.titulo|default:producto.nombre }}">
           </button>
+          {% endif %}
+          {% endwith %}
         {% endfor %}
       </div>
       {% endif %}

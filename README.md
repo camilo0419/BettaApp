@@ -24,6 +24,15 @@ Aplicación Django para vender/cotizar productos personalizados de diseño, impr
 - Solicitudes: `/panel/solicitudes/`
 - Admin técnico Django: `/admin/`
 
+## Static files y media files
+
+- `STATIC_ROOT` apunta a `staticfiles/` y se actualiza con `python manage.py collectstatic --noinput`.
+- `MEDIA_ROOT` apunta por defecto a `media/` o a la ruta definida en `MEDIA_ROOT`.
+- `MEDIA_URL` apunta por defecto a `/media/`.
+- WhiteNoise se usa para static files, no para media files subidos por usuarios.
+
+Para Conexcol/cPanel, configura el hosting para servir publicamente `/media/` desde `MEDIA_ROOT`. Ver instrucciones detalladas en `docs/media_conexcol_cpanel.md`.
+
 ## Instalación local
 
 ```bash

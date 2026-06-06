@@ -1,4 +1,4 @@
-{% load static %}
+{% load static media_extras %}
 <!doctype html>
 <html lang="es">
 <head>
@@ -703,7 +703,13 @@
                   {% endif %}
 
                   {% if respuesta.archivo %}
-                    <a class="file-link" href="{{ respuesta.archivo.url }}" target="_blank" rel="noopener">{{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</a>
+                    {% with archivo_url=respuesta.archivo|safe_media_url %}
+                      {% if archivo_url %}
+                        <a class="file-link" href="{{ archivo_url }}" target="_blank" rel="noopener">{{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</a>
+                      {% else %}
+                        <span class="muted">Archivo no disponible</span>
+                      {% endif %}
+                    {% endwith %}
                   {% endif %}
                 </td>
               </tr>
@@ -730,7 +736,15 @@
                 {% for archivo in archivos_adjuntos %}
                 <tr>
                   <th>{{ archivo.etiqueta }}</th>
-                  <td><a class="file-link" href="{{ archivo.archivo.url }}" target="_blank" rel="noopener">{{ archivo.archivo.name|cut:"solicitudes/archivos/" }}</a></td>
+                  <td>
+                    {% with archivo_url=archivo.archivo|safe_media_url %}
+                      {% if archivo_url %}
+                        <a class="file-link" href="{{ archivo_url }}" target="_blank" rel="noopener">{{ archivo.archivo.name|cut:"solicitudes/archivos/" }}</a>
+                      {% else %}
+                        <span class="muted">Archivo no disponible</span>
+                      {% endif %}
+                    {% endwith %}
+                  </td>
                 </tr>
                 {% endfor %}
               </tbody>

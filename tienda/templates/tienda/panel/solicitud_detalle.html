@@ -1,4 +1,5 @@
 {% extends 'tienda/panel/base_panel.html' %}
+{% load media_extras %}
 
 {% block title %}Solicitud #{{ solicitud.id }} | Admin productos{% endblock %}
 
@@ -51,7 +52,15 @@
           <div class="answer">
             <strong>{{ r.etiqueta }}</strong>
             <span>{{ r.valor_texto|default:'-' }}</span>
-            {% if r.archivo %}<a href="{{ r.archivo.url }}" target="_blank" rel="noopener">Ver archivo</a>{% endif %}
+            {% if r.archivo %}
+              {% with archivo_url=r.archivo|safe_media_url %}
+                {% if archivo_url %}
+                  <a href="{{ archivo_url }}" target="_blank" rel="noopener">Ver archivo</a>
+                {% else %}
+                  <span class="muted">Archivo no disponible</span>
+                {% endif %}
+              {% endwith %}
+            {% endif %}
           </div>
         {% empty %}
           <p>No hay respuestas guardadas.</p>
@@ -297,7 +306,13 @@
               <small>{{ novedad.estado_anterior|default:'-' }} &rarr; {{ novedad.estado_nuevo|default:'-' }}</small>
             {% endif %}
             {% if novedad.archivo_evidencia %}
-              <a href="{{ novedad.archivo_evidencia.url }}" target="_blank" rel="noopener">Ver evidencia</a>
+              {% with evidencia_url=novedad.archivo_evidencia|safe_media_url %}
+                {% if evidencia_url %}
+                  <a href="{{ evidencia_url }}" target="_blank" rel="noopener">Ver evidencia</a>
+                {% else %}
+                  <span class="muted">Evidencia no disponible</span>
+                {% endif %}
+              {% endwith %}
             {% endif %}
           </div>
         {% empty %}

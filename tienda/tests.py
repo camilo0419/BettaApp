@@ -1,12 +1,19 @@
 from decimal import Decimal
+from io import BytesIO
+import tempfile
 
+from django.conf import settings
 from django.core import mail
+from django.core.exceptions import ValidationError
+from django.core.files.storage import FileSystemStorage
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth.models import User
 from django.template.loader import render_to_string
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from PIL import Image
 
-from .forms import CotizacionForm, ProyectoForm
+from .forms import CotizacionForm, ProyectoForm, validate_image_upload
 from .models import (
     Categoria,
     Cliente,
@@ -26,9 +33,54 @@ from .models import (
 )
 from .services.cotizacion_pdf import generar_pdf_cotizacion, nombre_archivo_cotizacion
 from .services.email_service import logo_email_url
+from .templatetags.media_extras import safe_media_url
 
 
-@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+TEST_STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
+
+
+class MediaStorageTests(SimpleTestCase):
+    def test_django_52_storages_include_default_and_staticfiles(self):
+        self.assertIn("default", settings.STORAGES)
+        self.assertIn("staticfiles", settings.STORAGES)
+        self.assertEqual(settings.STORAGES["default"]["BACKEND"], "django.core.files.storage.FileSystemStorage")
+
+    def test_safe_media_url_returns_empty_for_missing_local_file(self):
+        class DummyFile:
+            name = "productos/no-existe.png"
+
+            def __init__(self, storage):
+                self.storage = storage
+
+            @property
+            def url(self):
+                return self.storage.url(self.name)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            storage = FileSystemStorage(location=tmp_dir, base_url="/media/")
+            self.assertEqual(safe_media_url(DummyFile(storage)), "")
+
+    def test_validate_image_upload_accepts_valid_png(self):
+        uploaded = valid_png_upload()
+        self.assertIs(validate_image_upload(uploaded), uploaded)
+        self.assertEqual(uploaded.tell(), 0)
+
+    def test_validate_image_upload_rejects_invalid_image_content(self):
+        uploaded = SimpleUploadedFile("producto.png", b"contenido invalido", content_type="image/png")
+        with self.assertRaises(ValidationError):
+            validate_image_upload(uploaded)
+
+
+def valid_png_upload(name="producto.png"):
+    image_bytes = BytesIO()
+    Image.new("RGB", (1, 1), "#ffffff").save(image_bytes, format="PNG")
+    return SimpleUploadedFile(name, image_bytes.getvalue(), content_type="image/png")
+
+
+@override_settings(STORAGES=TEST_STORAGES)
 class PortalClienteTests(TestCase):
     def setUp(self):
         self.categoria = Categoria.objects.create(nombre="Categoría Test", activa=True)
@@ -102,6 +154,34 @@ class PortalClienteTests(TestCase):
             comentario="Comentario interno",
             visible_para_cliente=False,
         )
+
+    def test_panel_producto_editar_uploads_image_without_invalid_storage_error(self):
+        staff = User.objects.create_user(username="staff", password="StaffTest123!", is_staff=True)
+        self.client.force_login(staff)
+
+        with tempfile.TemporaryDirectory() as tmp_dir, self.settings(MEDIA_ROOT=tmp_dir):
+            response = self.client.post(
+                reverse("panel_producto_editar", args=[self.producto.id]),
+                {
+                    "nombre": self.producto.nombre,
+                    "slug": self.producto.slug,
+                    "categoria": self.categoria.id,
+                    "descripcion_corta": self.producto.descripcion_corta,
+                    "descripcion_larga": self.producto.descripcion_larga,
+                    "imagen_principal": valid_png_upload("producto-panel.png"),
+                    "imagen_estatica": self.producto.imagen_estatica,
+                    "activo": "on",
+                    "destacado": "on",
+                    "orden": self.producto.orden,
+                    "tipo_calculo": self.producto.tipo_calculo,
+                    "precio_base_m2": self.producto.precio_base_m2,
+                    "precio_base_unidad": self.producto.precio_base_unidad,
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.producto.refresh_from_db()
+        self.assertTrue(self.producto.imagen_principal.name.startswith("productos/"))
 
     def login_cliente(self):
         return self.client.post(

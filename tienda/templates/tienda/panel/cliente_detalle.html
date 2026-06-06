@@ -1,4 +1,5 @@
 {% extends 'tienda/panel/base_panel.html' %}
+{% load media_extras %}
 
 {% block title %}{{ cliente }} | Admin productos{% endblock %}
 
@@ -248,10 +249,19 @@
       <h2>Archivos recientes</h2>
       <div class="notification-list">
         {% for respuesta in archivos %}
-          <a href="{{ respuesta.archivo.url }}" class="notification-item" target="_blank" rel="noopener">
-            <strong>{{ respuesta.etiqueta }}</strong>
-            <span>OP-{{ respuesta.solicitud.id|stringformat:"06d" }} · {{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</span>
-          </a>
+          {% with archivo_url=respuesta.archivo|safe_media_url %}
+            {% if archivo_url %}
+              <a href="{{ archivo_url }}" class="notification-item" target="_blank" rel="noopener">
+                <strong>{{ respuesta.etiqueta }}</strong>
+                <span>OP-{{ respuesta.solicitud.id|stringformat:"06d" }} · {{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</span>
+              </a>
+            {% else %}
+              <div class="notification-item">
+                <strong>{{ respuesta.etiqueta }}</strong>
+                <span>Archivo no disponible</span>
+              </div>
+            {% endif %}
+          {% endwith %}
         {% empty %}
           <p>No hay archivos asociados.</p>
         {% endfor %}

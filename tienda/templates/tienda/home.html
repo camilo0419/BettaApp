@@ -1,5 +1,5 @@
 {% extends 'tienda/base.html' %}
-{% load static %}
+{% load static media_extras %}
 
 {% block title %}Betta Diseño | Productos personalizados{% endblock %}
 
@@ -39,19 +39,23 @@
       <a class="product-card" href="{{ producto.get_absolute_url }}">
         <div class="product-img">
 
-          {% if producto.imagen_principal %}
-            <img src="{{ producto.imagen_principal.url }}" alt="{{ producto.nombre }}">
+          {% with imagen_url=producto.imagen_principal|safe_media_url %}
+          {% if imagen_url %}
+            <img src="{{ imagen_url }}" alt="{{ producto.nombre }}">
           {% else %}
             {% with portada=producto.imagenes.first %}
-              {% if portada %}
-                <img src="{{ portada.imagen.url }}" alt="{{ producto.nombre }}">
+              {% with portada_url=portada.imagen|safe_media_url %}
+              {% if portada_url %}
+                <img src="{{ portada_url }}" alt="{{ producto.nombre }}">
               {% elif producto.imagen_estatica %}
                 <img src="{% static producto.imagen_estatica %}" alt="{{ producto.nombre }}">
               {% else %}
-                <div class="placeholder-img">Betta</div>
+                <div class="placeholder-img">Sin imagen</div>
               {% endif %}
+              {% endwith %}
             {% endwith %}
           {% endif %}
+          {% endwith %}
 
         </div>
 

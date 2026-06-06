@@ -1,4 +1,5 @@
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 from pathlib import Path
 from django import forms
 from django.conf import settings
@@ -8,6 +9,7 @@ from django.contrib.auth.forms import PasswordResetForm
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from PIL import Image, UnidentifiedImageError
 from .models import (
     CampoMaestro,
     CampoMaestroOpcion,
@@ -120,15 +122,51 @@ BLOCKED_CONTENT_TYPES = {
 }
 
 
-def uploaded_file_header(uploaded_file, size=16):
+def uploaded_file_position(uploaded_file):
     try:
-        position = uploaded_file.tell() if hasattr(uploaded_file, "tell") else None
-    except OSError:
-        position = None
-    header = uploaded_file.read(size)
-    if position is not None and hasattr(uploaded_file, "seek"):
-        uploaded_file.seek(position)
-    return header
+        return uploaded_file.tell() if hasattr(uploaded_file, "tell") else None
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def restore_uploaded_file_position(uploaded_file, position):
+    if not hasattr(uploaded_file, "seek"):
+        return False
+    try:
+        uploaded_file.seek(0 if position is None else position)
+    except (OSError, TypeError, ValueError):
+        return False
+    return True
+
+
+def read_uploaded_file_for_validation(uploaded_file, size):
+    position = uploaded_file_position(uploaded_file)
+    try:
+        if hasattr(uploaded_file, "seek"):
+            uploaded_file.seek(0)
+        content = uploaded_file.read(size)
+    except (OSError, TypeError, ValueError) as exc:
+        restore_uploaded_file_position(uploaded_file, position)
+        raise ValidationError("No se pudo leer el archivo cargado para validarlo.") from exc
+
+    if not restore_uploaded_file_position(uploaded_file, position):
+        raise ValidationError("No se pudo validar el archivo sin alterar la carga. Intenta subirlo nuevamente.")
+
+    if isinstance(content, str):
+        return content.encode()
+    return content or b""
+
+
+def validate_image_bytes(content):
+    try:
+        with Image.open(BytesIO(content)) as image:
+            image.verify()
+            image_format = (image.format or "").lower()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ValidationError("El contenido del archivo no coincide con una imagen valida.") from exc
+
+    if image_format not in {"jpeg", "png", "webp"}:
+        raise ValidationError("El formato de imagen no esta permitido.")
 
 
 def validate_upload(file_obj, allowed_extensions, max_size, image_only=False):
@@ -145,20 +183,28 @@ def validate_upload(file_obj, allowed_extensions, max_size, image_only=False):
     if extension not in allowed:
         raise ValidationError("Extension de archivo no permitida.")
 
-    if file_obj.size > max_size:
+    file_size = getattr(file_obj, "size", None)
+    if file_size is None:
+        raise ValidationError("No se pudo determinar el tamano del archivo.")
+
+    if file_size > max_size:
         raise ValidationError("El archivo supera el tamano maximo permitido.")
 
-    header = uploaded_file_header(file_obj, 16)
     if image_only or extension in {".jpg", ".jpeg", ".png", ".webp"}:
+        content = read_uploaded_file_for_validation(file_obj, max_size + 1)
+        header = content[:16]
         is_jpeg = header.startswith(b"\xff\xd8\xff")
         is_png = header.startswith(b"\x89PNG\r\n\x1a\n")
         is_webp = header.startswith(b"RIFF") and header[8:12] == b"WEBP"
         if not (is_jpeg or is_png or is_webp):
             raise ValidationError("El contenido del archivo no coincide con una imagen permitida.")
-    elif extension == ".pdf" and not header.startswith(b"%PDF"):
-        raise ValidationError("El contenido del archivo no coincide con un PDF valido.")
-    elif extension == ".zip" and not header.startswith(b"PK"):
-        raise ValidationError("El contenido del archivo no coincide con un ZIP valido.")
+        validate_image_bytes(content)
+    else:
+        header = read_uploaded_file_for_validation(file_obj, 16)
+        if extension == ".pdf" and not header.startswith(b"%PDF"):
+            raise ValidationError("El contenido del archivo no coincide con un PDF valido.")
+        if extension == ".zip" and not header.startswith(b"PK"):
+            raise ValidationError("El contenido del archivo no coincide con un ZIP valido.")
 
     return file_obj
 

@@ -1,4 +1,5 @@
 {% extends 'tienda/cliente/base.html' %}
+{% load media_extras %}
 
 {% block title %}{{ proyecto.nombre }} | Portal cliente{% endblock %}
 
@@ -78,10 +79,19 @@
     <h2>Documentos visibles</h2>
     <div class="client-list">
       {% for respuesta in archivos %}
-        <a href="{{ respuesta.archivo.url }}" class="client-list-item" target="_blank" rel="noopener">
-          <strong>{{ respuesta.etiqueta }}</strong>
-          <span>OP-{{ respuesta.solicitud.id|stringformat:"06d" }} · {{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</span>
-        </a>
+        {% with archivo_url=respuesta.archivo|safe_media_url %}
+          {% if archivo_url %}
+            <a href="{{ archivo_url }}" class="client-list-item" target="_blank" rel="noopener">
+              <strong>{{ respuesta.etiqueta }}</strong>
+              <span>OP-{{ respuesta.solicitud.id|stringformat:"06d" }} · {{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</span>
+            </a>
+          {% else %}
+            <div class="client-list-item">
+              <strong>{{ respuesta.etiqueta }}</strong>
+              <span>Archivo no disponible</span>
+            </div>
+          {% endif %}
+        {% endwith %}
       {% empty %}
         <p>No hay documentos visibles.</p>
       {% endfor %}

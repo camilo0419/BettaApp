@@ -1,4 +1,5 @@
 {% extends 'tienda/cliente/base.html' %}
+{% load media_extras %}
 
 {% block title %}OP-{{ solicitud.id|stringformat:"06d" }} | Portal cliente{% endblock %}
 
@@ -51,7 +52,13 @@
           <td><strong>{{ respuesta.etiqueta }}</strong></td>
           <td>
             {% if respuesta.archivo and cliente_usuario.puede_descargar_archivos %}
-              <a href="{{ respuesta.archivo.url }}" target="_blank" rel="noopener">{{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</a>
+              {% with archivo_url=respuesta.archivo|safe_media_url %}
+                {% if archivo_url %}
+                  <a href="{{ archivo_url }}" target="_blank" rel="noopener">{{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</a>
+                {% else %}
+                  <span class="muted">Archivo no disponible</span>
+                {% endif %}
+              {% endwith %}
             {% else %}
               {{ respuesta.valor_texto|linebreaksbr|default:'-' }}
             {% endif %}
@@ -70,10 +77,19 @@
     <h2>Archivos visibles</h2>
     <div class="client-list">
       {% for respuesta in archivos %}
-        <a href="{{ respuesta.archivo.url }}" class="client-list-item" target="_blank" rel="noopener">
-          <strong>{{ respuesta.etiqueta }}</strong>
-          <span>{{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</span>
-        </a>
+        {% with archivo_url=respuesta.archivo|safe_media_url %}
+          {% if archivo_url %}
+            <a href="{{ archivo_url }}" class="client-list-item" target="_blank" rel="noopener">
+              <strong>{{ respuesta.etiqueta }}</strong>
+              <span>{{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</span>
+            </a>
+          {% else %}
+            <div class="client-list-item">
+              <strong>{{ respuesta.etiqueta }}</strong>
+              <span>Archivo no disponible</span>
+            </div>
+          {% endif %}
+        {% endwith %}
       {% empty %}
         <p>No hay archivos visibles para este pedido.</p>
       {% endfor %}
@@ -89,7 +105,13 @@
         <span>{{ novedad.fecha_creacion|date:'d/m/Y H:i' }}</span>
         <p>{{ novedad.comentario }}</p>
         {% if novedad.archivo_evidencia and cliente_usuario.puede_descargar_archivos %}
-          <a href="{{ novedad.archivo_evidencia.url }}" target="_blank" rel="noopener">Ver archivo</a>
+          {% with evidencia_url=novedad.archivo_evidencia|safe_media_url %}
+            {% if evidencia_url %}
+              <a href="{{ evidencia_url }}" target="_blank" rel="noopener">Ver archivo</a>
+            {% else %}
+              <span class="muted">Archivo no disponible</span>
+            {% endif %}
+          {% endwith %}
         {% endif %}
       </div>
       {% empty %}

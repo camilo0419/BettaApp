@@ -51,7 +51,7 @@ class Producto(models.Model):
     categoria = models.ForeignKey(Categoria, on_delete=models.PROTECT, related_name="productos")
     descripcion_corta = models.CharField(max_length=240, blank=True)
     descripcion_larga = models.TextField(blank=True)
-    imagen_principal = models.FileField(upload_to="productos/", blank=True, null=True)
+    imagen_principal = models.ImageField(upload_to="productos/", blank=True, null=True)
     imagen_estatica = models.CharField(max_length=255, blank=True, help_text="Ruta static opcional. Ej: tienda/img/vinilo.svg")
     activo = models.BooleanField(default=True)
     destacado = models.BooleanField("Destacado en home", default=True)
@@ -92,7 +92,7 @@ class Producto(models.Model):
 
 class ProductoImagen(models.Model):
     producto = models.ForeignKey(Producto, on_delete=models.CASCADE, related_name="imagenes")
-    imagen = models.FileField(upload_to="productos/galeria/")
+    imagen = models.ImageField(upload_to="productos/galeria/")
     titulo = models.CharField(max_length=140, blank=True)
     orden = models.PositiveIntegerField(default=0)
     activa = models.BooleanField(default=True)

@@ -1,4 +1,5 @@
 {% extends 'tienda/produccion/base.html' %}
+{% load media_extras %}
 
 {% block title %}Tarea #{{ tarea.id }} | Producción{% endblock %}
 
@@ -33,7 +34,13 @@
       </dl>
       {% if tarea.descripcion %}<p>{{ tarea.descripcion }}</p>{% endif %}
       {% if tarea.evidencia_archivo %}
-        <a href="{{ tarea.evidencia_archivo.url }}" target="_blank" rel="noopener">Ver evidencia actual</a>
+        {% with evidencia_url=tarea.evidencia_archivo|safe_media_url %}
+          {% if evidencia_url %}
+            <a href="{{ evidencia_url }}" target="_blank" rel="noopener">Ver evidencia actual</a>
+          {% else %}
+            <span class="muted">Evidencia no disponible</span>
+          {% endif %}
+        {% endwith %}
       {% endif %}
     </section>
 
@@ -45,7 +52,13 @@
             <strong>{{ respuesta.etiqueta }}</strong>
             <span>{{ respuesta.valor_texto|default:'-' }}</span>
             {% if respuesta.archivo %}
-              <a href="{{ respuesta.archivo.url }}" target="_blank" rel="noopener">{{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</a>
+              {% with archivo_url=respuesta.archivo|safe_media_url %}
+                {% if archivo_url %}
+                  <a href="{{ archivo_url }}" target="_blank" rel="noopener">{{ respuesta.archivo.name|cut:"solicitudes/archivos/" }}</a>
+                {% else %}
+                  <span class="muted">Archivo no disponible</span>
+                {% endif %}
+              {% endwith %}
             {% endif %}
           </div>
         {% empty %}
@@ -59,10 +72,19 @@
       {% if archivos_adjuntos %}
         <div class="notification-list">
           {% for archivo in archivos_adjuntos %}
-            <a href="{{ archivo.archivo.url }}" target="_blank" rel="noopener" class="notification-item">
-              <strong>{{ archivo.etiqueta }}</strong>
-              <span>{{ archivo.archivo.name|cut:"solicitudes/archivos/" }}</span>
-            </a>
+            {% with archivo_url=archivo.archivo|safe_media_url %}
+              {% if archivo_url %}
+                <a href="{{ archivo_url }}" target="_blank" rel="noopener" class="notification-item">
+                  <strong>{{ archivo.etiqueta }}</strong>
+                  <span>{{ archivo.archivo.name|cut:"solicitudes/archivos/" }}</span>
+                </a>
+              {% else %}
+                <div class="notification-item">
+                  <strong>{{ archivo.etiqueta }}</strong>
+                  <span>Archivo no disponible</span>
+                </div>
+              {% endif %}
+            {% endwith %}
           {% endfor %}
         </div>
       {% else %}
@@ -104,7 +126,13 @@
               <small>{{ novedad.estado_anterior|default:'-' }} &rarr; {{ novedad.estado_nuevo|default:'-' }}</small>
             {% endif %}
             {% if novedad.archivo_evidencia %}
-              <a href="{{ novedad.archivo_evidencia.url }}" target="_blank" rel="noopener">Ver evidencia</a>
+              {% with evidencia_url=novedad.archivo_evidencia|safe_media_url %}
+                {% if evidencia_url %}
+                  <a href="{{ evidencia_url }}" target="_blank" rel="noopener">Ver evidencia</a>
+                {% else %}
+                  <span class="muted">Evidencia no disponible</span>
+                {% endif %}
+              {% endwith %}
             {% endif %}
           </div>
         {% empty %}
