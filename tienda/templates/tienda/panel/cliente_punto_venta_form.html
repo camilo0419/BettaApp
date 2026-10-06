@@ -1,0 +1,22 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}{{ titulo }} | {{ cliente }}{% endblock %}
+
+{% block content %}
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">{{ cliente }}</span>
+    <h1>{{ titulo }}</h1>
+  </div>
+  <a href="{% url 'panel_cliente_detalle' cliente.id %}" class="btn btn-outline">Volver al cliente</a>
+</div>
+
+<div class="panel-card">
+  <p class="muted">Registra una sede o punto de venta operativo de este cliente.</p>
+  <form method="post" class="dynamic-form admin-form">
+    {% csrf_token %}
+    <div class="form-grid two">{{ form.as_div }}</div>
+    <button class="btn btn-primary btn-wide">Guardar punto de venta</button>
+  </form>
+</div>
+{% endblock %}

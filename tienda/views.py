@@ -19,7 +19,7 @@ from django.contrib.auth.views import (
 from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Count, Prefetch, Q
+from django.db.models import BooleanField, Case, Count, IntegerField, Max, Prefetch, Q, Value, When
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
@@ -37,6 +37,7 @@ from .forms import (
     ClienteLoginForm,
     ClientePasswordResetForm,
     ClientePerfilForm,
+    ClientePuntoVentaForm,
     ClienteRegistroForm,
     ClienteUsuarioPortalForm,
     CotizacionEstadoForm,
@@ -67,6 +68,7 @@ from .models import (
     EmpleadoPerfil,
     Cliente,
     ClienteContacto,
+    ClientePuntoVenta,
     ClienteUsuario,
     Cotizacion,
     CotizacionItem,
@@ -620,7 +622,10 @@ def asegurar_opciones_para_campo(campo, solo_si_sin_opciones=True):
         and campo.tipo in [ProductoCampo.TIPO_SELECT, ProductoCampo.TIPO_MULTISELECT]
         and campo.campo_maestro.opciones_maestras.filter(activa=True).exists()
     ):
-        if solo_si_sin_opciones and campo.opciones.exists():
+        opciones_maestras = campo.campo_maestro.opciones_maestras.filter(activa=True)
+        valores_maestros = set(opciones_maestras.values_list("valor", flat=True))
+        valores_campo = set(campo.opciones.values_list("valor", flat=True))
+        if solo_si_sin_opciones and valores_maestros.issubset(valores_campo):
             return 0
         return campo.copiar_opciones_maestras()
     return 0
@@ -1837,6 +1842,22 @@ def categoria_crear(request):
 
 
 @panel_staff_required
+@require_POST
+def categoria_crear_ajax(request):
+    datos = request.POST.copy()
+    if datos.get("orden", "") == "":
+        datos["orden"] = 0
+    form = CategoriaForm(datos)
+    if not form.is_valid():
+        return JsonResponse(
+            {"ok": False, "message": "No se pudo crear la categoría. Revisa los datos ingresados.", "errors": form.errors.get_json_data()},
+            status=400,
+        )
+    categoria = form.save()
+    return JsonResponse({"ok": True, "id": categoria.id, "nombre": str(categoria)})
+
+
+@panel_staff_required
 def categoria_editar(request, categoria_id):
     categoria = get_object_or_404(Categoria, pk=categoria_id)
     form = CategoriaForm(request.POST or None, instance=categoria)
@@ -2000,6 +2021,7 @@ def cliente_detalle(request, cliente_id):
         {
             "cliente": cliente,
             "contactos": cliente.contactos.all(),
+            "puntos_venta": cliente.puntos_venta.all(),
             "usuarios_portal": cliente.usuarios_portal.select_related("user", "contacto"),
             "proyectos": proyectos,
             "solicitudes": solicitudes,
@@ -2011,6 +2033,50 @@ def cliente_detalle(request, cliente_id):
             "metricas": metricas,
         },
     )
+
+
+@panel_staff_required
+def cliente_punto_venta_crear(request, cliente_id):
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    form = ClientePuntoVentaForm(request.POST or None, cliente=cliente)
+    if request.method == "POST" and form.is_valid():
+        punto = form.save(commit=False)
+        punto.cliente = cliente
+        punto.save()
+        messages.success(request, "Punto de venta creado.")
+        return redirect("panel_cliente_detalle", cliente_id=cliente.id)
+    return render(
+        request,
+        "tienda/panel/cliente_punto_venta_form.html",
+        {"form": form, "cliente": cliente, "titulo": "Nuevo punto de venta"},
+    )
+
+
+@panel_staff_required
+def cliente_punto_venta_editar(request, cliente_id, punto_venta_id):
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    punto = get_object_or_404(ClientePuntoVenta, pk=punto_venta_id, cliente_id=cliente.id)
+    form = ClientePuntoVentaForm(request.POST or None, instance=punto, cliente=cliente)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Punto de venta actualizado.")
+        return redirect("panel_cliente_detalle", cliente_id=cliente.id)
+    return render(
+        request,
+        "tienda/panel/cliente_punto_venta_form.html",
+        {"form": form, "cliente": cliente, "punto_venta": punto, "titulo": "Editar punto de venta"},
+    )
+
+
+@panel_staff_required
+@require_POST
+def cliente_punto_venta_toggle(request, cliente_id, punto_venta_id):
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    punto = get_object_or_404(ClientePuntoVenta, pk=punto_venta_id, cliente_id=cliente.id)
+    punto.activo = not punto.activo
+    punto.save(update_fields=["activo", "fecha_actualizacion"])
+    messages.success(request, f"Punto de venta {'activado' if punto.activo else 'desactivado'}.")
+    return redirect("panel_cliente_detalle", cliente_id=cliente.id)
 
 
 @panel_staff_required
@@ -2939,7 +3005,20 @@ def produccion_dashboard(request):
     if estado:
         asignaciones = asignaciones.filter(solicitud__estado_produccion=estado)
 
-    tareas = tareas_visibles_para_usuario(request.user)
+    estados_finalizados = [
+        SolicitudTarea.ESTADO_TERMINADA,
+        SolicitudTarea.ESTADO_APROBADA,
+        SolicitudTarea.ESTADO_CANCELADA,
+    ]
+    tareas_autorizadas = tareas_visibles_para_usuario(request.user)
+    if not request.user.is_staff:
+        tareas_autorizadas = tareas_autorizadas.filter(responsable__user=request.user)
+
+    tareas_base = tareas_autorizadas
+    if not tarea_estado:
+        tareas_base = tareas_base.exclude(estado__in=estados_finalizados)
+
+    tareas = tareas_base
     if q:
         filtro_tareas = (
             Q(titulo__icontains=q)
@@ -2969,13 +3048,12 @@ def produccion_dashboard(request):
         "terminados_hoy": solicitudes_base.filter(estado_produccion=Solicitud.PROD_TERMINADO, actualizado__date=hoy).count(),
         "terminados_semana": solicitudes_base.filter(estado_produccion=Solicitud.PROD_TERMINADO, actualizado__date__gte=semana_inicio).count(),
     }
-    tareas_base = tareas_visibles_para_usuario(request.user)
     metricas_tareas = {
         "asignadas": tareas_base.count(),
         "pendientes": tareas_base.filter(estado__in=[SolicitudTarea.ESTADO_PENDIENTE, SolicitudTarea.ESTADO_ASIGNADA]).count(),
         "en_proceso": tareas_base.filter(estado=SolicitudTarea.ESTADO_EN_PROCESO).count(),
-        "vencidas": tareas_base.filter(fecha_limite__lt=hoy).exclude(estado__in=[SolicitudTarea.ESTADO_TERMINADA, SolicitudTarea.ESTADO_APROBADA, SolicitudTarea.ESTADO_CANCELADA]).count(),
-        "terminadas_hoy": tareas_base.filter(estado=SolicitudTarea.ESTADO_TERMINADA, fecha_finalizacion__date=hoy).count(),
+        "vencidas": tareas_base.filter(fecha_limite__lt=hoy).exclude(estado__in=estados_finalizados).count(),
+        "terminadas_hoy": tareas_autorizadas.filter(estado=SolicitudTarea.ESTADO_TERMINADA, fecha_finalizacion__date=hoy).count(),
     }
     proyectos = Proyecto.objects.filter(Q(solicitudes__tareas__in=tareas_base) | Q(tareas__in=tareas_base)).distinct().order_by("nombre")
     notificaciones = request.user.notificaciones.filter(leida=False).select_related("solicitud", "tarea", "proyecto")[:6]
@@ -2988,7 +3066,25 @@ def produccion_dashboard(request):
             "produccion_usuario_detalle": usuario_detalle,
             "produccion_modo_staff": request.user.is_staff,
             "asignaciones": asignaciones.order_by("solicitud__estado_produccion", "-fecha_asignacion"),
-            "tareas": tareas.order_by("fecha_limite", "estado", "orden")[:40],
+            "tareas": tareas.annotate(
+                es_vencida=Case(
+                    When(fecha_limite__lt=hoy, then=Value(True)),
+                    default=Value(False),
+                    output_field=BooleanField(),
+                ),
+                orden_vencimiento=Case(
+                    When(fecha_limite__lt=hoy, then=Value(0)),
+                    default=Value(1),
+                    output_field=IntegerField(),
+                ),
+                orden_prioridad=Case(
+                    When(prioridad=SolicitudTarea.PRIORIDAD_URGENTE, then=Value(0)),
+                    When(prioridad=SolicitudTarea.PRIORIDAD_ALTA, then=Value(1)),
+                    When(prioridad=SolicitudTarea.PRIORIDAD_NORMAL, then=Value(2)),
+                    default=Value(3),
+                    output_field=IntegerField(),
+                ),
+            ).order_by("orden_vencimiento", "orden_prioridad", "fecha_limite", "orden")[:40],
             "metricas": metricas,
             "metricas_tareas": metricas_tareas,
             "notificaciones": notificaciones,
@@ -3269,7 +3365,13 @@ def campo_maestro_opcion_editar(request, opcion_id):
 
 @panel_staff_required
 def producto_crear(request):
-    form = ProductoForm(request.POST or None, request.FILES or None)
+    max_orden = Producto.objects.aggregate(max_orden=Max("orden"))["max_orden"]
+    siguiente_orden = (max_orden if max_orden is not None else 0) + 1
+    datos = request.POST or None
+    if datos is not None and datos.get("orden", "") == "":
+        datos = datos.copy()
+        datos["orden"] = siguiente_orden
+    form = ProductoForm(datos, request.FILES or None, initial={"orden": siguiente_orden})
     if request.method == "POST" and form.is_valid():
         producto = form.save()
         messages.success(request, "Producto creado. Ahora configura sus campos y opciones.")
@@ -3295,7 +3397,7 @@ def producto_campos(request, producto_id):
     for campo in producto.campos.select_related("campo_maestro").prefetch_related("opciones", "campo_maestro__opciones_maestras"):
         asegurar_opciones_para_campo(campo)
 
-    campos = producto.campos.select_related("campo_maestro").prefetch_related("opciones").order_by("orden", "id")
+    campos = producto.campos.filter(activo=True).select_related("campo_maestro").prefetch_related("opciones").order_by("orden", "id")
     if q:
         campos = campos.filter(
             Q(etiqueta__icontains=q)
@@ -3304,8 +3406,19 @@ def producto_campos(request, producto_id):
             | Q(campo_maestro__nombre__icontains=q)
             | Q(campo_maestro__slug__icontains=q)
         )
-    maestros_asignados = producto.campos.filter(campo_maestro__isnull=False).values_list("campo_maestro_id", flat=True)
-    maestros_disponibles = CampoMaestro.objects.filter(activo=True).exclude(pk__in=maestros_asignados).order_by("orden_base", "nombre")
+    maestros_asignados = producto.campos.filter(activo=True, campo_maestro__isnull=False).values_list("campo_maestro_id", flat=True)
+    maestros_disponibles = (
+        CampoMaestro.objects.filter(activo=True)
+        .exclude(pk__in=maestros_asignados)
+        .prefetch_related(
+            Prefetch(
+                "opciones_maestras",
+                queryset=CampoMaestroOpcion.objects.filter(activa=True).order_by("orden", "id"),
+                to_attr="opciones_activas",
+            )
+        )
+        .order_by("orden_base", "nombre")
+    )
     if q:
         maestros_disponibles = maestros_disponibles.filter(
             Q(nombre__icontains=q) | Q(slug__icontains=q) | Q(etiqueta_base__icontains=q) | Q(tipo__icontains=q)

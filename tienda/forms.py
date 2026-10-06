@@ -17,6 +17,7 @@ from .models import (
     Categoria,
     Cliente,
     ClienteContacto,
+    ClientePuntoVenta,
     ClienteUsuario,
     Cotizacion,
     CotizacionItem,
@@ -319,6 +320,36 @@ class SolicitudEstadoForm(forms.ModelForm):
 
 
 class ClienteForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        tipo = self.data.get("tipo_cliente") if self.is_bound else self.instance.tipo_cliente
+        if tipo == Cliente.TIPO_EMPRESA:
+            self.fields["nombre"].required = False
+            self.fields["nombre"].label = "Referencia interna (opcional)"
+            self.fields["nombre"].help_text = "No repitas la razón social ni el nombre comercial. Si lo dejas vacío, se usará la razón social como referencia interna."
+            self.fields["razon_social"].help_text = "Nombre legal registrado. Ej.: Rodriguez G Inversiones SAS"
+            self.fields["nombre_comercial"].help_text = "Nombre con el que opera o es conocida la empresa."
+        else:
+            self.fields["nombre"].label = "Nombre completo"
+            self.fields["nombre"].help_text = "Nombre y apellidos de la persona."
+
+    def clean(self):
+        cleaned_data = super().clean()
+        tipo = cleaned_data.get("tipo_cliente")
+        nombre = (cleaned_data.get("nombre") or "").strip()
+        razon_social = (cleaned_data.get("razon_social") or "").strip()
+        nombre_comercial = (cleaned_data.get("nombre_comercial") or "").strip()
+        if tipo == Cliente.TIPO_PERSONA:
+            if not nombre:
+                self.add_error("nombre", "El nombre completo es obligatorio para una persona.")
+        elif tipo == Cliente.TIPO_EMPRESA and not nombre:
+            referencia = razon_social or nombre_comercial
+            if referencia:
+                cleaned_data["nombre"] = referencia
+            else:
+                self.add_error("razon_social", "Ingresa la razón social o el nombre comercial de la empresa.")
+        return cleaned_data
+
     class Meta:
         model = Cliente
         fields = [
@@ -343,6 +374,31 @@ class ClienteContactoForm(forms.ModelForm):
         fields = ["nombre", "cargo", "email", "telefono", "whatsapp", "es_principal", "activo", "notas"]
         widgets = {
             "notas": forms.Textarea(attrs={"rows": 3}),
+        }
+
+
+class ClientePuntoVentaForm(forms.ModelForm):
+    def __init__(self, *args, cliente=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cliente = cliente or self.instance.cliente
+        if self.cliente is not None and not self.instance.pk:
+            self.instance.cliente = self.cliente
+
+    def clean_nombre(self):
+        nombre = self.cleaned_data["nombre"].strip()
+        if self.cliente is not None:
+            puntos = ClientePuntoVenta.objects.filter(cliente=self.cliente, nombre__iexact=nombre)
+            if self.instance.pk:
+                puntos = puntos.exclude(pk=self.instance.pk)
+            if puntos.exists():
+                raise forms.ValidationError("Ya existe un punto de venta con ese nombre para este cliente.")
+        return nombre
+
+    class Meta:
+        model = ClientePuntoVenta
+        fields = ["nombre", "direccion", "ciudad", "contacto", "telefono", "email", "observaciones", "activo"]
+        widgets = {
+            "observaciones": forms.Textarea(attrs={"rows": 3}),
         }
 
 

@@ -170,6 +170,7 @@
           <td>{{ maestro.opciones_maestras.count }}</td>
           <td class="actions-column">
             <div class="table-actions">
+              <button type="button" class="btn btn-outline" data-modal-open="modal-maestro-{{ maestro.id }}">Previsualizar</button>
               <form method="post" action="{% url 'panel_campo_asignar_maestro' producto.id maestro.id %}">
                 {% csrf_token %}
                 <button class="btn btn-outline">Agregar</button>
@@ -186,4 +187,53 @@
     </table>
   </div>
 </div>
+
+{% for maestro in maestros_disponibles %}
+<div class="modal-shell" id="modal-maestro-{{ maestro.id }}" data-modal>
+  <div class="modal-panel modal-panel-wide">
+    <button type="button" class="modal-close" data-modal-close>Cerrar</button>
+    <span class="eyebrow">Previsualización</span>
+    <h2>{{ maestro.nombre }}</h2>
+
+    <dl class="mini-detail">
+      <dt>Tipo</dt><dd>{{ maestro.get_tipo_display }}</dd>
+      <dt>Obligatorio</dt><dd>{% if maestro.obligatorio_base %}Sí{% else %}No{% endif %}</dd>
+      {% if maestro.ayuda_base %}<dt>Ayuda</dt><dd>{{ maestro.ayuda_base }}</dd>{% endif %}
+      {% if maestro.placeholder_base %}<dt>Placeholder</dt><dd>{{ maestro.placeholder_base }}</dd>{% endif %}
+    </dl>
+
+    <div class="form-secondary-section">
+      <h3>Vista del campo</h3>
+      {% if maestro.tipo == 'select' %}
+        <label>{{ maestro.etiqueta_base|default:maestro.nombre }}</label>
+        <select disabled>
+          <option>Seleccionar</option>
+          {% for opcion in maestro.opciones_activas %}<option>{{ opcion.etiqueta }}</option>{% empty %}<option>Sin opciones activas</option>{% endfor %}
+        </select>
+      {% elif maestro.tipo == 'multiselect' %}
+        <span class="field-label">{{ maestro.etiqueta_base|default:maestro.nombre }}</span>
+        {% for opcion in maestro.opciones_activas %}
+          <label><input type="checkbox" disabled> {{ opcion.etiqueta }}</label>
+        {% empty %}
+          <p class="muted">Sin opciones activas.</p>
+        {% endfor %}
+      {% elif maestro.tipo == 'texto_largo' %}
+        <label>{{ maestro.etiqueta_base|default:maestro.nombre }}</label>
+        <textarea disabled placeholder="{{ maestro.placeholder_base }}"></textarea>
+      {% elif maestro.tipo == 'numero' or maestro.tipo == 'entero' %}
+        <label>{{ maestro.etiqueta_base|default:maestro.nombre }}</label>
+        <input type="number" disabled placeholder="{{ maestro.placeholder_base }}">
+      {% elif maestro.tipo == 'fecha' %}
+        <label>{{ maestro.etiqueta_base|default:maestro.nombre }}</label>
+        <input type="date" disabled>
+      {% elif maestro.tipo == 'checkbox' %}
+        <label><input type="checkbox" disabled> {{ maestro.etiqueta_base|default:maestro.nombre }}</label>
+      {% else %}
+        <label>{{ maestro.etiqueta_base|default:maestro.nombre }}</label>
+        <input type="text" disabled placeholder="{{ maestro.placeholder_base }}">
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endfor %}
 {% endblock %}

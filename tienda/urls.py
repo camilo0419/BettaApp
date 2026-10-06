@@ -65,6 +65,9 @@ urlpatterns = [
     path("panel/clientes/<int:cliente_id>/contactos/crear/", views.cliente_contacto_crear, name="panel_cliente_contacto_crear"),
     path("panel/clientes/contactos/<int:contacto_id>/editar/", views.cliente_contacto_editar, name="panel_cliente_contacto_editar"),
     path("panel/clientes/contactos/<int:contacto_id>/toggle/", views.cliente_contacto_toggle, name="panel_cliente_contacto_toggle"),
+    path("panel/clientes/<int:cliente_id>/puntos-venta/nuevo/", views.cliente_punto_venta_crear, name="panel_cliente_punto_venta_crear"),
+    path("panel/clientes/<int:cliente_id>/puntos-venta/<int:punto_venta_id>/editar/", views.cliente_punto_venta_editar, name="panel_cliente_punto_venta_editar"),
+    path("panel/clientes/<int:cliente_id>/puntos-venta/<int:punto_venta_id>/toggle/", views.cliente_punto_venta_toggle, name="panel_cliente_punto_venta_toggle"),
 
     path("panel/proyectos/", views.proyectos_lista, name="panel_proyectos"),
     path("panel/proyectos/crear/", views.proyecto_crear, name="panel_proyecto_crear"),
@@ -76,6 +79,7 @@ urlpatterns = [
 
     path("panel/categorias/", views.categorias_lista, name="panel_categorias"),
     path("panel/categorias/nueva/", views.categoria_crear, name="panel_categoria_crear"),
+    path("panel/categorias/nueva/ajax/", views.categoria_crear_ajax, name="panel_categoria_crear_ajax"),
     path("panel/categorias/<int:categoria_id>/editar/", views.categoria_editar, name="panel_categoria_editar"),
     path("panel/categorias/<int:categoria_id>/toggle/", views.categoria_toggle, name="panel_categoria_toggle"),
 

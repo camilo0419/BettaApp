@@ -6,6 +6,7 @@ from .models import (
     CampoOpcion,
     Cliente,
     ClienteContacto,
+    ClientePuntoVenta,
     ClienteUsuario,
     Cotizacion,
     CotizacionItem,
@@ -102,6 +103,13 @@ class ClienteContactoAdmin(admin.ModelAdmin):
     list_display = ["cliente", "nombre", "cargo", "email", "telefono", "es_principal", "activo"]
     list_filter = ["activo", "es_principal"]
     search_fields = ["cliente__nombre", "cliente__razon_social", "nombre", "email", "telefono", "whatsapp"]
+
+
+@admin.register(ClientePuntoVenta)
+class ClientePuntoVentaAdmin(admin.ModelAdmin):
+    list_display = ["cliente", "nombre", "ciudad", "contacto", "telefono", "activo"]
+    list_filter = ["activo", "ciudad"]
+    search_fields = ["cliente__nombre", "cliente__razon_social", "cliente__nombre_comercial", "nombre", "ciudad", "contacto"]
 
 
 @admin.register(ClienteUsuario)

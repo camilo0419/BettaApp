@@ -231,6 +231,32 @@
     </div>
 
     <div class="panel-card">
+      <div class="panel-card-head">
+        <h2>Puntos de venta</h2>
+        <a href="{% url 'panel_cliente_punto_venta_crear' cliente.id %}" class="link-button">Nuevo punto de venta</a>
+      </div>
+      <div class="notification-list">
+        {% for punto in puntos_venta %}
+          <div class="notification-item">
+            <strong>{{ punto.nombre }}</strong>
+            <span>{% if punto.activo %}Activo{% else %}Inactivo{% endif %} · {{ punto.ciudad|default:'Sin ciudad' }}</span>
+            <span>{{ punto.direccion|default:'Sin dirección' }} · {{ punto.contacto|default:'Sin contacto' }}</span>
+            <span>{{ punto.telefono|default:punto.email|default:'Sin teléfono o correo' }}</span>
+            <div class="table-actions">
+              <a href="{% url 'panel_cliente_punto_venta_editar' cliente.id punto.id %}" class="link-button">Editar</a>
+              <form method="post" action="{% url 'panel_cliente_punto_venta_toggle' cliente.id punto.id %}">
+                {% csrf_token %}
+                <button class="link-button" type="submit">{% if punto.activo %}Desactivar{% else %}Activar{% endif %}</button>
+              </form>
+            </div>
+          </div>
+        {% empty %}
+          <p>Este cliente no tiene puntos de venta registrados.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel-card">
       <h2>Asociar solicitud existente</h2>
       <form method="post" class="dynamic-form">
         {% csrf_token %}

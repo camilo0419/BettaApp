@@ -489,6 +489,45 @@ class Cliente(models.Model):
         return self.razon_social or self.nombre
 
 
+class ClientePuntoVenta(models.Model):
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="puntos_venta")
+    nombre = models.CharField(max_length=160)
+    direccion = models.CharField(max_length=255, blank=True)
+    ciudad = models.CharField(max_length=120, blank=True)
+    contacto = models.CharField(max_length=160, blank=True)
+    telefono = models.CharField(max_length=40, blank=True)
+    email = models.EmailField(blank=True)
+    observaciones = models.TextField(blank=True)
+    activo = models.BooleanField(default=True)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-activo", "nombre"]
+        verbose_name = "Punto de venta"
+        verbose_name_plural = "Puntos de venta"
+        constraints = [
+            models.UniqueConstraint(fields=["cliente", "nombre"], name="unico_punto_venta_por_cliente_nombre"),
+        ]
+
+    def __str__(self):
+        return f"{self.cliente} - {self.nombre}"
+
+    def clean(self):
+        super().clean()
+        if self.cliente_id and self.nombre.strip():
+            puntos = ClientePuntoVenta.objects.filter(cliente_id=self.cliente_id, nombre__iexact=self.nombre.strip())
+            if self.pk:
+                puntos = puntos.exclude(pk=self.pk)
+            if puntos.exists():
+                raise ValidationError({"nombre": "Ya existe un punto de venta con ese nombre para este cliente."})
+
+    def save(self, *args, **kwargs):
+        self.nombre = self.nombre.strip()
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
 class ClienteContacto(models.Model):
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="contactos")
     nombre = models.CharField(max_length=160)

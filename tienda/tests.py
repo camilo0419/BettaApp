@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
 import tempfile
@@ -11,13 +12,18 @@ from django.contrib.auth.models import User
 from django.template.loader import render_to_string
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 
-from .forms import CotizacionForm, ProyectoForm, validate_image_upload
+from .forms import ClienteForm, CotizacionForm, DynamicSolicitudForm, ProyectoForm, validate_image_upload
 from .models import (
     Categoria,
+    CampoMaestro,
+    CampoMaestroOpcion,
+    CampoOpcion,
     Cliente,
     ClienteContacto,
+    ClientePuntoVenta,
     ClienteUsuario,
     Cotizacion,
     CotizacionItem,
@@ -30,7 +36,9 @@ from .models import (
     SolicitudAsignacion,
     SolicitudNovedad,
     SolicitudTarea,
+    ProductoCampo,
 )
+from .views import asegurar_opciones_para_campo
 from .services.cotizacion_pdf import generar_pdf_cotizacion, nombre_archivo_cotizacion
 from .services.email_service import logo_email_url
 from .templatetags.media_extras import safe_media_url
@@ -78,6 +86,601 @@ def valid_png_upload(name="producto.png"):
     image_bytes = BytesIO()
     Image.new("RGB", (1, 1), "#ffffff").save(image_bytes, format="PNG")
     return SimpleUploadedFile(name, image_bytes.getvalue(), content_type="image/png")
+
+
+class ProductoCampoOpcionesTests(TestCase):
+    def setUp(self):
+        self.categoria = Categoria.objects.create(nombre="Categoría campos")
+        self.producto = Producto.objects.create(nombre="Producto campos", categoria=self.categoria)
+
+    def crear_campo_con_opciones(self, tipo):
+        maestro = CampoMaestro.objects.create(nombre=f"Campo {tipo}", tipo=tipo)
+        CampoMaestroOpcion.objects.create(campo_maestro=maestro, etiqueta="Primera opción", valor="primera")
+        CampoMaestroOpcion.objects.create(campo_maestro=maestro, etiqueta="Segunda opción", valor="segunda")
+        campo = ProductoCampo.desde_maestro(self.producto, maestro)
+        campo.save()
+        return maestro, campo
+
+    def test_multiselect_copia_todas_las_opciones_maestras_activas(self):
+        _maestro, campo = self.crear_campo_con_opciones(ProductoCampo.TIPO_MULTISELECT)
+        CampoOpcion.objects.create(campo=campo, etiqueta="Primera opción", valor="primera")
+
+        self.assertEqual(asegurar_opciones_para_campo(campo), 1)
+        self.assertCountEqual(campo.opciones.values_list("valor", flat=True), ["primera", "segunda"])
+
+    def test_sincronizacion_no_duplica_opciones_existentes(self):
+        _maestro, campo = self.crear_campo_con_opciones(ProductoCampo.TIPO_MULTISELECT)
+        asegurar_opciones_para_campo(campo)
+
+        self.assertEqual(asegurar_opciones_para_campo(campo), 0)
+        self.assertEqual(campo.opciones.count(), 2)
+
+    def test_select_sigue_copiando_opciones_y_multiselect_las_presenta(self):
+        _maestro, campo_select = self.crear_campo_con_opciones(ProductoCampo.TIPO_SELECT)
+        asegurar_opciones_para_campo(campo_select)
+        self.assertEqual(campo_select.opciones.count(), 2)
+
+        _maestro, campo_multi = self.crear_campo_con_opciones(ProductoCampo.TIPO_MULTISELECT)
+        asegurar_opciones_para_campo(campo_multi)
+        form = DynamicSolicitudForm(self.producto)
+        opciones = dict(form.fields[form.field_name(campo_multi)].choices)
+        self.assertEqual(opciones, {str(o.id): o.etiqueta for o in campo_multi.opciones.all()})
+
+
+class ProduccionDashboardTests(TestCase):
+    def setUp(self):
+        self.categoria = Categoria.objects.create(nombre="Categoría producción")
+        self.producto = Producto.objects.create(nombre="Producto producción", categoria=self.categoria)
+        self.cliente = Cliente.objects.create(nombre="Cliente producción", activo=True)
+        self.solicitud = Solicitud.objects.create(
+            producto=self.producto,
+            cliente=self.cliente,
+            cliente_nombre="Cliente producción",
+            cliente_celular="3000000000",
+        )
+        self.user = User.objects.create_user(username="operario-dashboard", password="Test123!")
+        self.empleado = EmpleadoPerfil.objects.create(user=self.user, activo=True, puede_recibir_pedidos=True)
+        self.otro_user = User.objects.create_user(username="otro-operario-dashboard", password="Test123!")
+        self.otro_empleado = EmpleadoPerfil.objects.create(user=self.otro_user, activo=True, puede_recibir_pedidos=True)
+
+    def crear_tarea(self, titulo, responsable, **kwargs):
+        return SolicitudTarea.objects.create(
+            solicitud=self.solicitud,
+            titulo=titulo,
+            responsable=responsable,
+            **kwargs,
+        )
+
+    def test_operario_ve_solo_tareas_de_las_que_es_responsable(self):
+        propia = self.crear_tarea("Tarea propia", self.empleado)
+        self.crear_tarea("Tarea de otro", self.otro_empleado)
+
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("produccion_dashboard"))
+
+        self.assertContains(response, propia.titulo)
+        self.assertNotContains(response, "Tarea de otro")
+
+    def test_tarea_finalizada_no_aparece_por_defecto_y_si_con_filtro_explicito(self):
+        tarea = self.crear_tarea("Tarea terminada", self.empleado, estado=SolicitudTarea.ESTADO_TERMINADA)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("produccion_dashboard"))
+        self.assertNotContains(response, tarea.titulo)
+
+        response = self.client.get(reverse("produccion_dashboard"), {"tarea_estado": SolicitudTarea.ESTADO_TERMINADA})
+        self.assertContains(response, tarea.titulo)
+
+    def test_terminada_hoy_cuenta_en_kpi_pero_no_aparece_en_lista_por_defecto(self):
+        tarea = self.crear_tarea(
+            "Tarea terminada hoy",
+            self.empleado,
+            estado=SolicitudTarea.ESTADO_TERMINADA,
+            fecha_finalizacion=timezone.now(),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("produccion_dashboard"))
+
+        self.assertEqual(response.context["metricas_tareas"]["terminadas_hoy"], 1)
+        self.assertNotContains(response, tarea.titulo)
+
+    def test_tarea_terminada_en_fecha_anterior_no_cuenta_en_kpi(self):
+        tarea = self.crear_tarea(
+            "Tarea terminada antigua",
+            self.empleado,
+            estado=SolicitudTarea.ESTADO_TERMINADA,
+            fecha_finalizacion=timezone.now() - timedelta(days=1),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("produccion_dashboard"))
+
+        self.assertEqual(response.context["metricas_tareas"]["terminadas_hoy"], 0)
+        self.assertNotContains(response, tarea.titulo)
+
+    def test_tarea_terminada_hoy_fuera_del_alcance_no_cuenta_en_kpi(self):
+        tarea = self.crear_tarea(
+            "Tarea terminada de otro operario",
+            self.otro_empleado,
+            estado=SolicitudTarea.ESTADO_TERMINADA,
+            fecha_finalizacion=timezone.now(),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("produccion_dashboard"))
+
+        self.assertEqual(response.context["metricas_tareas"]["terminadas_hoy"], 0)
+        self.assertNotContains(response, tarea.titulo)
+
+    def test_administrador_cuenta_tarea_terminada_hoy_en_alcance_global(self):
+        tarea = self.crear_tarea(
+            "Tarea terminada global hoy",
+            self.otro_empleado,
+            estado=SolicitudTarea.ESTADO_TERMINADA,
+            fecha_finalizacion=timezone.now(),
+        )
+        admin = User.objects.create_user(username="admin-dashboard-kpi", password="Test123!", is_staff=True)
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse("produccion_dashboard"))
+
+        self.assertEqual(response.context["metricas_tareas"]["terminadas_hoy"], 1)
+        self.assertNotContains(response, tarea.titulo)
+
+    def test_tarea_vencida_se_identifica_y_aparece_primero(self):
+        vencida = self.crear_tarea(
+            "Tarea vencida",
+            self.empleado,
+            fecha_limite=timezone.localdate() - timedelta(days=1),
+            prioridad=SolicitudTarea.PRIORIDAD_NORMAL,
+        )
+        urgente = self.crear_tarea(
+            "Tarea urgente",
+            self.empleado,
+            fecha_limite=timezone.localdate(),
+            prioridad=SolicitudTarea.PRIORIDAD_URGENTE,
+        )
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("produccion_dashboard"))
+
+        self.assertContains(response, "Vencida")
+        self.assertLess(response.content.find(vencida.titulo.encode()), response.content.find(urgente.titulo.encode()))
+
+    def test_administrador_conserva_visibilidad_global(self):
+        self.crear_tarea("Tarea de otro operario", self.otro_empleado)
+        admin = User.objects.create_user(username="admin-dashboard", password="Test123!", is_staff=True)
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse("produccion_dashboard"))
+
+        self.assertContains(response, "Tarea de otro operario")
+
+
+class ProductoOrdenTests(TestCase):
+    def setUp(self):
+        self.categoria = Categoria.objects.create(nombre="Categoría orden")
+        self.staff = User.objects.create_user(username="staff-orden", password="Test123!", is_staff=True)
+        self.client.force_login(self.staff)
+
+    def datos_producto(self, nombre, orden=""):
+        return {
+            "nombre": nombre,
+            "slug": "",
+            "categoria": self.categoria.id,
+            "descripcion_corta": "",
+            "descripcion_larga": "",
+            "imagen_estatica": "",
+            "activo": "on",
+            "destacado": "on",
+            "orden": orden,
+            "tipo_calculo": Producto.CALCULO_AREA,
+            "precio_base_m2": "0",
+            "precio_base_unidad": "0",
+            "requiere_revision": "",
+        }
+
+    def crear_por_panel(self, nombre, orden=""):
+        response = self.client.post(
+            reverse("panel_producto_crear"),
+            self.datos_producto(nombre, orden),
+        )
+        self.assertEqual(response.status_code, 302)
+        return Producto.objects.get(nombre=nombre)
+
+    def test_primer_producto_recibe_orden_uno(self):
+        producto = self.crear_por_panel("Producto uno")
+
+        self.assertEqual(producto.orden, 1)
+
+    def test_nuevo_producto_recibe_el_siguiente_orden_maximo(self):
+        Producto.objects.create(nombre="Producto 1", categoria=self.categoria, orden=1)
+        Producto.objects.create(nombre="Producto 2", categoria=self.categoria, orden=2)
+        Producto.objects.create(nombre="Producto 3", categoria=self.categoria, orden=3)
+
+        producto = self.crear_por_panel("Producto 4")
+
+        self.assertEqual(producto.orden, 4)
+
+    def test_nuevo_producto_no_rellena_huecos(self):
+        for orden in [1, 3, 7]:
+            Producto.objects.create(nombre=f"Producto {orden}", categoria=self.categoria, orden=orden)
+
+        producto = self.crear_por_panel("Producto siguiente")
+
+        self.assertEqual(producto.orden, 8)
+
+    def test_nuevo_producto_considera_ceros_y_repetidos(self):
+        for indice, orden in enumerate([0, 0, 4, 4], start=1):
+            Producto.objects.create(nombre=f"Producto existente {indice}", categoria=self.categoria, orden=orden)
+
+        producto = self.crear_por_panel("Producto nuevo")
+
+        self.assertEqual(producto.orden, 5)
+
+    def test_editar_producto_conserva_orden_actual(self):
+        producto = Producto.objects.create(nombre="Producto editable", categoria=self.categoria, orden=7)
+
+        response = self.client.post(
+            reverse("panel_producto_editar", args=[producto.id]),
+            self.datos_producto("Producto editable actualizado", orden=7),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        producto.refresh_from_db()
+        self.assertEqual(producto.orden, 7)
+
+
+class ProductoCamposDisponibilidadTests(TestCase):
+    def setUp(self):
+        self.categoria = Categoria.objects.create(nombre="Categoría disponibilidad")
+        self.producto = Producto.objects.create(nombre="Producto disponibilidad", categoria=self.categoria)
+        self.maestro = CampoMaestro.objects.create(
+            nombre="Campo maestro disponibilidad",
+            tipo=ProductoCampo.TIPO_TEXTO,
+        )
+        self.campo = ProductoCampo.desde_maestro(self.producto, self.maestro)
+        self.campo.save()
+        self.staff = User.objects.create_user(username="staff-disponibilidad", password="Test123!", is_staff=True)
+        self.client.force_login(self.staff)
+
+    def obtener_campos(self):
+        return self.client.get(reverse("panel_producto_campos", args=[self.producto.id]))
+
+    def test_campo_activo_configurado_y_no_disponible(self):
+        response = self.obtener_campos()
+
+        self.assertContains(response, self.campo.etiqueta)
+        self.assertContains(response, "Campos configurables")
+        self.assertNotContains(
+            response,
+            reverse("panel_campo_asignar_maestro", args=[self.producto.id, self.maestro.id]),
+        )
+
+    def test_campo_desactivado_desaparece_de_configurados(self):
+        self.campo.activo = False
+        self.campo.save()
+
+        response = self.obtener_campos()
+
+        self.assertNotContains(response, f"Maestro: {self.maestro.nombre}")
+
+    def test_campo_desactivado_vuelve_a_maestros_disponibles(self):
+        self.campo.activo = False
+        self.campo.save()
+
+        response = self.obtener_campos()
+
+        self.assertContains(response, self.maestro.nombre)
+        self.assertContains(
+            response,
+            reverse("panel_campo_asignar_maestro", args=[self.producto.id, self.maestro.id]),
+        )
+
+    def test_reagregar_maestro_reactiva_sin_crear_duplicado(self):
+        self.campo.activo = False
+        self.campo.save()
+
+        response = self.client.post(
+            reverse("panel_campo_asignar_maestro", args=[self.producto.id, self.maestro.id]),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.campo.refresh_from_db()
+        self.assertTrue(self.campo.activo)
+        self.assertEqual(ProductoCampo.objects.filter(producto=self.producto, campo_maestro=self.maestro).count(), 1)
+
+
+class ProductoCampoPreviewTests(TestCase):
+    def setUp(self):
+        self.categoria = Categoria.objects.create(nombre="Categoría preview")
+        self.producto = Producto.objects.create(nombre="Producto preview", categoria=self.categoria)
+        self.staff = User.objects.create_user(username="staff-preview", password="Test123!", is_staff=True)
+        self.client.force_login(self.staff)
+
+    def obtener_pagina(self):
+        return self.client.get(reverse("panel_producto_campos", args=[self.producto.id]))
+
+    def test_maestro_disponible_incluye_datos_de_previsualizacion(self):
+        maestro = CampoMaestro.objects.create(
+            nombre="Texto preview",
+            tipo=ProductoCampo.TIPO_TEXTO,
+            ayuda_base="Indicación de ayuda",
+            obligatorio_base=True,
+        )
+
+        response = self.obtener_pagina()
+
+        self.assertContains(response, "Previsualizar")
+        self.assertContains(response, maestro.nombre)
+        self.assertContains(response, maestro.ayuda_base)
+        self.assertContains(response, "Obligatorio")
+
+    def test_previsualizacion_muestra_solo_opciones_activas(self):
+        maestro = CampoMaestro.objects.create(nombre="Selector preview", tipo=ProductoCampo.TIPO_MULTISELECT)
+        CampoMaestroOpcion.objects.create(campo_maestro=maestro, etiqueta="Opción activa", valor="activa", activa=True)
+        CampoMaestroOpcion.objects.create(campo_maestro=maestro, etiqueta="Opción inactiva", valor="inactiva", activa=False)
+
+        response = self.obtener_pagina()
+
+        self.assertContains(response, "Opción activa")
+        self.assertNotContains(response, "Opción inactiva")
+
+    def test_previsualizar_no_crea_ni_modifica_datos(self):
+        maestro = CampoMaestro.objects.create(
+            nombre="Select sin cambios",
+            tipo=ProductoCampo.TIPO_SELECT,
+            ayuda_base="Ayuda original",
+        )
+        CampoMaestroOpcion.objects.create(campo_maestro=maestro, etiqueta="Opción", valor="opcion")
+        maestro_actualizado = maestro.actualizado
+
+        response = self.obtener_pagina()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ProductoCampo.objects.filter(producto=self.producto, campo_maestro=maestro).count(), 0)
+        self.assertEqual(CampoOpcion.objects.count(), 0)
+        maestro.refresh_from_db()
+        self.assertEqual(maestro.ayuda_base, "Ayuda original")
+        self.assertEqual(maestro.actualizado, maestro_actualizado)
+
+
+class ProductoCategoriaAjaxTests(TestCase):
+    def setUp(self):
+        self.url = reverse("panel_categoria_crear_ajax")
+
+    def test_usuario_autorizado_crea_categoria_y_recibe_datos_utilizables(self):
+        staff = User.objects.create_user(username="staff-categoria-ajax", password="Test123!", is_staff=True)
+        self.client.force_login(staff)
+
+        response = self.client.post(self.url, {"nombre": "Categoría nueva"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["nombre"], "Categoría nueva")
+        self.assertTrue(Categoria.objects.filter(pk=payload["id"], nombre="Categoría nueva").exists())
+
+    def test_payload_invalido_devuelve_error_controlado(self):
+        staff = User.objects.create_user(username="staff-categoria-invalida", password="Test123!", is_staff=True)
+        self.client.force_login(staff)
+
+        response = self.client.post(self.url, {})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()["ok"])
+        self.assertEqual(Categoria.objects.count(), 0)
+
+    def test_usuario_sin_permiso_no_puede_crear_categoria(self):
+        user = User.objects.create_user(username="usuario-sin-permiso", password="Test123!")
+        self.client.force_login(user)
+
+        response = self.client.post(self.url, {"nombre": "No autorizada"})
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Categoria.objects.filter(nombre="No autorizada").exists())
+
+    def test_crear_categoria_no_crea_producto_y_formulario_muestra_accion(self):
+        staff = User.objects.create_user(username="staff-categoria-form", password="Test123!", is_staff=True)
+        self.client.force_login(staff)
+
+        response = self.client.get(reverse("panel_producto_crear"))
+
+        self.assertContains(response, "+ Nueva categoría")
+        self.client.post(self.url, {"nombre": "Solo categoría"})
+        self.assertEqual(Producto.objects.count(), 0)
+
+
+class ClienteFormSemanticsTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(username="staff-cliente-form", password="Test123!", is_staff=True)
+        self.client.force_login(self.staff)
+
+    def test_persona_usa_nombre_completo_y_se_guarda(self):
+        response = self.client.post(
+            reverse("panel_cliente_crear"),
+            {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Ana María Rodríguez"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        cliente = Cliente.objects.get()
+        self.assertEqual(cliente.nombre, "Ana María Rodríguez")
+        self.assertContains(self.client.get(reverse("panel_cliente_detalle", args=[cliente.id])), "Ana María Rodríguez")
+
+    def test_empresa_usa_razon_social_como_referencia_interna_si_nombre_vacio(self):
+        response = self.client.post(
+            reverse("panel_cliente_crear"),
+            {
+                "tipo_cliente": Cliente.TIPO_EMPRESA,
+                "nombre": "",
+                "razon_social": "Rodriguez G Inversiones SAS",
+                "nombre_comercial": "Los Perritos Los Colores",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        cliente = Cliente.objects.get()
+        self.assertEqual(cliente.nombre, "Rodriguez G Inversiones SAS")
+        self.assertEqual(cliente.razon_social, "Rodriguez G Inversiones SAS")
+        self.assertEqual(cliente.nombre_comercial, "Los Perritos Los Colores")
+
+    def test_cliente_historico_y_nombre_visible_conservan_compatibilidad(self):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_EMPRESA,
+            nombre="Referencia histórica",
+            razon_social="Empresa histórica SAS",
+            nombre_comercial="Marca histórica",
+        )
+
+        response = self.client.get(reverse("panel_cliente_detalle", args=[cliente.id]))
+
+        self.assertContains(response, "Referencia histórica")
+        self.assertContains(response, "Empresa histórica SAS")
+        self.assertContains(response, "Marca histórica")
+        self.assertEqual(str(cliente), "Empresa histórica SAS")
+
+    def test_editar_cliente_no_borra_los_tres_valores(self):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_EMPRESA,
+            nombre="Referencia existente",
+            razon_social="Razón existente SAS",
+            nombre_comercial="Marca existente",
+        )
+
+        response = self.client.post(
+            reverse("panel_cliente_editar", args=[cliente.id]),
+            {
+                "tipo_cliente": Cliente.TIPO_EMPRESA,
+                "nombre": "Referencia actualizada",
+                "razon_social": "Razón actualizada SAS",
+                "nombre_comercial": "Marca actualizada",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        cliente.refresh_from_db()
+        self.assertEqual(cliente.nombre, "Referencia actualizada")
+        self.assertEqual(cliente.razon_social, "Razón actualizada SAS")
+        self.assertEqual(cliente.nombre_comercial, "Marca actualizada")
+
+    def test_empresa_sin_nombres_no_se_guarda(self):
+        form = ClienteForm(data={"tipo_cliente": Cliente.TIPO_EMPRESA, "nombre": "", "razon_social": "", "nombre_comercial": ""})
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("razon_social", form.errors)
+
+
+class ClientePuntoVentaTests(TestCase):
+    def setUp(self):
+        self.categoria = Categoria.objects.create(nombre="Categoría puntos")
+        self.cliente = Cliente.objects.create(nombre="Cliente puntos")
+        self.otro_cliente = Cliente.objects.create(nombre="Otro cliente puntos")
+        self.staff = User.objects.create_user(username="staff-puntos", password="Test123!", is_staff=True)
+        self.usuario = User.objects.create_user(username="usuario-puntos", password="Test123!")
+        self.client.force_login(self.staff)
+
+    def datos_punto(self, nombre, **extra):
+        datos = {
+            "nombre": nombre,
+            "direccion": "Carrera 10 # 20-30",
+            "ciudad": "Medellín",
+            "contacto": "Contacto sede",
+            "telefono": "3000000000",
+            "email": "sede@example.com",
+            "observaciones": "Observación",
+            "activo": "on",
+        }
+        datos.update(extra)
+        return datos
+
+    def test_cliente_puede_tener_multiples_puntos(self):
+        for nombre in ["Laureles", "Envigado", "Poblado"]:
+            ClientePuntoVenta.objects.create(cliente=self.cliente, nombre=nombre)
+
+        self.assertCountEqual(self.cliente.puntos_venta.values_list("nombre", flat=True), ["Laureles", "Envigado", "Poblado"])
+
+    def test_dos_clientes_pueden_repetir_nombre_de_punto(self):
+        ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Laureles")
+        otro = ClientePuntoVenta.objects.create(cliente=self.otro_cliente, nombre="Laureles")
+
+        self.assertEqual(otro.cliente_id, self.otro_cliente.id)
+        self.assertEqual(ClientePuntoVenta.objects.filter(nombre="Laureles").count(), 2)
+
+    def test_no_permite_duplicado_dentro_del_mismo_cliente(self):
+        ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Laureles")
+
+        with self.assertRaises(ValidationError):
+            ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="laureles")
+
+        response = self.client.post(
+            reverse("panel_cliente_punto_venta_crear", args=[self.cliente.id]),
+            self.datos_punto("LAURELES"),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ClientePuntoVenta.objects.filter(cliente=self.cliente).count(), 1)
+
+    def test_crear_desde_cliente_asigna_relacion_automaticamente(self):
+        response = self.client.post(
+            reverse("panel_cliente_punto_venta_crear", args=[self.cliente.id]),
+            self.datos_punto("Envigado"),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        punto = ClientePuntoVenta.objects.get(nombre="Envigado")
+        self.assertEqual(punto.cliente_id, self.cliente.id)
+
+    def test_editar_no_modifica_cliente_ni_otros_puntos(self):
+        punto = ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Laureles", ciudad="Medellín")
+        otro = ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Envigado", ciudad="Envigado")
+
+        response = self.client.post(
+            reverse("panel_cliente_punto_venta_editar", args=[self.cliente.id, punto.id]),
+            self.datos_punto("Laureles actualizado", ciudad="Bogotá"),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        punto.refresh_from_db()
+        otro.refresh_from_db()
+        self.assertEqual(punto.cliente_id, self.cliente.id)
+        self.assertEqual(punto.nombre, "Laureles actualizado")
+        self.assertEqual(otro.nombre, "Envigado")
+        self.assertEqual(otro.ciudad, "Envigado")
+
+    def test_desactivar_conserva_el_registro(self):
+        punto = ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Laureles")
+
+        response = self.client.post(reverse("panel_cliente_punto_venta_toggle", args=[self.cliente.id, punto.id]))
+
+        self.assertEqual(response.status_code, 302)
+        punto.refresh_from_db()
+        self.assertFalse(punto.activo)
+        self.assertTrue(ClientePuntoVenta.objects.filter(pk=punto.id).exists())
+
+    def test_usuario_sin_acceso_no_puede_administrar_puntos(self):
+        self.client.force_login(self.usuario)
+
+        self.assertEqual(self.client.get(reverse("panel_cliente_punto_venta_crear", args=[self.cliente.id])).status_code, 403)
+        self.assertEqual(self.client.post(reverse("panel_cliente_punto_venta_crear", args=[self.cliente.id]), self.datos_punto("No autorizado")).status_code, 403)
+
+    def test_no_se_puede_usar_cliente_equivocado_para_editar(self):
+        punto = ClientePuntoVenta.objects.create(cliente=self.otro_cliente, nombre="Laureles")
+
+        response = self.client.post(
+            reverse("panel_cliente_punto_venta_editar", args=[self.cliente.id, punto.id]),
+            self.datos_punto("Cambio indebido"),
+        )
+
+        self.assertEqual(response.status_code, 404)
+        punto.refresh_from_db()
+        self.assertEqual(punto.cliente_id, self.otro_cliente.id)
+        self.assertEqual(punto.nombre, "Laureles")
+
+    def test_cliente_sin_puntos_sigue_mostrando_su_detalle(self):
+        response = self.client.get(reverse("panel_cliente_detalle", args=[self.cliente.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Puntos de venta")
+        self.assertContains(response, "no tiene puntos de venta registrados")
 
 
 @override_settings(STORAGES=TEST_STORAGES)

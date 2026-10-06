@@ -19,6 +19,8 @@
   <div class="kpi"><span>Pedidos en proceso</span><strong>{{ metricas.en_proceso }}</strong></div>
   <div class="kpi"><span>Con novedad</span><strong>{{ metricas.con_novedad }}</strong></div>
   <div class="kpi"><span>Tareas asignadas</span><strong>{{ metricas_tareas.asignadas }}</strong></div>
+  <div class="kpi"><span>Pendientes</span><strong>{{ metricas_tareas.pendientes }}</strong></div>
+  <div class="kpi"><span>En proceso</span><strong>{{ metricas_tareas.en_proceso }}</strong></div>
   <div class="kpi"><span>Tareas vencidas</span><strong>{{ metricas_tareas.vencidas }}</strong></div>
   <div class="kpi"><span>Tareas hoy</span><strong>{{ metricas_tareas.terminadas_hoy }}</strong></div>
 </section>
@@ -97,6 +99,7 @@
         <div class="order-card-head">
           <span class="badge">{{ tarea.get_estado_display }}</span>
           <span class="badge">{{ tarea.get_prioridad_display }}</span>
+          {% if tarea.es_vencida %}<span class="state-badge state-cancelada">Vencida</span>{% endif %}
         </div>
         <h2>{{ tarea.titulo }}</h2>
         <p>

@@ -20,13 +20,37 @@
     <div class="form-grid two">
       {% for field in form %}
         <div class="field {% if field.name == 'notas' or field.name == 'direccion' %}full{% endif %}">
-          {{ field.label_tag }}
+          {% if field.name == 'nombre' %}
+            <label for="{{ field.id_for_label }}" data-cliente-nombre-label>{{ field.label }}</label>
+          {% else %}
+            {{ field.label_tag }}
+          {% endif %}
           {{ field }}
           {{ field.errors }}
+          {% if field.help_text %}<small data-cliente-nombre-help>{% if field.name == 'nombre' %}{{ field.help_text }}{% else %}{{ field.help_text }}{% endif %}</small>{% endif %}
         </div>
       {% endfor %}
     </div>
     <button class="btn btn-primary btn-wide">Guardar cliente</button>
   </form>
 </div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const tipo = document.getElementById("id_tipo_cliente");
+  const nombreLabel = document.querySelector("[data-cliente-nombre-label]");
+  const nombreHelp = document.querySelector("[data-cliente-nombre-help]");
+  if (!tipo || !nombreLabel || !nombreHelp) return;
+
+  function actualizarAyudaCliente() {
+    const empresa = tipo.value === "empresa";
+    nombreLabel.textContent = empresa ? "Referencia interna (opcional)" : "Nombre completo";
+    nombreHelp.textContent = empresa
+      ? "No repitas la razón social ni el nombre comercial. Si lo dejas vacío, se usará la razón social como referencia interna."
+      : "Nombre y apellidos de la persona.";
+  }
+
+  tipo.addEventListener("change", actualizarAyudaCliente);
+  actualizarAyudaCliente();
+});
+</script>
 {% endblock %}

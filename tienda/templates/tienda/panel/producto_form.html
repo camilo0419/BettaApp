@@ -5,8 +5,86 @@
 <div class="panel-card">
   <form method="post" enctype="multipart/form-data" class="dynamic-form admin-form">
     {% csrf_token %}
-    <div class="form-grid two">{{ form.as_div }}</div>
+    {% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
+    <div class="form-grid two">
+      {% for field in form %}
+        {% if field.name == 'categoria' %}
+          <div class="field">
+            {{ field.label_tag }}
+            <div class="table-actions">
+              {{ field }}
+              {% if not producto %}<button type="button" class="btn btn-outline" data-modal-open="modal-nueva-categoria">+ Nueva categoría</button>{% endif %}
+            </div>
+            {{ field.errors }}
+            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+          </div>
+        {% else %}
+          <div class="field">
+            {{ field.label_tag }}{{ field }}{{ field.errors }}
+            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
     <button class="btn btn-primary">Guardar producto</button>
   </form>
 </div>
+
+{% if not producto %}
+<div class="modal-shell" id="modal-nueva-categoria" data-modal>
+  <div class="modal-panel">
+    <button type="button" class="modal-close" data-modal-close>Cerrar</button>
+    <span class="eyebrow">Producto</span>
+    <h2>Nueva categoría</h2>
+    <form method="post" data-categoria-form data-categoria-url="{% url 'panel_categoria_crear_ajax' %}">
+      {% csrf_token %}
+      <div class="field">
+        <label for="nueva-categoria-nombre">Nombre</label>
+        <input id="nueva-categoria-nombre" name="nombre" type="text" maxlength="120" required>
+      </div>
+      <p class="message error" data-categoria-error hidden></p>
+      <div class="production-actions">
+        <button type="button" class="btn btn-outline" data-modal-close>Cancelar</button>
+        <button type="submit" class="btn btn-primary">Crear categoría</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const form = document.querySelector("[data-categoria-form]");
+  const categoria = document.getElementById("id_categoria");
+  const error = document.querySelector("[data-categoria-error]");
+  if (!form || !categoria) return;
+
+  form.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    error.hidden = true;
+    const submit = form.querySelector("button[type='submit']");
+    submit.disabled = true;
+    try {
+      const response = await fetch(form.dataset.categoriaUrl, {
+        method: "POST",
+        headers: {"X-Requested-With": "XMLHttpRequest"},
+        body: new FormData(form),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        error.textContent = data.message || "No se pudo crear la categoría.";
+        error.hidden = false;
+        return;
+      }
+      categoria.add(new Option(data.nombre, data.id, true, true));
+      form.reset();
+      form.querySelector("[data-modal-close]").click();
+    } catch (e) {
+      error.textContent = "No se pudo crear la categoría. Intenta nuevamente.";
+      error.hidden = false;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+});
+</script>
+{% endif %}
 {% endblock %}
