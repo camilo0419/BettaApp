@@ -11,8 +11,17 @@
         {% if field.name == 'categoria' %}
           <div class="field">
             {{ field.label_tag }}
-            <div class="table-actions">
+            <div class="category-field-row">
+              <div class="category-picker" data-category-picker>
               {{ field }}
+                <button type="button" class="category-picker-trigger" data-category-trigger aria-haspopup="listbox" aria-expanded="false">
+                  <span data-category-value>Seleccionar categoría</span><span class="category-picker-chevron" aria-hidden="true">▾</span>
+                </button>
+                <div class="category-picker-dropdown" data-category-dropdown hidden>
+                  <input type="search" class="category-picker-search" data-category-search placeholder="Buscar categoría..." autocomplete="off" aria-label="Buscar categoría">
+                  <div class="category-picker-options" data-category-options role="listbox"></div>
+                </div>
+              </div>
               {% if not producto %}<button type="button" class="btn btn-outline" data-modal-open="modal-nueva-categoria">+ Nueva categoría</button>{% endif %}
             </div>
             {{ field.errors }}
@@ -32,59 +41,153 @@
 
 {% if not producto %}
 <div class="modal-shell" id="modal-nueva-categoria" data-modal>
-  <div class="modal-panel">
-    <button type="button" class="modal-close" data-modal-close>Cerrar</button>
-    <span class="eyebrow">Producto</span>
+  <div class="modal-panel category-modal-panel">
+    <button type="button" class="modal-close category-modal-close" data-modal-close aria-label="Cerrar">×</button>
+    <span class="eyebrow">PRODUCTO</span>
     <h2>Nueva categoría</h2>
+    <p class="category-modal-intro">Crea una categoría sin salir del formulario del producto.</p>
     <form method="post" data-categoria-form data-categoria-url="{% url 'panel_categoria_crear_ajax' %}">
       {% csrf_token %}
       <div class="field">
-        <label for="nueva-categoria-nombre">Nombre</label>
-        <input id="nueva-categoria-nombre" name="nombre" type="text" maxlength="120" required>
+        <label for="nueva-categoria-nombre">Nombre de la categoría</label>
+        <input id="nueva-categoria-nombre" name="nombre" type="text" maxlength="120" required autocomplete="off">
       </div>
       <p class="message error" data-categoria-error hidden></p>
-      <div class="production-actions">
+      <div class="category-modal-actions">
         <button type="button" class="btn btn-outline" data-modal-close>Cancelar</button>
         <button type="submit" class="btn btn-primary">Crear categoría</button>
       </div>
     </form>
   </div>
 </div>
+{% endif %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-  const form = document.querySelector("[data-categoria-form]");
   const categoria = document.getElementById("id_categoria");
-  const error = document.querySelector("[data-categoria-error]");
-  if (!form || !categoria) return;
+  const picker = document.querySelector("[data-category-picker]");
+  if (!categoria || !picker) return;
 
-  form.addEventListener("submit", async function (event) {
-    event.preventDefault();
-    error.hidden = true;
-    const submit = form.querySelector("button[type='submit']");
-    submit.disabled = true;
-    try {
-      const response = await fetch(form.dataset.categoriaUrl, {
-        method: "POST",
-        headers: {"X-Requested-With": "XMLHttpRequest"},
-        body: new FormData(form),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.ok) {
-        error.textContent = data.message || "No se pudo crear la categoría.";
+  const trigger = picker.querySelector("[data-category-trigger]");
+  const value = picker.querySelector("[data-category-value]");
+  const dropdown = picker.querySelector("[data-category-dropdown]");
+  const search = picker.querySelector("[data-category-search]");
+  const options = picker.querySelector("[data-category-options]");
+
+  function normalize(text) {
+    return text.trim().toLocaleLowerCase().replace(/\s+/g, " ");
+  }
+
+  function closePicker() {
+    dropdown.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+  }
+
+  function selectCategory(option) {
+    categoria.value = option.value;
+    categoria.dispatchEvent(new Event("change", {bubbles: true}));
+    value.textContent = option.textContent.trim() || "Seleccionar categoría";
+    closePicker();
+  }
+
+  function renderOptions() {
+    const query = normalize(search.value);
+    options.replaceChildren();
+    let matches = 0;
+    Array.from(categoria.options).forEach(function (option) {
+      const label = option.textContent.trim();
+      if (query && !normalize(label).includes(query)) return;
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "category-picker-option";
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", option.value === categoria.value ? "true" : "false");
+      item.textContent = option.value ? label : "Seleccionar categoría";
+      item.addEventListener("click", function () { selectCategory(option); });
+      options.appendChild(item);
+      matches += 1;
+    });
+    if (!matches) {
+      const empty = document.createElement("p");
+      empty.className = "category-picker-empty";
+      empty.textContent = "No se encontraron categorías";
+      options.appendChild(empty);
+    }
+  }
+
+  function syncPicker() {
+    const selected = categoria.options[categoria.selectedIndex];
+    value.textContent = selected && selected.value ? selected.textContent.trim() : "Seleccionar categoría";
+    renderOptions();
+  }
+
+  trigger.addEventListener("click", function () {
+    const opening = dropdown.hidden;
+    if (opening) {
+      dropdown.hidden = false;
+      trigger.setAttribute("aria-expanded", "true");
+      search.value = "";
+      renderOptions();
+      search.focus();
+    } else {
+      closePicker();
+    }
+  });
+  search.addEventListener("input", renderOptions);
+  search.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") closePicker();
+    if (event.key === "Enter") {
+      const first = options.querySelector(".category-picker-option");
+      if (first) { event.preventDefault(); first.click(); }
+    }
+  });
+  categoria.addEventListener("change", syncPicker);
+  document.addEventListener("click", function (event) {
+    if (!picker.contains(event.target)) closePicker();
+  });
+  syncPicker();
+
+  const form = document.querySelector("[data-categoria-form]");
+  const error = document.querySelector("[data-categoria-error]");
+  if (form) {
+    form.addEventListener("submit", async function (event) {
+      event.preventDefault();
+      error.hidden = true;
+      const submit = form.querySelector("button[type='submit']");
+      submit.disabled = true;
+      submit.textContent = "Creando...";
+      try {
+        const response = await fetch(form.dataset.categoriaUrl, {
+          method: "POST",
+          headers: {"X-Requested-With": "XMLHttpRequest"},
+          body: new FormData(form),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          error.textContent = data.message || "No se pudo crear la categoría.";
+          error.hidden = false;
+          return;
+        }
+        categoria.add(new Option(data.nombre, data.id, true, true));
+        syncPicker();
+        form.reset();
+        form.querySelector("[data-modal-close]").click();
+      } catch (e) {
+        error.textContent = "No se pudo crear la categoría. Intenta nuevamente.";
         error.hidden = false;
-        return;
+      } finally {
+        submit.disabled = false;
+        submit.textContent = "Crear categoría";
       }
-      categoria.add(new Option(data.nombre, data.id, true, true));
-      form.reset();
-      form.querySelector("[data-modal-close]").click();
-    } catch (e) {
-      error.textContent = "No se pudo crear la categoría. Intenta nuevamente.";
-      error.hidden = false;
-    } finally {
-      submit.disabled = false;
+    });
+  }
+  document.addEventListener("click", function (event) {
+    if (event.target.closest("[data-modal-open='modal-nueva-categoria']")) {
+      window.setTimeout(function () {
+        const input = document.getElementById("nueva-categoria-nombre");
+        if (input) input.focus();
+      }, 0);
     }
   });
 });
 </script>
-{% endif %}
 {% endblock %}
