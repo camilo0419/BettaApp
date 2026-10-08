@@ -50,6 +50,11 @@ TEST_STORAGES = {
 }
 
 
+def local_test_temporary_directory():
+    """Use a workspace-local temp root; Windows sandbox Temp can deny cleanup."""
+    return tempfile.TemporaryDirectory(dir=str(settings.BASE_DIR))
+
+
 class MediaStorageTests(SimpleTestCase):
     def test_django_52_storages_include_default_and_staticfiles(self):
         self.assertIn("default", settings.STORAGES)
@@ -67,7 +72,7 @@ class MediaStorageTests(SimpleTestCase):
             def url(self):
                 return self.storage.url(self.name)
 
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with local_test_temporary_directory() as tmp_dir:
             storage = FileSystemStorage(location=tmp_dir, base_url="/media/")
             self.assertEqual(safe_media_url(DummyFile(storage)), "")
 
@@ -762,7 +767,7 @@ class PortalClienteTests(TestCase):
         staff = User.objects.create_user(username="staff", password="StaffTest123!", is_staff=True)
         self.client.force_login(staff)
 
-        with tempfile.TemporaryDirectory() as tmp_dir, self.settings(MEDIA_ROOT=tmp_dir):
+        with local_test_temporary_directory() as tmp_dir, self.settings(MEDIA_ROOT=tmp_dir):
             response = self.client.post(
                 reverse("panel_producto_editar", args=[self.producto.id]),
                 {
