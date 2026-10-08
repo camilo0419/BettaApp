@@ -48,6 +48,12 @@ def env_list(name, default=None):
 
 
 DEBUG = env_bool("DJANGO_DEBUG", False)
+DEPLOYMENT_ENV = os.environ.get("DJANGO_ENV", "development").strip().lower()
+if DEPLOYMENT_ENV not in {"development", "production"}:
+    raise ImproperlyConfigured("DJANGO_ENV debe ser development o production.")
+IS_PRODUCTION = DEPLOYMENT_ENV == "production"
+if IS_PRODUCTION and DEBUG:
+    raise ImproperlyConfigured("DJANGO_DEBUG debe ser falso en producción.")
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "").strip()
 if not SECRET_KEY:
@@ -162,12 +168,24 @@ LOGIN_URL = "/panel/login/"
 LOGIN_REDIRECT_URL = "/panel/"
 LOGOUT_REDIRECT_URL = "/panel/login/"
 
-SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", False)
-SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", False)
-CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", False)
-SECURE_HSTS_SECONDS = env_int("DJANGO_SECURE_HSTS_SECONDS", 0)
-SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", False)
-SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", False)
+SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", IS_PRODUCTION)
+SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", IS_PRODUCTION)
+CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", IS_PRODUCTION)
+SECURE_HSTS_SECONDS = env_int("DJANGO_SECURE_HSTS_SECONDS", 31536000 if IS_PRODUCTION else 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", IS_PRODUCTION)
+SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", IS_PRODUCTION)
+SECURE_CONTENT_TYPE_NOSNIFF = env_bool("DJANGO_SECURE_CONTENT_TYPE_NOSNIFF", IS_PRODUCTION)
+
+# Solo se configura cuando el proxy real de producción fue verificado.
+_proxy_header = os.environ.get("DJANGO_SECURE_PROXY_SSL_HEADER", "").strip()
+if _proxy_header:
+    try:
+        _proxy_name, _proxy_value = [part.strip() for part in _proxy_header.split(",", 1)]
+        SECURE_PROXY_SSL_HEADER = (_proxy_name, _proxy_value)
+    except ValueError as exc:
+        raise ImproperlyConfigured("DJANGO_SECURE_PROXY_SSL_HEADER debe tener formato HEADER,valor.") from exc
+
+ALEGRA_FINANCIAL_FRESHNESS_MINUTES = env_int("ALEGRA_FINANCIAL_FRESHNESS_MINUTES", 60)
 
 FILE_UPLOAD_MAX_MEMORY_SIZE = env_int("DJANGO_FILE_UPLOAD_MAX_MEMORY_SIZE", 10 * 1024 * 1024)
 DATA_UPLOAD_MAX_MEMORY_SIZE = env_int("DJANGO_DATA_UPLOAD_MAX_MEMORY_SIZE", 15 * 1024 * 1024)

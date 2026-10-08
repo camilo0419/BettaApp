@@ -22,11 +22,61 @@ from .models import (
     SolicitudNovedad,
     SolicitudRespuesta,
     SolicitudTarea,
+    ExternalSystem,
+    ExternalObjectMap,
+    AlegraItemStaging,
+    SyncAuditLog,
+    UNSPSCCode,
+    UNSPSCImportJob,
 )
 
 admin.site.site_header = "Admin Productos | Betta Diseño"
 admin.site.site_title = "Admin Productos"
 admin.site.index_title = "Gestión técnica"
+
+
+@admin.register(UNSPSCCode)
+class UNSPSCCodeAdmin(admin.ModelAdmin):
+    list_display = ("code", "description", "level", "catalog_version", "active")
+    list_filter = ("level", "catalog_version", "active")
+    search_fields = ("code", "description")
+    readonly_fields = ("imported_at",)
+
+
+@admin.register(UNSPSCImportJob)
+class UNSPSCImportJobAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "catalog_version", "status", "unique_codes", "created_by")
+    list_filter = ("status", "catalog_version")
+    readonly_fields = ("preview", "created_at", "started_at", "completed_at", "error_message")
+
+
+@admin.register(ExternalSystem)
+class ExternalSystemAdmin(admin.ModelAdmin):
+    list_display = ("code", "name", "environment", "status", "updated_at")
+    search_fields = ("code", "name")
+
+
+@admin.register(ExternalObjectMap)
+class ExternalObjectMapAdmin(admin.ModelAdmin):
+    list_display = ("system", "resource_type", "external_id", "content_type", "object_id", "status", "last_synced_at")
+    list_filter = ("system", "resource_type", "status")
+    search_fields = ("external_id", "resource_type")
+
+
+@admin.register(AlegraItemStaging)
+class AlegraItemStagingAdmin(admin.ModelAdmin):
+    list_display = ("external_id", "name", "reference", "external_status", "review_status", "fetched_at")
+    list_filter = ("review_status", "external_status")
+    search_fields = ("external_id", "name", "reference")
+    readonly_fields = ("technical_data", "fetched_at", "created_at", "updated_at")
+
+
+@admin.register(SyncAuditLog)
+class SyncAuditLogAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "operation", "resource", "result", "actor")
+    list_filter = ("result", "resource", "operation")
+    search_fields = ("operation", "resource", "external_id", "detail")
+    readonly_fields = ("created_at", "metadata")
 
 
 class ProductoCampoInline(admin.TabularInline):
