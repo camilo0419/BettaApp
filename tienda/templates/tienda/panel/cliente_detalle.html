@@ -11,6 +11,7 @@
   </div>
   <div class="head-actions">
     <a href="{% url 'panel_cliente_editar' cliente.id %}" class="btn btn-primary">Editar cliente</a>
+    {% if not alegra_map %}<form method="post" action="{% url 'panel_cliente_alegra_preparar' cliente.id %}" class="inline-form">{% csrf_token %}<button class="btn btn-outline" type="submit">Preparar sincronización Alegra</button></form>{% else %}<a href="{% url 'panel_cliente_alegra_revisar_cambios' cliente.id %}" class="btn btn-outline">Consultar cambios de Alegra</a><form method="post" action="{% url 'panel_cliente_alegra_preparar_actualizacion' cliente.id %}" class="inline-form">{% csrf_token %}<button class="btn btn-outline" type="submit">Preparar actualización en Alegra</button></form>{% endif %}
     <a href="{% url 'panel_proyecto_crear' %}?cliente={{ cliente.id }}" class="btn btn-outline">Crear proyecto</a>
     <a href="{% url 'panel_clientes' %}" class="btn btn-outline">Volver</a>
   </div>
@@ -31,21 +32,33 @@
     <div class="panel-card">
       <h2>Datos generales</h2>
       <dl class="detail-list">
+        <dt>Alegra</dt><dd>{% if alegra_map %}Vinculado · ID externo {{ alegra_map.external_id }}{% else %}Sin vinculación{% endif %}</dd>
         <dt>Tipo</dt><dd>{{ cliente.get_tipo_cliente_display }}</dd>
-        <dt>Nombre</dt><dd>{{ cliente.nombre }}</dd>
+        <dt>Nombre</dt><dd>{{ cliente.nombre_mostrado }}{% if cliente.tipo_cliente == 'empresa' and cliente.nombre != cliente.nombre_mostrado %}<br><small>Referencia interna: {{ cliente.nombre }}</small>{% endif %}</dd>
         <dt>Razón social</dt><dd>{{ cliente.razon_social|default:'-' }}</dd>
         <dt>Nombre comercial</dt><dd>{{ cliente.nombre_comercial|default:'-' }}</dd>
         <dt>Sector</dt><dd>{{ cliente.sector|default:'-' }}</dd>
         <dt>Identificación</dt><dd>{{ cliente.tipo_identificacion|upper|default:'-' }} {{ cliente.identificacion|default:'' }}</dd>
+        <dt>DV</dt><dd>{{ cliente.digito_verificacion|default:'-' }}</dd>
         <dt>Email</dt><dd>{{ cliente.email|default:'-' }}</dd>
         <dt>Teléfono</dt><dd>{{ cliente.telefono|default:'-' }}</dd>
+        <dt>Teléfono secundario</dt><dd>{{ cliente.telefono_secundario|default:'-' }}</dd>
+        <dt>Celular</dt><dd>{{ cliente.celular|default:'-' }}</dd>
         <dt>WhatsApp</dt><dd>{{ cliente.whatsapp|default:'-' }}</dd>
         <dt>Sitio web</dt><dd>{{ cliente.sitio_web|default:'-' }}</dd>
         <dt>Preferencia contacto</dt><dd>{{ cliente.preferencia_contacto|default:'-' }}</dd>
         <dt>Ciudad</dt><dd>{{ cliente.ciudad|default:'-' }}</dd>
+        <dt>Departamento</dt><dd>{{ cliente.departamento|default:'-' }}</dd>
+        <dt>País</dt><dd>{{ cliente.pais|default:'-' }}</dd>
+        <dt>Código postal</dt><dd>{{ cliente.codigo_postal|default:'-' }}</dd>
         <dt>Dirección</dt><dd>{{ cliente.direccion|default:'-' }}</dd>
         <dt>Estado</dt><dd>{% if cliente.activo %}Activo{% else %}Inactivo{% endif %}</dd>
       </dl>
+      <div class="info-box">
+        <strong>Estado de sincronización</strong>
+        {% if alegra_map %}<p>Vinculación activa con Alegra ({{ alegra_map.external_id }}). No se puede preparar otra creación.</p>{% endif %}
+        {% for operation in alegra_operations %}<p>{{ operation.get_operation_display }} · {{ operation.get_state_display }} · intentos: {{ operation.attempts }}{% if operation.error_message %} · {{ operation.error_message }}{% endif %}</p>{% empty %}<p>Sin operaciones de sincronización registradas.</p>{% endfor %}
+      </div>
       {% if cliente.notas %}<p>{{ cliente.notas }}</p>{% endif %}
     </div>
 
@@ -239,7 +252,7 @@
         {% for punto in puntos_venta %}
           <div class="notification-item">
             <strong>{{ punto.nombre }}</strong>
-            <span>{% if punto.activo %}Activo{% else %}Inactivo{% endif %} · {{ punto.ciudad|default:'Sin ciudad' }}</span>
+            <span>{% if punto.activo %}Activo{% else %}Inactivo{% endif %}{% if punto.es_principal %} · Principal{% endif %} · {{ punto.ciudad|default:'Sin ciudad' }}</span>
             <span>{{ punto.direccion|default:'Sin dirección' }} · {{ punto.contacto|default:'Sin contacto' }}</span>
             <span>{{ punto.telefono|default:punto.email|default:'Sin teléfono o correo' }}</span>
             <div class="table-actions">

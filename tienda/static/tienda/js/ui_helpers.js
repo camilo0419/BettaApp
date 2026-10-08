@@ -117,8 +117,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function relatedKind(select) {
     const name = select.name || select.id.replace(/^id_/, "");
-    if (["contacto", "proyecto", "solicitud"].includes(name)) {
-      return name;
+    if (["contacto", "proyecto", "solicitud", "punto_venta", "puntos_venta"].includes(name)) {
+      return name === "puntos_venta" ? "punto_venta" : name;
     }
     return "";
   }
@@ -141,6 +141,9 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     if (kind === "proyecto") {
       return `/panel/ajax/clientes/${encodeURIComponent(clientId)}/proyectos/`;
+    }
+    if (kind === "punto_venta") {
+      return `/panel/ajax/clientes/${encodeURIComponent(clientId)}/puntos-venta/`;
     }
     if (kind === "solicitud") {
       return `/panel/ajax/clientes/${encodeURIComponent(clientId)}/solicitudes/`;
@@ -403,6 +406,15 @@ document.addEventListener("DOMContentLoaded", function () {
   initPanelSidebar();
   refreshTableHints();
   window.addEventListener("resize", refreshTableHints);
+
+  document.querySelectorAll("[data-loading-form]").forEach(function (form) {
+    form.addEventListener("submit", function () {
+      const button = form.querySelector("[data-loading-button]");
+      if (!button) return;
+      button.disabled = true;
+      button.textContent = "Consultando…";
+    });
+  });
 
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape") {

@@ -1,0 +1,3 @@
+{% extends 'tienda/panel/base_panel.html' %}
+{% block title %}{{ titulo }} | Betta{% endblock %}
+{% block content %}<div class="panel-head"><div><span class="eyebrow">Ventas</span><h1>{{ titulo }}</h1></div><a class="btn btn-outline" href="{% url 'panel_ventas' %}">Volver</a></div><div class="panel-card"><form method="post" class="dynamic-form">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Crear venta</button></form></div>{% endblock %}

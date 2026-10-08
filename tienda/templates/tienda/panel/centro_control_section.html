@@ -1,0 +1,7 @@
+<div class="panel-card">
+  <div class="panel-card-head"><h2>{{ title }}</h2></div>
+  <div class="table-responsive"><table class="table"><thead><tr><th>{{ label }}</th><th>Detalle</th><th>Acci&oacute;n</th></tr></thead><tbody>
+    {% for row in items %}<tr><td>{{ row.label }}</td><td>{{ row.detail }}</td><td><a class="link-button" href="{{ row.url }}">Abrir</a></td></tr>
+    {% empty %}<tr><td colspan="3">{{ empty }}</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>

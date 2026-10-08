@@ -1,0 +1,53 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}Cambios de Alegra · {{ cliente }}{% endblock %}
+
+{% block content %}
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">Integración Alegra</span>
+    <h1>Cambios del contacto externo</h1>
+    <p class="muted">Cliente BettaApp: {{ cliente.nombre_mostrado }} · ID Alegra: {{ alegra_map.external_id }}</p>
+  </div>
+  <div class="head-actions">
+    <a href="{% url 'panel_cliente_detalle' cliente.id %}" class="btn btn-outline">Volver al cliente</a>
+  </div>
+</div>
+
+<div class="panel-card">
+  <div class="info-box">
+    <strong>{% if review.state == 'pending' %}Hay cambios externos revisables{% elif review.state == 'conflict' %}Revisión bloqueada por conflicto{% else %}No hay cambios externos aplicables{% endif %}</strong>
+    <p>{{ review.reason }}</p>
+    <p>La consulta fue de solo lectura. Los campos tributarios nunca se aplican automáticamente.</p>
+  </div>
+
+  {% if review.changes %}
+  <form method="post" action="{% url 'panel_cliente_alegra_aplicar_cambios' cliente.id %}">
+    {% csrf_token %}
+    <input type="hidden" name="review_token" value="{{ review_token }}">
+    <div class="table-responsive">
+      <table class="table products-table">
+        <thead>
+          <tr><th>Campo</th><th>Baseline</th><th>Valor Alegra</th><th>Valor local</th><th>Resultado</th><th>Aplicar</th></tr>
+        </thead>
+        <tbody>
+          {% for change in review.changes %}
+          <tr>
+            <td><strong>{{ change.field }}</strong></td>
+            <td>{{ change.previous|default:'-' }}</td>
+            <td>{{ change.external|default:'-' }}</td>
+            <td>{{ change.local|default:'-' }}</td>
+            <td>{% if change.protected %}<span class="state-badge state-error">Revisión manual</span>{% elif change.field in review.remote_fields %}<span class="state-badge state-pending">Aplicable</span>{% elif change.field in review.local_fields %}<span class="state-badge">Conservar local</span>{% else %}<span class="state-badge">Conflicto</span>{% endif %}</td>
+            <td>{% if not change.protected and change.field in review.remote_fields %}<input type="checkbox" name="approved_fields" value="{{ change.field }}" checked aria-label="Aplicar {{ change.field }}">{% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if review.state == 'pending' %}<button class="btn btn-primary" type="submit">Aplicar cambios de Alegra</button>{% endif %}
+  </form>
+  {% else %}
+    <p>No se detectaron cambios externos aplicables.</p>
+  {% endif %}
+</div>
+{% endblock %}

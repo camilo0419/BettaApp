@@ -1,0 +1,11 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}Historial Alegra | Integraciones{% endblock %}
+
+{% block content %}
+<div class="panel-head"><div><span class="eyebrow">Alegra</span><h1>Historial de operaciones</h1></div><a href="{% url 'alegra_integraciones' %}" class="btn btn-outline">Volver</a></div>
+<div class="panel-card table-responsive"><table class="table"><thead><tr><th>Fecha</th><th>Operación</th><th>Recurso</th><th>Resultado</th><th>Responsable</th><th>Detalle</th></tr></thead><tbody>
+{% for log in page_obj %}<tr><td>{{ log.created_at }}</td><td>{{ log.operation }}</td><td>{{ log.resource }}{% if log.external_id %} / {{ log.external_id }}{% endif %}</td><td>{{ log.get_result_display }}</td><td>{{ log.actor|default:'sistema' }}</td><td>{{ log.detail }}</td></tr>{% empty %}<tr><td colspan="6">No hay operaciones registradas.</td></tr>{% endfor %}
+</tbody></table></div>
+{% if page_obj.has_other_pages %}<div class="panel-card"><div class="table-actions">{% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">Anterior</a>{% endif %}<span>Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">Siguiente</a>{% endif %}</div></div>{% endif %}
+{% endblock %}

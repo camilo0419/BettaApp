@@ -1,0 +1,30 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}Alegra | Integraciones{% endblock %}
+
+{% block content %}
+<div class="panel-head">
+  <div><span class="eyebrow">Administración · Integraciones</span><h1>Alegra</h1></div>
+  <a href="{% url 'alegra_catalogo' %}" class="btn btn-primary">Ver catálogo externo</a>
+  <a href="{% url 'alegra_contactos_catalogo' %}" class="btn btn-outline">Ver clientes externos</a>
+</div>
+
+<div class="panel-card">
+  <div class="panel-head">
+    <div><h2>Consulta de productos</h2><p>La consulta es de solo lectura. Los productos importados permanecen inactivos.</p></div>
+    <form method="post" action="{% url 'alegra_sync_items' %}">
+      {% csrf_token %}
+      <label>Máximo de registros <input type="number" name="limit" min="1" max="300" value="100"></label>
+      <button class="btn btn-primary" type="submit">Consultar Alegra</button>
+    </form>
+  </div>
+  <p><strong>Estado de conexión:</strong> {{ connection_status }}{% if system %} · sistema {{ system.get_status_display|lower }}{% endif %}</p>
+  <p><strong>Última consulta:</strong> {{ last_sync|default:'—' }} · <a href="{% url 'alegra_historial' %}">Ver historial</a></p>
+</div>
+
+<div class="dashboard-kpis">
+  {% for label, value in metrics.items %}<div class="kpi"><span>{{ label|title }}</span><strong>{{ value }}</strong></div>{% endfor %}
+</div>
+
+{% if last_audit %}<div class="panel-card"><strong>Último resultado:</strong> {{ last_audit.get_result_display }} · {{ last_audit.detail }}</div>{% endif %}
+{% endblock %}

@@ -35,6 +35,7 @@
         <dt>Email</dt><dd>{{ solicitud.cliente_email|default:'-' }}</dd>
         <dt>Cliente asociado</dt><dd>{% if solicitud.cliente %}<a href="{% url 'panel_cliente_detalle' solicitud.cliente.id %}">{{ solicitud.cliente }}</a>{% else %}-{% endif %}</dd>
         <dt>Contacto asociado</dt><dd>{{ solicitud.contacto.nombre|default:'-' }}</dd>
+        <dt>Punto de venta</dt><dd>{{ solicitud.punto_venta.nombre|default:'-' }}</dd>
         <dt>Producto</dt><dd>{{ solicitud.producto.nombre }}</dd>
         <dt>Categoría</dt><dd>{{ solicitud.producto.categoria }}</dd>
         <dt>Proyecto</dt><dd>{% if solicitud.proyecto %}<a href="{% url 'panel_proyecto_detalle' solicitud.proyecto.id %}">{{ solicitud.proyecto.nombre }}</a>{% else %}-{% endif %}</dd>

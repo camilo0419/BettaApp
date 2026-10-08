@@ -8,6 +8,7 @@
     {% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
     <div class="form-grid two">
       {% for field in form %}
+        {% if field.name != 'unspsc' and field.name != 'asignar_unspsc' %}
         {% if field.name == 'categoria' %}
           <div class="field">
             {{ field.label_tag }}
@@ -33,10 +34,28 @@
             {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
           </div>
         {% endif %}
+        {% endif %}
       {% endfor %}
     </div>
+    <section class="panel-card" data-unspsc-picker>
+      <h2>Clasificación UNSPSC</h2>
+      <p class="muted">Opcional. Selecciona únicamente códigos del catálogo oficial cargado localmente.</p>
+      <div class="field">
+        {{ form.asignar_unspsc }} {{ form.asignar_unspsc.label_tag }}
+        {% if form.asignar_unspsc.help_text %}<small>{{ form.asignar_unspsc.help_text }}</small>{% endif %}
+        {{ form.unspsc }}{{ form.unspsc.errors }}
+      </div>
+      <div class="unspsc-selection" data-unspsc-selection><strong data-unspsc-selected>{% if producto and producto.unspsc %}{{ producto.unspsc.code }} · {{ producto.unspsc.description }}{% else %}Sin clasificación seleccionada{% endif %}</strong></div>
+      <div class="field">
+        <label for="unspsc-search">Buscar por código o descripción</label>
+        <input id="unspsc-search" type="search" data-unspsc-search placeholder="Ej. impresión, 4321..." autocomplete="off" {% if not form.asignar_unspsc.value %}disabled{% endif %}>
+        <div class="unspsc-results" data-unspsc-results aria-live="polite"></div>
+      </div>
+      {% if producto and producto.unspsc %}<button type="submit" form="unspsc-remove-form" class="btn btn-outline">Quitar clasificación UNSPSC</button>{% endif %}
+    </section>
     <button class="btn btn-primary">Guardar producto</button>
   </form>
+  {% if producto and producto.unspsc %}<form id="unspsc-remove-form" method="post" action="{% url 'panel_producto_unspsc_quitar' producto.id %}">{% csrf_token %}</form>{% endif %}
 </div>
 
 {% if not producto %}
@@ -188,6 +207,52 @@ document.addEventListener("DOMContentLoaded", function () {
       }, 0);
     }
   });
+
+  const unspscPicker = document.querySelector("[data-unspsc-picker]");
+  if (unspscPicker) {
+    const checkbox = document.getElementById("id_asignar_unspsc");
+    const hidden = document.getElementById("id_unspsc");
+    const searchInput = document.querySelector("[data-unspsc-search]");
+    const results = document.querySelector("[data-unspsc-results]");
+    const selected = document.querySelector("[data-unspsc-selected]");
+    let timer;
+    function renderUnspsc(items) {
+      results.replaceChildren();
+      if (!items.length) { results.textContent = "No se encontraron códigos oficiales."; return; }
+      items.forEach(function (item) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "unspsc-result";
+        button.innerHTML = "<strong></strong><span></span><small></small>";
+        button.querySelector("strong").textContent = item.code;
+        button.querySelector("span").textContent = " · " + item.description;
+        button.querySelector("small").textContent = item.level + (item.parent ? " · padre " + item.parent : "") + " · " + item.version;
+        button.addEventListener("click", function () {
+          hidden.value = item.id;
+          checkbox.checked = true;
+          searchInput.disabled = false;
+          selected.textContent = item.code + " · " + item.description;
+          results.replaceChildren();
+        });
+        results.appendChild(button);
+      });
+    }
+    checkbox?.addEventListener("change", function () {
+      searchInput.disabled = !checkbox.checked;
+      if (!checkbox.checked) results.replaceChildren();
+    });
+    searchInput?.addEventListener("input", function () {
+      clearTimeout(timer);
+      const query = searchInput.value.trim();
+      if (query.length < 2) { results.replaceChildren(); return; }
+      timer = setTimeout(async function () {
+        try {
+          const response = await fetch("{% url 'panel_producto_unspsc_buscar' %}?q=" + encodeURIComponent(query), {headers: {"X-Requested-With": "XMLHttpRequest"}});
+          renderUnspsc((await response.json()).results || []);
+        } catch (error) { results.textContent = "No fue posible consultar el catálogo UNSPSC."; }
+      }, 250);
+    });
+  }
 });
 </script>
 {% endblock %}

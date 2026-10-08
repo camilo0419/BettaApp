@@ -9,7 +9,10 @@
     <h1>Productos</h1>
   </div>
 
-  <a href="{% url 'panel_producto_crear' %}" class="btn btn-primary">Crear producto</a>
+  <div class="panel-head-actions">
+    <a href="{% url 'panel_unspsc_catalogo' %}" class="btn btn-outline">Catálogo UNSPSC</a>
+    <a href="{% url 'panel_producto_crear' %}" class="btn btn-primary">Crear producto</a>
+  </div>
 </div>
 
 <div class="panel-card filter-card">
@@ -61,6 +64,7 @@
         <tr>
           <th>Orden</th>
           <th>Producto</th>
+          <th>UNSPSC</th>
           <th>Categoría</th>
           <th>Cálculo</th>
           <th>Campos</th>
@@ -79,6 +83,8 @@
             <strong>{{ p.nombre }}</strong><br>
             <small>/productos/{{ p.slug }}/</small>
           </td>
+
+          <td>{% if p.unspsc %}{{ p.unspsc.code }}{% else %}<span class="muted">Pendiente</span>{% endif %}</td>
 
           <td>{{ p.categoria }}</td>
           <td>{{ p.get_tipo_calculo_display }}</td>
@@ -103,7 +109,7 @@
         </tr>
         {% empty %}
         <tr>
-          <td colspan="8">No hay productos.</td>
+          <td colspan="9">No hay productos.</td>
         </tr>
         {% endfor %}
       </tbody>

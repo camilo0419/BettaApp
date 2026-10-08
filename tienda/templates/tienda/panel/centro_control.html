@@ -1,0 +1,65 @@
+{% extends 'tienda/panel/base_panel.html' %}
+{% block title %}Centro de control | Betta Dise&ntilde;o{% endblock %}
+{% block content %}
+<div class="panel-head">
+  <div>
+    <span class="eyebrow">Seguimiento operativo</span>
+    <h1>Centro de control</h1>
+    <p class="muted">Pendientes verificables de BettaApp y advertencias sobre datos externos incompletos.</p>
+  </div>
+  <form method="post" action="{% url 'panel_centro_control_actualizar_alertas' %}" data-loading-form>
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary" data-loading-button>Actualizar alertas</button>
+  </form>
+</div>
+
+{% if control.warnings %}
+  {% for warning in control.warnings %}<div class="message warning">{{ warning }}</div>{% endfor %}
+{% endif %}
+
+<div class="kpi-grid">
+  <a class="kpi" href="{% url 'panel_solicitudes' %}"><span>Solicitudes pendientes</span><strong>{{ control.summary.requests }}</strong></a>
+  <a class="kpi" href="{% url 'panel_cotizaciones' %}"><span>Cotizaciones por responder</span><strong>{{ control.summary.quotes_pending }}</strong></a>
+  <a class="kpi" href="{% url 'panel_ventas' %}"><span>Ventas pendientes</span><strong>{{ control.summary.sales_pending }}</strong></a>
+  <a class="kpi" href="{% url 'panel_cartera' %}"><span>Facturas vencidas</span><strong>{{ control.summary.overdue_invoices }}</strong></a>
+</div>
+
+{% include 'tienda/panel/centro_control_section.html' with title='Comercial' items=control.commercial.solicitudes_pendientes label='Solicitudes pendientes' empty='No hay solicitudes pendientes.' %}
+{% include 'tienda/panel/centro_control_section.html' with title='Comercial · cotizaciones' items=control.commercial.cotizaciones_pendientes label='Por responder' empty='No hay cotizaciones pendientes.' %}
+{% include 'tienda/panel/centro_control_section.html' with title='Comercial · aprobadas' items=control.commercial.cotizaciones_aprobadas_sin_venta label='Aprobadas sin venta' empty='No hay cotizaciones aprobadas sin venta.' %}
+
+<div class="panel-card">
+  <div class="panel-card-head"><h2>Operaci&oacute;n</h2><a href="{% url 'produccion_dashboard' %}">Abrir producci&oacute;n</a></div>
+  <div class="ops-card-grid">
+    <a class="ops-card" href="{% url 'panel_solicitudes' %}"><span>&Oacute;rdenes pendientes</span><strong>{{ control.summary.orders_pending }}</strong></a>
+    <a class="ops-card" href="{% url 'produccion_dashboard' %}"><span>Procesos atrasados</span><strong>{{ control.summary.processes_overdue }}</strong></a>
+    <a class="ops-card" href="{% url 'panel_solicitudes' %}"><span>Entregas pendientes</span><strong>{{ control.summary.deliveries_pending }}</strong></a>
+  </div>
+  <div class="table-responsive"><table class="table"><thead><tr><th>Tarea atrasada</th><th>Fecha l&iacute;mite</th><th>Acci&oacute;n</th></tr></thead><tbody>
+    {% for row in control.tasks.overdue %}<tr><td>{{ row.label }}</td><td>{{ row.detail|date:'d/m/Y' }}</td><td><a class="link-button" href="{{ row.url }}">Abrir</a></td></tr>
+    {% empty %}<tr><td colspan="3">No hay tareas atrasadas para este usuario.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+
+<div class="panel-card">
+  <div class="panel-card-head"><h2>Cartera</h2><a href="{% url 'panel_cartera' %}">Abrir cartera</a></div>
+  <p class="muted">Saldo conocido: {{ control.financial.summary.known_balance|floatformat:2 }} · &Uacute;ltima sincronizaci&oacute;n: {% if control.financial.latest_sync %}{{ control.financial.latest_sync|date:'d/m/Y H:i' }}{% else %}sin datos{% endif %}</p>
+  <div class="ops-card-grid">
+    <a class="ops-card" href="{% url 'panel_cartera' %}"><span>Vencidas</span><strong>{{ control.summary.overdue_invoices }}</strong></a>
+    <a class="ops-card" href="{% url 'panel_cartera' %}"><span>Compromisos pr&oacute;ximos</span><strong>{{ control.summary.commitments }}</strong></a>
+    <a class="ops-card" href="{% url 'panel_cartera' %}"><span>Gestiones pendientes</span><strong>{{ control.summary.gestions }}</strong></a>
+  </div>
+  <div class="table-responsive"><table class="table"><thead><tr><th>Factura</th><th>Cliente</th><th>Saldo</th><th>D&iacute;as</th></tr></thead><tbody>
+    {% for row in control.collection.invoices_overdue %}<tr><td><a href="{{ row.url }}">{{ row.label }}</a></td><td>{{ row.detail }}</td><td>{{ row.balance|floatformat:2 }}</td><td>{{ row.days }}</td></tr>
+    {% empty %}<tr><td colspan="4">No hay facturas vencidas con saldo conocido.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+
+<div class="panel-card">
+  <div class="panel-card-head"><h2>Mis tareas</h2><a href="{% url 'produccion_dashboard' %}">Gestionar tareas</a></div>
+  <div class="table-responsive"><table class="table"><thead><tr><th>Tarea</th><th>Estado</th><th>Acci&oacute;n</th></tr></thead><tbody>
+    {% for row in control.tasks.mine %}<tr><td>{{ row.label }}</td><td>{{ row.detail }}</td><td><a class="link-button" href="{{ row.url }}">Abrir</a></td></tr>
+    {% empty %}<tr><td colspan="3">No tienes tareas activas asignadas.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endblock %}

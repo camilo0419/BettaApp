@@ -32,6 +32,7 @@
       <dl class="detail-list">
         <dt>Cliente</dt><dd><a href="{% url 'panel_cliente_detalle' cotizacion.cliente.id %}">{{ cotizacion.cliente }}</a></dd>
         <dt>Contacto</dt><dd>{{ cotizacion.contacto|default:'-' }}</dd>
+        <dt>Punto de venta</dt><dd>{{ cotizacion.punto_venta|default:'-' }}</dd>
         <dt>Proyecto</dt><dd>{% if cotizacion.proyecto %}<a href="{% url 'panel_proyecto_detalle' cotizacion.proyecto.id %}">{{ cotizacion.proyecto.nombre }}</a>{% else %}-{% endif %}</dd>
         <dt>Solicitud</dt><dd>{% if cotizacion.solicitud %}<a href="{% url 'panel_solicitud_detalle' cotizacion.solicitud.id %}">OP-{{ cotizacion.solicitud.id|stringformat:"06d" }}</a>{% else %}-{% endif %}</dd>
         <dt>Estado</dt><dd>{{ cotizacion.get_estado_display }}</dd>
