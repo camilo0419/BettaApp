@@ -7,7 +7,7 @@ import unicodedata
 from urllib.parse import quote
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import REDIRECT_FIELD_NAME, login, logout
+from django.contrib.auth import REDIRECT_FIELD_NAME, get_user_model, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.views import (
@@ -17,15 +17,16 @@ from django.contrib.auth.views import (
     PasswordResetView,
 )
 from django.core import signing
+from django.core.paginator import Paginator
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import BooleanField, Case, Count, IntegerField, Max, Prefetch, Q, Value, When
+from django.db.models import BooleanField, Case, Count, IntegerField, Max, Prefetch, Q, Sum, Value, When
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from .forms import (
     CategoriaForm,
@@ -59,6 +60,12 @@ from .forms import (
     SolicitudNovedadForm,
     SolicitudProyectoForm,
     SolicitudTareaForm,
+    VentaForm,
+    VentaItemForm,
+    CarteraGestionForm,
+    CompromisoPagoForm,
+    CarteraResponsableForm,
+    UNSPSCImportJobForm,
 )
 from .models import (
     Categoria,
@@ -67,6 +74,7 @@ from .models import (
     CampoOpcion,
     EmpleadoPerfil,
     Cliente,
+    AlegraWriteOperation,
     ClienteContacto,
     ClientePuntoVenta,
     ClienteUsuario,
@@ -75,6 +83,8 @@ from .models import (
     Notificacion,
     NotificacionCliente,
     Producto,
+    UNSPSCCode,
+    UNSPSCImportJob,
     ProductoCampo,
     ProductoImagen,
     Proyecto,
@@ -83,9 +93,34 @@ from .models import (
     SolicitudNovedad,
     SolicitudRespuesta,
     SolicitudTarea,
+    AlegraItemStaging,
+    AlegraContactStaging,
+    ExternalObjectMap,
+    ExternalSystem,
+    SyncAuditLog,
+    Venta,
+    VentaItem,
+    AlegraInvoiceStaging,
+    VentaFacturaAlegra,
+    AlegraPaymentStaging,
+    CarteraGestion,
+    CompromisoPago,
+    CarteraResponsable,
 )
 from .services.cotizacion_pdf import generar_pdf_cotizacion, nombre_archivo_cotizacion
 from .services.email_service import enviar_confirmacion_registro_cliente, enviar_confirmacion_solicitud, enviar_correo_cliente, enviar_notificacion_cliente, logo_email_url, remitente_betta
+from .services.alegra_import import AlegraItemImporter, AlegraItemReconciler
+from .services.alegra_contact_import import AlegraContactImporter, AlegraContactReconciler
+from .services.alegra_invoice_import import AlegraInvoiceImporter
+from .services.alegra_payment_import import AlegraPaymentImporter
+from .services.cartera import cartera_rows, cartera_summary, facturacion_summary, invoice_cartera_row, STATUS_OVERDUE, STATUS_PAID, STATUS_PARTIAL, STATUS_PENDING, STATUS_INSUFFICIENT, AGING_BUCKETS
+from .services.centro_control import centro_control_snapshot, refresh_control_alerts
+from .services.integrity import link_invoice_to_sale
+from .services.sync_freshness import financial_freshness, source_freshness
+from .services.alegra_write import AlegraContactWriteService, AlegraError, AlegraWriteClient
+from .services.alegra_inbound_sync import InboundClientSyncService, InboundSyncConflict
+from .services.alegra_operation_queue import enqueue_create
+from .services.unspsc import recommend_unspsc, unspsc_result
 
 COTIZACION_TOKEN_SALT = "tienda.cotizacion_exito"
 logger = logging.getLogger(__name__)
@@ -130,6 +165,56 @@ def panel_staff_required(view_func):
             raise PermissionDenied
         return view_func(request, *args, **kwargs)
 
+    return wrapper
+
+
+def alegra_staff_required(view_func):
+    @login_required(login_url="panel_login")
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_active or not request.user.is_staff:
+            raise PermissionDenied
+        if not request.user.is_superuser and not request.user.has_perm("tienda.view_alegraitemstaging"):
+            raise PermissionDenied
+        return view_func(request, *args, **kwargs)
+
+    return wrapper
+
+
+def alegra_change_required(view_func):
+    @login_required(login_url="panel_login")
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_active or not request.user.is_staff:
+            raise PermissionDenied
+        if not request.user.is_superuser and not request.user.has_perm("tienda.change_alegraitemstaging"):
+            raise PermissionDenied
+        return view_func(request, *args, **kwargs)
+
+    return wrapper
+
+
+def alegra_contact_staff_required(view_func):
+    @login_required(login_url="panel_login")
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_active or not request.user.is_staff:
+            raise PermissionDenied
+        if not request.user.is_superuser and not request.user.has_perm("tienda.view_alegracontactstaging"):
+            raise PermissionDenied
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+def alegra_contact_change_required(view_func):
+    @login_required(login_url="panel_login")
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_active or not request.user.is_staff:
+            raise PermissionDenied
+        if not request.user.is_superuser and not request.user.has_perm("tienda.change_alegracontactstaging"):
+            raise PermissionDenied
+        return view_func(request, *args, **kwargs)
     return wrapper
 
 
@@ -1327,6 +1412,28 @@ def panel_dashboard(request):
 
 
 @panel_staff_required
+def centro_control(request):
+    """Consolidado operativo sin sustituir los paneles especializados."""
+    control = centro_control_snapshot(request.user)
+    return render(
+        request,
+        "tienda/panel/centro_control.html",
+        {
+            "active": "panel_centro_control",
+            "control": control,
+        },
+    )
+
+
+@panel_staff_required
+@require_POST
+def centro_control_actualizar_alertas(request):
+    result = refresh_control_alerts(request.user)
+    messages.success(request, f"Alertas actualizadas: {result['created']} nuevas.")
+    return redirect("panel_centro_control")
+
+
+@panel_staff_required
 def solicitudes_lista(request):
     q = request.GET.get("q", "").strip()
     estado = request.GET.get("estado", "").strip()
@@ -1458,6 +1565,15 @@ def proyecto_option(proyecto):
     }
 
 
+def punto_venta_option(punto_venta):
+    return {
+        "id": punto_venta.id,
+        "label": f"{punto_venta.nombre} · {punto_venta.ciudad or 'Sin ciudad'}",
+        "client_id": punto_venta.cliente_id,
+        "is_principal": punto_venta.es_principal,
+    }
+
+
 def solicitud_option(solicitud):
     producto = solicitud.producto.nombre if solicitud.producto_id else "Solicitud"
     proyecto = f" · {solicitud.proyecto.nombre}" if solicitud.proyecto_id else ""
@@ -1485,6 +1601,12 @@ def panel_ajax_cliente_proyectos(request, cliente_id):
         cliente_id=cliente_id,
     ).select_related("cliente").order_by("-fecha_creacion", "nombre")
     return JsonResponse({"results": [proyecto_option(proyecto) for proyecto in proyectos]})
+
+
+@panel_staff_required
+def panel_ajax_cliente_puntos_venta(request, cliente_id):
+    puntos = ClientePuntoVenta.objects.filter(activo=True, cliente_id=cliente_id).select_related("cliente").order_by("-es_principal", "nombre")
+    return JsonResponse({"results": [punto_venta_option(punto) for punto in puntos]})
 
 
 @panel_staff_required
@@ -1793,25 +1915,293 @@ def cotizacion_enviar(request, cotizacion_id):
 @panel_staff_required
 @require_POST
 def cotizacion_convertir(request, cotizacion_id):
-    cotizacion = get_object_or_404(Cotizacion.objects.select_related("solicitud"), pk=cotizacion_id)
-    if cotizacion.estado != Cotizacion.ESTADO_APROBADA:
-        messages.error(request, "Solo una cotización aprobada puede convertirse.")
-        return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
-    cotizacion.estado = Cotizacion.ESTADO_CONVERTIDA
-    cotizacion.actualizada_por = request.user
-    cotizacion.save()
-    if cotizacion.solicitud_id:
-        cotizacion.solicitud.precio_final = cotizacion.total
-        cotizacion.solicitud.estado = Solicitud.ESTADO_COTIZADA
-        cotizacion.solicitud.save(update_fields=["precio_final", "estado", "actualizado"])
-        crear_novedad(
-            cotizacion.solicitud,
-            request.user,
-            SolicitudNovedad.TIPO_SISTEMA,
-            f"Cotización {cotizacion.numero} convertida y asociada como base comercial.",
-        )
-    messages.success(request, "Cotización marcada como convertida.")
+    with transaction.atomic():
+        cotizacion = get_object_or_404(Cotizacion.objects.select_for_update().select_related("solicitud"), pk=cotizacion_id)
+        if cotizacion.estado not in {Cotizacion.ESTADO_APROBADA, Cotizacion.ESTADO_CONVERTIDA}:
+            messages.error(request, "Solo una cotización aprobada puede convertirse.")
+            return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
+        venta = Venta.objects.filter(cotizacion=cotizacion).first()
+        if not venta:
+            items = list(cotizacion.items.filter(activo=True).select_related("producto"))
+            if not items:
+                messages.error(request, "La cotización debe tener al menos un ítem activo.")
+                return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
+            venta = Venta.objects.create(
+                cliente=cotizacion.cliente,
+                punto_venta=cotizacion.punto_venta,
+                proyecto=cotizacion.proyecto,
+                cotizacion=cotizacion,
+                solicitud=cotizacion.solicitud,
+                fecha_venta=timezone.localdate(),
+                responsable=request.user,
+                creado_por=request.user,
+                actualizado_por=request.user,
+                estado=Venta.ESTADO_CONFIRMADA,
+                observaciones=cotizacion.condiciones_comerciales,
+            )
+            for item in items:
+                VentaItem.objects.create(
+                    venta=venta,
+                    producto=item.producto,
+                    descripcion=item.descripcion,
+                    cantidad=item.cantidad,
+                    unidad=item.unidad,
+                    precio_unitario=item.valor_unitario,
+                    descuento=item.descuento_calculado,
+                    impuesto=item.impuesto_calculado,
+                    orden=item.orden,
+                    activo=item.activo,
+                )
+            venta.recalcular_totales()
+        cotizacion.estado = Cotizacion.ESTADO_CONVERTIDA
+        cotizacion.actualizada_por = request.user
+        cotizacion.save()
+        if cotizacion.solicitud_id:
+            cotizacion.solicitud.precio_final = cotizacion.total
+            cotizacion.solicitud.estado = Solicitud.ESTADO_COTIZADA
+            cotizacion.solicitud.save(update_fields=["precio_final", "estado", "actualizado"])
+            crear_novedad(cotizacion.solicitud, request.user, SolicitudNovedad.TIPO_SISTEMA, f"Cotización {cotizacion.numero} convertida a venta {venta.numero}.")
+    messages.success(request, f"Venta {venta.numero} confirmada desde la cotización.")
     return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
+
+
+@panel_staff_required
+def ventas_lista(request):
+    ventas = Venta.objects.select_related("cliente", "punto_venta", "proyecto", "responsable").prefetch_related("facturas_alegra__factura")
+    query = request.GET.get("q", "").strip()
+    estado = request.GET.get("estado", "").strip()
+    cliente_id = request.GET.get("cliente", "").strip()
+    if query:
+        ventas = ventas.filter(Q(numero__icontains=query) | Q(cliente__nombre__icontains=query) | Q(cliente__razon_social__icontains=query))
+    if estado in {key for key, _label in Venta.ESTADOS}:
+        ventas = ventas.filter(estado=estado)
+    if cliente_id.isdigit():
+        ventas = ventas.filter(cliente_id=cliente_id)
+    page = Paginator(ventas, 25).get_page(request.GET.get("page"))
+    return render(request, "tienda/panel/ventas.html", {"page_obj": page, "query": query, "estado": estado, "cliente_id": cliente_id, "estados": Venta.ESTADOS, "clientes": Cliente.objects.filter(activo=True).order_by("nombre")})
+
+
+@panel_staff_required
+def venta_crear(request):
+    form = VentaForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        with transaction.atomic():
+            venta = form.save(commit=False)
+            venta.creado_por = request.user
+            venta.actualizado_por = request.user
+            venta.responsable = request.user
+            venta.save()
+        messages.success(request, f"Venta {venta.numero} creada como borrador.")
+        return redirect("panel_venta_detalle", venta_id=venta.id)
+    return render(request, "tienda/panel/venta_form.html", {"form": form, "titulo": "Nueva venta"})
+
+
+@panel_staff_required
+def venta_detalle(request, venta_id):
+    venta = get_object_or_404(Venta.objects.select_related("cliente", "punto_venta", "proyecto", "cotizacion", "solicitud", "responsable", "creado_por").prefetch_related("items__producto", "facturas_alegra__factura"), pk=venta_id)
+    return render(request, "tienda/panel/venta_detalle.html", {"venta": venta, "item_form": VentaItemForm(venta=venta), "estados": Venta.ESTADOS})
+
+
+@panel_staff_required
+def venta_item_crear(request, venta_id):
+    venta = get_object_or_404(Venta, pk=venta_id)
+    form = VentaItemForm(request.POST or None, venta=venta)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        venta.actualizado_por = request.user
+        venta.save(update_fields=["actualizado_por", "actualizado"])
+        messages.success(request, "Ítem agregado a la venta.")
+        return redirect("panel_venta_detalle", venta_id=venta.id)
+    return render(request, "tienda/panel/venta_item_form.html", {"form": form, "venta": venta, "titulo": "Agregar ítem de venta"})
+
+
+@panel_staff_required
+@require_POST
+def venta_confirmar(request, venta_id):
+    venta = get_object_or_404(Venta, pk=venta_id)
+    if venta.estado == Venta.ESTADO_CANCELADA or not venta.items.filter(activo=True).exists():
+        messages.error(request, "La venta cancelada o sin ítems activos no puede confirmarse.")
+    else:
+        venta.estado = Venta.ESTADO_CONFIRMADA
+        venta.actualizado_por = request.user
+        venta.save(update_fields=["estado", "actualizado_por", "actualizado"])
+        messages.success(request, f"Venta {venta.numero} confirmada. Esto no implica facturación ni pago.")
+    return redirect("panel_venta_detalle", venta_id=venta.id)
+
+
+@panel_staff_required
+@require_POST
+def venta_cancelar(request, venta_id):
+    venta = get_object_or_404(Venta, pk=venta_id)
+    motivo = request.POST.get("motivo", "").strip()
+    if not motivo:
+        messages.error(request, "Debes indicar el motivo de cancelación.")
+    else:
+        venta.estado = Venta.ESTADO_CANCELADA
+        venta.cancelado_por = request.user
+        venta.actualizado_por = request.user
+        venta.motivo_cancelacion = motivo[:500]
+        venta.save(update_fields=["estado", "cancelado_por", "actualizado_por", "motivo_cancelacion", "actualizado"])
+        messages.success(request, "Venta cancelada localmente.")
+    return redirect("panel_venta_detalle", venta_id=venta.id)
+
+
+@panel_staff_required
+def ventas_informes(request):
+    ventas = Venta.objects.all()
+    facturas = AlegraInvoiceStaging.objects.all()
+    factura_summary = facturacion_summary(queryset=facturas)
+    freshness = source_freshness("invoices")
+    reportable_ids = factura_summary["reportable_ids"]
+    return render(request, "tienda/panel/ventas_informes.html", {
+        "ventas_confirmadas": ventas.filter(estado__in=[Venta.ESTADO_CONFIRMADA, Venta.ESTADO_PROCESO, Venta.ESTADO_COMPLETADA]).count(),
+        "valor_vendido": ventas.filter(estado__in=[Venta.ESTADO_CONFIRMADA, Venta.ESTADO_PROCESO, Venta.ESTADO_COMPLETADA]).aggregate(total=Sum("total"))["total"] or 0,
+        "facturas_count": factura_summary["reportable_count"],
+        "facturado": factura_summary["eligible_total"],
+        "facturas_fuera_indicadores": factura_summary["excluded_documents"],
+        "facturas_fuera_indicadores_count": len(factura_summary["excluded_documents"]),
+        "financial_freshness": freshness,
+        "financial_warning": freshness["warning"],
+        "financial_definitive": freshness["is_definitive"],
+        "ventas_vinculadas": ventas.filter(facturas_alegra__isnull=False).distinct().count(),
+        "ventas_sin_factura": ventas.filter(facturas_alegra__isnull=True).count(),
+        "facturas_sin_venta": facturas.filter(pk__in=reportable_ids, ventas_betta__isnull=True).count(),
+        "ultima_sincronizacion": facturas.order_by("-last_synced_at").values_list("last_synced_at", flat=True).first(),
+    })
+
+
+@panel_staff_required
+def cartera_dashboard(request):
+    invoices = AlegraInvoiceStaging.objects.select_related("matched_client").order_by("-issue_date", "-id")
+    query = request.GET.get("q", "").strip()
+    client_id = request.GET.get("cliente", "").strip()
+    state = request.GET.get("estado", "").strip()
+    aging = request.GET.get("antiguedad", "").strip()
+    if query:
+        invoices = invoices.filter(Q(number__icontains=query) | Q(client_name__icontains=query) | Q(client_identification__icontains=query))
+    if client_id.isdigit():
+        invoices = invoices.filter(matched_client_id=client_id)
+    rows = cartera_rows(queryset=invoices)
+    if state:
+        rows = [row for row in rows if (row["is_overdue"] if state == STATUS_OVERDUE else row["payment_status"] == state)]
+    if aging:
+        rows = [row for row in rows if row["aging"] == aging]
+    summary = cartera_summary(queryset=invoices, rows=[row for row in rows if row["included"]])
+    freshness = financial_freshness()
+    summary["overdue_percentage"] = (summary["overdue_balance"] / summary["known_balance"] * 100) if summary["known_balance"] else 0
+    return render(request, "tienda/panel/cartera.html", {"rows": rows, "summary": summary, "query": query, "client_id": client_id, "state": state, "aging": aging, "financial_freshness": freshness, "financial_warnings": freshness["warnings"], "financial_warning": " ".join(freshness["warnings"]), "financial_definitive": freshness["current"], "clientes": Cliente.objects.filter(activo=True).order_by("nombre"), "payments": AlegraPaymentStaging.objects.select_related("matched_client").order_by("-payment_date", "-id")[:20], "responsables": CarteraResponsable.objects.filter(activo=True).select_related("cliente", "responsable"), "status_choices": [(STATUS_PENDING, "Pendiente"), (STATUS_OVERDUE, "Vencida"), (STATUS_PARTIAL, "Parcialmente pagada"), (STATUS_PAID, "Pagada"), (STATUS_INSUFFICIENT, "Sin información")], "aging_choices": [("no_vencida", "No vencida"), ("1_30", "1–30 días"), ("31_60", "31–60 días"), ("61_90", "61–90 días"), ("mas_90", "Más de 90 días"), ("sin_informacion", "Sin información")]})
+
+
+@panel_staff_required
+def cartera_cliente_detalle(request, cliente_id):
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    invoices = AlegraInvoiceStaging.objects.filter(matched_client=cliente).select_related("matched_client")
+    summary = cartera_summary(queryset=invoices)
+    freshness = financial_freshness()
+    return render(request, "tienda/panel/cartera_cliente.html", {"cliente": cliente, "rows": summary["rows"], "summary": summary, "financial_freshness": freshness, "financial_warnings": freshness["warnings"], "financial_warning": " ".join(freshness["warnings"]), "financial_definitive": freshness["current"], "payments": AlegraPaymentStaging.objects.filter(matched_client=cliente).order_by("-payment_date", "-id"), "gestiones": cliente.gestiones_cartera.select_related("responsable", "factura"), "compromisos": cliente.compromisos_pago.select_related("responsable", "factura"), "asignacion": cliente.asignaciones_cartera.filter(activo=True).select_related("responsable").first(), "gestion_form": CarteraGestionForm(initial={"cliente": cliente}), "compromiso_form": CompromisoPagoForm(initial={"cliente": cliente}), "responsable_form": CarteraResponsableForm(initial={"cliente": cliente, "activo": True}), "responsable_users": get_user_model().objects.filter(is_active=True).order_by("username")})
+
+
+@panel_staff_required
+def cartera_gestion_crear(request, cliente_id):
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    form = CarteraGestionForm(request.POST or None, initial={"cliente": cliente})
+    if request.method == "POST" and form.is_valid():
+        gestion = form.save(commit=False)
+        gestion.creado_por = request.user
+        gestion.save()
+        messages.success(request, "Gestión de cobranza registrada.")
+    return redirect("panel_cartera_cliente", cliente_id=cliente.id)
+
+
+@panel_staff_required
+def cartera_compromiso_crear(request, cliente_id):
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    form = CompromisoPagoForm(request.POST or None, initial={"cliente": cliente})
+    if request.method == "POST" and form.is_valid():
+        compromiso = form.save(commit=False)
+        compromiso.creado_por = request.user
+        compromiso.save()
+        messages.success(request, "Compromiso de pago registrado. No modifica el saldo contable.")
+    return redirect("panel_cartera_cliente", cliente_id=cliente.id)
+
+
+@panel_staff_required
+@require_POST
+def cartera_asignar_responsable(request, cliente_id):
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    responsable_id = request.POST.get("responsable")
+    with transaction.atomic():
+        CarteraResponsable.objects.filter(cliente=cliente, activo=True).update(activo=False)
+        if responsable_id:
+            CarteraResponsable.objects.create(cliente=cliente, responsable_id=responsable_id, asignado_por=request.user)
+    messages.success(request, "Responsable de cartera actualizado.")
+    return redirect("panel_cartera_cliente", cliente_id=cliente.id)
+
+
+@alegra_change_required
+@require_POST
+def alegra_sync_payments(request):
+    try:
+        limit = max(1, min(int(request.POST.get("limit", "100")), 300))
+    except ValueError:
+        limit = 100
+    result = AlegraPaymentImporter().sync(limit=limit, actor=request.user)
+    if result["errors"]:
+        messages.error(request, f"No se pudo consultar pagos recibidos: {result['errors'][0]} Los registros anteriores se conservaron.")
+    else:
+        messages.success(request, f"Pagos de ingreso consultados: {result['total']}; nuevos: {result['created']}; actualizados: {result['updated']}.")
+    return redirect("panel_cartera")
+
+
+@alegra_staff_required
+def alegra_facturas_catalogo(request):
+    facturas = AlegraInvoiceStaging.objects.select_related("matched_client").order_by("-issue_date", "-id")
+    query = request.GET.get("q", "").strip()
+    estado = request.GET.get("estado", "").strip()
+    cliente_id = request.GET.get("cliente", "").strip()
+    if query:
+        facturas = facturas.filter(Q(number__icontains=query) | Q(client_name__icontains=query) | Q(client_identification__icontains=query))
+    if estado in {key for key, _label in AlegraInvoiceStaging.STATUSES}:
+        facturas = facturas.filter(external_status=estado)
+    if cliente_id.isdigit():
+        facturas = facturas.filter(matched_client_id=cliente_id)
+    page = Paginator(facturas, 25).get_page(request.GET.get("page"))
+    freshness = source_freshness("invoices")
+    return render(request, "tienda/panel/alegra_facturas.html", {"page_obj": page, "query": query, "estado": estado, "cliente_id": cliente_id, "estados": AlegraInvoiceStaging.STATUSES, "clientes": Cliente.objects.filter(activo=True).order_by("nombre"), "ultima_sincronizacion": AlegraInvoiceStaging.objects.order_by("-last_synced_at").values_list("last_synced_at", flat=True).first(), "financial_freshness": freshness, "financial_warning": freshness["warning"]})
+
+
+@alegra_change_required
+@require_POST
+def alegra_sync_invoices(request):
+    try:
+        limit = max(1, min(int(request.POST.get("limit", "100")), 300))
+    except ValueError:
+        limit = 100
+    result = AlegraInvoiceImporter().sync(limit=limit, actor=request.user)
+    if result["errors"]:
+        messages.error(request, f"No se pudo completar la consulta de facturas: {result['errors'][0]} Los registros anteriores se conservaron.")
+    else:
+        messages.success(request, f"Facturas consultadas: {result['total']}; nuevas: {result['created']}; actualizadas: {result['updated']}; cambios detectados: {result['changed']}.")
+    return redirect("alegra_facturas_catalogo")
+
+
+@alegra_staff_required
+def alegra_factura_detalle(request, staging_id):
+    factura = get_object_or_404(AlegraInvoiceStaging.objects.select_related("matched_client").prefetch_related("ventas_betta__venta"), pk=staging_id)
+    freshness = financial_freshness()
+    return render(request, "tienda/panel/alegra_factura_detalle.html", {"factura": factura, "cartera_row": invoice_cartera_row(factura), "financial_freshness": freshness, "financial_warnings": freshness["warnings"], "financial_warning": " ".join(freshness["warnings"]), "ventas": Venta.objects.order_by("-fecha_venta", "-id")[:200]})
+
+
+@alegra_change_required
+@require_POST
+def alegra_factura_vincular_venta(request, staging_id):
+    evidencia = request.POST.get("evidencia", "").strip()
+    try:
+        link_invoice_to_sale(staging_id, request.POST.get("venta_id"), evidence=evidencia, actor=request.user)
+        messages.success(request, "Factura vinculada manualmente a la venta.")
+    except (ValidationError, ValueError, Venta.DoesNotExist, AlegraInvoiceStaging.DoesNotExist) as exc:
+        messages.error(request, str(exc))
+    return redirect("alegra_factura_detalle", staging_id=staging_id)
 
 
 @panel_staff_required
@@ -1937,8 +2327,13 @@ def cliente_crear(request):
         cliente = form.save(commit=False)
         cliente.creado_por = request.user
         cliente.save()
+        # La disponibilidad de Alegra no bloquea el alta local. La cola solo
+        # registra una operación durable; nunca realiza HTTP desde el formulario.
+        enqueue_create(cliente, actor=request.user)
         messages.success(request, "Cliente creado.")
         return redirect("panel_cliente_detalle", cliente_id=cliente.id)
+    if request.method == "POST":
+        messages.error(request, "No se creó el cliente. Revisa los errores marcados en el formulario.")
     return render(request, "tienda/panel/cliente_form.html", {"form": form, "titulo": "Crear cliente"})
 
 
@@ -1951,6 +2346,106 @@ def cliente_editar(request, cliente_id):
         messages.success(request, "Cliente actualizado.")
         return redirect("panel_cliente_detalle", cliente_id=cliente.id)
     return render(request, "tienda/panel/cliente_form.html", {"form": form, "cliente": cliente, "titulo": "Editar cliente"})
+
+
+@panel_staff_required
+@require_POST
+def cliente_alegra_preparar(request, cliente_id):
+    """Valida y registra una operación local; nunca ejecuta un POST externo."""
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    system = ExternalSystem.objects.filter(code="alegra", status=ExternalSystem.STATUS_ACTIVE).first()
+    if not system:
+        messages.error(request, "Alegra no está configurado localmente.")
+        return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+    try:
+        transport = AlegraWriteClient()
+        candidates = transport.find_candidates(identification=cliente.identificacion, name=cliente.nombre)
+        if candidates:
+            messages.error(request, "La preparación fue bloqueada: Alegra devolvió candidatos que requieren revisión manual.")
+        else:
+            operation, _ = AlegraContactWriteService(transport=transport).prepare_create(cliente, system)
+            messages.success(request, f"Sincronización preparada localmente (operación {operation.pk}). No se escribió en Alegra.")
+    except (AlegraError, ValidationError) as exc:
+        messages.error(request, f"No se pudo preparar la sincronización: {exc}")
+    return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+
+
+@panel_staff_required
+@require_POST
+def cliente_alegra_preparar_actualizacion(request, cliente_id):
+    """Consulta Alegra y prepara un PUT local; nunca lo ejecuta."""
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    mapping = ExternalObjectMap.objects.filter(
+        resource_type="contacts", content_type__model="cliente", object_id=cliente.pk,
+        status=ExternalObjectMap.STATUS_ACTIVE,
+    ).select_related("system").first()
+    if not mapping:
+        messages.error(request, "No se puede preparar una actualización: el cliente no está vinculado con Alegra.")
+        return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+    try:
+        transport = AlegraWriteClient()
+        remote = transport.get_contact(mapping.external_id)
+        baseline = (mapping.metadata or {}).get("last_synced_fields")
+        if not isinstance(baseline, dict) or not baseline:
+            raise ValidationError("No existe una línea base confirmada para detectar conflictos; requiere conciliación inicial.")
+        operation, payload = AlegraContactWriteService(transport=transport).prepare_update(
+            cliente, mapping.system, external_id=mapping.external_id, remote_row=remote, baseline=baseline,
+        )
+        messages.success(request, f"Actualización preparada localmente (operación {operation.pk}); campos: {', '.join(payload.keys())}. No se ejecutó PUT.")
+    except (AlegraError, ValidationError) as exc:
+        messages.error(request, f"No se pudo preparar la actualización: {exc}")
+    return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+
+
+@panel_staff_required
+@require_GET
+def cliente_alegra_revisar_cambios(request, cliente_id):
+    """Consulta cambios externos y muestra una revisión firmada, sin persistirlos."""
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    mapping = ExternalObjectMap.objects.filter(
+        resource_type="contacts", content_type__model="cliente", object_id=cliente.pk,
+        status=ExternalObjectMap.STATUS_ACTIVE,
+    ).select_related("system").first()
+    if not mapping:
+        messages.error(request, "No se puede consultar Alegra: el cliente no está vinculado.")
+        return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+    try:
+        remote = AlegraWriteClient().get_contact(mapping.external_id)
+        review = InboundClientSyncService(AlegraWriteClient()).review(cliente, mapping, remote)
+        review_token = signing.dumps(review, salt="tienda.alegra_inbound_review")
+    except (AlegraError, InboundSyncConflict, ValidationError) as exc:
+        messages.error(request, f"No se pudieron consultar cambios de Alegra: {exc}")
+        return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+    return render(request, "tienda/panel/cliente_alegra_cambios.html", {
+        "cliente": cliente,
+        "alegra_map": mapping,
+        "review": review,
+        "review_token": review_token,
+    })
+
+
+@panel_staff_required
+@require_POST
+def cliente_alegra_aplicar_cambios(request, cliente_id):
+    """Revalida y aplica exclusivamente campos Alegra aprobados por el usuario."""
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    token = request.POST.get("review_token", "")
+    try:
+        review = signing.loads(token, salt="tienda.alegra_inbound_review", max_age=900)
+        if int(review.get("local_id")) != cliente.pk:
+            raise InboundSyncConflict("La revisión no corresponde al cliente solicitado.")
+        mapping_id = int(review.get("mapping_id"))
+        approved = request.POST.getlist("approved_fields")
+        result = InboundClientSyncService(AlegraWriteClient()).apply(
+            cliente.pk, mapping_id, review, approved, actor=request.user,
+        )
+        if result["status"] == "noop":
+            messages.info(request, "No hay cambios externos pendientes; no se modificó el cliente.")
+        else:
+            messages.success(request, f"Cambios de Alegra aplicados localmente: {', '.join(result['updated_fields'])}.")
+    except (AlegraError, InboundSyncConflict, ValidationError, TypeError, ValueError) as exc:
+        messages.error(request, f"No se aplicaron cambios de Alegra: {exc}")
+    return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
 
 
 @panel_staff_required
@@ -2020,6 +2515,8 @@ def cliente_detalle(request, cliente_id):
         "tienda/panel/cliente_detalle.html",
         {
             "cliente": cliente,
+            "alegra_map": ExternalObjectMap.objects.filter(resource_type="contacts", content_type__model="cliente", object_id=cliente.id, status=ExternalObjectMap.STATUS_ACTIVE).select_related("system").first(),
+            "alegra_operations": AlegraWriteOperation.objects.filter(client=cliente).order_by("-created_at", "-id")[:5],
             "contactos": cliente.contactos.all(),
             "puntos_venta": cliente.puntos_venta.all(),
             "usuarios_portal": cliente.usuarios_portal.select_related("user", "contacto"),
@@ -2310,7 +2807,7 @@ def proyecto_toggle(request, proyecto_id):
 
 @panel_staff_required
 def proyecto_detalle(request, proyecto_id):
-    proyecto = get_object_or_404(Proyecto.objects.select_related("cliente", "contacto", "responsable__user", "creado_por"), pk=proyecto_id)
+    proyecto = get_object_or_404(Proyecto.objects.select_related("cliente", "contacto", "responsable__user", "creado_por").prefetch_related("puntos_venta"), pk=proyecto_id)
     asociar_form = ProyectoSolicitudForm(proyecto=proyecto)
     tarea_form = SolicitudTareaForm(proyecto=proyecto)
     if request.method == "POST":
@@ -2391,8 +2888,8 @@ def proyecto_detalle(request, proyecto_id):
                 messages.success(request, "Tarea de proyecto creada.")
                 return redirect("panel_proyecto_detalle", proyecto_id=proyecto.id)
 
-    solicitudes = proyecto.solicitudes.select_related("producto__categoria", "cliente", "contacto").prefetch_related("tareas").order_by("-creado")
-    cotizaciones = proyecto.cotizaciones.select_related("cliente", "contacto", "solicitud").order_by("-fecha_creacion")
+    solicitudes = proyecto.solicitudes.select_related("producto__categoria", "cliente", "contacto", "punto_venta").prefetch_related("tareas").order_by("-creado")
+    cotizaciones = proyecto.cotizaciones.select_related("cliente", "contacto", "solicitud", "punto_venta").order_by("-fecha_creacion")
     tareas = SolicitudTarea.objects.filter(Q(solicitud__proyecto=proyecto) | Q(proyecto=proyecto)).select_related(
         "solicitud__producto",
         "proyecto",
@@ -3260,10 +3757,11 @@ def productos_lista(request):
     categoria_id = request.GET.get("categoria", "").strip()
     activo = request.GET.get("activo", "").strip()
     destacado = request.GET.get("destacado", "").strip()
-    productos = Producto.objects.select_related("categoria").annotate(
+    productos = Producto.objects.select_related("categoria", "unspsc").annotate(
         num_campos=Count("campos", distinct=True),
         num_solicitudes=Count("solicitudes", distinct=True),
     )
+
     if q:
         productos = productos.filter(Q(nombre__icontains=q) | Q(slug__icontains=q))
     if categoria_id.isdigit():
@@ -3286,6 +3784,37 @@ def productos_lista(request):
             "destacado": destacado,
         },
     )
+
+
+@panel_staff_required
+def unspsc_catalogo(request):
+    form = UNSPSCImportJobForm(request.POST or None, request.FILES or None)
+    if request.method == "POST" and form.is_valid():
+        job = form.save(commit=False)
+        job.created_by = request.user
+        job.status = UNSPSCImportJob.STATUS_PENDING
+        job.save()
+        messages.success(request, "Archivo recibido. La validación se ejecutará mediante el comando programado.")
+        return redirect("panel_unspsc_catalogo")
+    latest = UNSPSCCode.objects.order_by("-imported_at").first()
+    current_version = latest.catalog_version if latest else "-"
+    codes = UNSPSCCode.objects.filter(catalog_version=current_version) if latest else UNSPSCCode.objects.none()
+    levels = list(codes.values("level").annotate(total=Count("id")).order_by("level"))
+    jobs = UNSPSCImportJob.objects.select_related("created_by").all()[:10]
+    return render(request, "tienda/panel/unspsc_catalogo.html", {"form": form, "current_version": current_version, "last_update": latest.imported_at if latest else None, "total_codes": codes.count(), "levels": levels, "jobs": jobs})
+
+
+@panel_staff_required
+@require_POST
+def unspsc_importacion_confirmar(request, job_id):
+    job = get_object_or_404(UNSPSCImportJob, pk=job_id)
+    if job.status != UNSPSCImportJob.STATUS_READY:
+        messages.error(request, "El trabajo no tiene una vista previa lista para confirmar.")
+    else:
+        job.status = UNSPSCImportJob.STATUS_APPLY_REQUESTED
+        job.save(update_fields=["status"])
+        messages.success(request, "Aplicación solicitada. El comando programado la procesará fuera de la petición web.")
+    return redirect("panel_unspsc_catalogo")
 
 
 @panel_staff_required
@@ -3388,6 +3917,25 @@ def producto_editar(request, producto_id):
         messages.success(request, "Producto actualizado.")
         return redirect("panel_productos")
     return render(request, "tienda/panel/producto_form.html", {"form": form, "producto": producto, "titulo": "Editar producto"})
+
+
+@panel_staff_required
+@require_GET
+def producto_unspsc_buscar(request):
+    query = request.GET.get("q", "").strip()
+    if len(query) < 2:
+        return JsonResponse({"results": []})
+    return JsonResponse({"results": [unspsc_result(item) for item in recommend_unspsc(query)]})
+
+
+@panel_staff_required
+@require_POST
+def producto_unspsc_quitar(request, producto_id):
+    producto = get_object_or_404(Producto, pk=producto_id)
+    producto.unspsc = None
+    producto.save(update_fields=["unspsc", "actualizado"])
+    messages.success(request, "Clasificación UNSPSC eliminada explícitamente.")
+    return redirect("panel_producto_editar", producto_id=producto.id)
 
 
 @panel_staff_required
@@ -3571,6 +4119,9 @@ def producto_imagenes(request, producto_id):
 @require_POST
 def producto_toggle(request, producto_id):
     producto = get_object_or_404(Producto, pk=producto_id)
+    if not producto.activo and (not producto.categoria_id or not producto.tipo_calculo):
+        messages.error(request, "No se puede activar un producto pendiente de categoría o tipo de cálculo.")
+        return redirect("panel_productos")
     producto.activo = not producto.activo
     producto.save(update_fields=["activo"])
     return redirect("panel_productos")
@@ -3584,3 +4135,399 @@ def imagen_eliminar(request, imagen_id):
     imagen.delete()
     messages.success(request, "Imagen eliminada.")
     return redirect("panel_producto_imagenes", producto_id=producto_id)
+
+
+@alegra_staff_required
+def alegra_integraciones(request):
+    system = ExternalSystem.objects.filter(code="alegra").first()
+    staging = AlegraItemStaging.objects.all()
+    last_audit = SyncAuditLog.objects.filter(resource="items").first()
+    connection_status = last_audit.get_result_display() if last_audit else "Sin consulta"
+    context = {
+        "system": system,
+        "last_audit": last_audit,
+        "connection_status": connection_status,
+        "last_sync": staging.order_by("-fetched_at").values_list("fetched_at", flat=True).first(),
+        "metrics": {
+            "consultados": staging.count(),
+            "pendientes": staging.filter(review_status=AlegraItemStaging.REVIEW_PENDING).count(),
+            "coincidencias": staging.filter(review_status=AlegraItemStaging.REVIEW_MATCH).count(),
+            "conflictos": staging.filter(review_status=AlegraItemStaging.REVIEW_CONFLICT).count(),
+            "importados": staging.filter(review_status=AlegraItemStaging.REVIEW_IMPORTED).count(),
+            "errores": staging.filter(review_status=AlegraItemStaging.REVIEW_ERROR).count(),
+        },
+    }
+    return render(request, "tienda/panel/alegra_integraciones.html", context)
+
+
+@alegra_change_required
+@require_POST
+def alegra_sync_items(request):
+    raw_limit = request.POST.get("limit", "100")
+    try:
+        limit = min(max(int(raw_limit), 1), 300)
+    except ValueError:
+        limit = 100
+    result = AlegraItemImporter().sync(limit=limit, actor=request.user)
+    if result["errors"]:
+        messages.error(request, "No se pudo consultar Alegra: " + result["errors"][0])
+    else:
+        messages.success(request, f"Consulta completada: {result['total']} ítems procesados.")
+    return redirect("alegra_catalogo")
+
+
+@alegra_staff_required
+def alegra_catalogo(request):
+    qs = AlegraItemStaging.objects.select_related("system", "matched_product", "imported_product")
+    query = request.GET.get("q", "").strip()
+    status = request.GET.get("status", "").strip()
+    classification = request.GET.get("classification", "").strip()
+    if query:
+        qs = qs.filter(Q(name__icontains=query) | Q(reference__icontains=query) | Q(external_id__icontains=query))
+    if status in {choice[0] for choice in AlegraItemStaging.REVIEW_STATUSES}:
+        qs = qs.filter(review_status=status)
+    if classification in {choice[0] for choice in AlegraItemStaging.CLASSIFICATIONS}:
+        qs = qs.filter(classification=classification)
+    paginator = Paginator(qs.order_by("-fetched_at", "name"), 25)
+    page = paginator.get_page(request.GET.get("page"))
+    return render(
+        request,
+        "tienda/panel/alegra_catalogo.html",
+        {
+            "page_obj": page,
+            "query": query,
+            "status": status,
+            "classification": classification,
+            "statuses": AlegraItemStaging.REVIEW_STATUSES,
+            "classifications": AlegraItemStaging.CLASSIFICATIONS,
+            "productos": Producto.objects.order_by("nombre"),
+            "categorias": Categoria.objects.filter(activa=True).order_by("orden", "nombre"),
+            "calculo_choices": Producto.CALCULO_CHOICES,
+        },
+    )
+
+
+def _alegra_selected_ids(request):
+    values = request.POST.getlist("selected_ids")
+    selected = []
+    for value in values[:300]:
+        try:
+            item_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if item_id > 0 and item_id not in selected:
+            selected.append(item_id)
+    return selected
+
+
+def _alegra_bulk_preview_data(selected_ids, operation):
+    records = list(AlegraItemStaging.objects.select_related("matched_product").filter(pk__in=selected_ids).order_by("pk"))
+    reasons = {}
+    eligible = []
+    for record in records:
+        if operation == "ignore":
+            allowed = record.classification not in {AlegraItemStaging.CLASS_LINKED, AlegraItemStaging.CLASS_IGNORED}
+            reason = "Ya está vinculado o ignorado." if not allowed else ""
+        elif operation == "classify":
+            allowed = bool(record.imported_product_id)
+            reason = "No existe producto local importado para clasificar." if not allowed else ""
+        else:
+            allowed = record.classification == AlegraItemStaging.CLASS_NEW and not record.matched_product_id and not record.imported_product_id
+            reason = "Debe estar clasificado como nuevo, sin coincidencia ni importación previa." if not allowed else ""
+        if allowed:
+            eligible.append(record)
+        else:
+            reasons[reason] = reasons.get(reason, 0) + 1
+    return {"records": records, "eligible": eligible, "blocked": len(records) - len(eligible), "reasons": reasons}
+
+
+@alegra_change_required
+@require_POST
+def alegra_bulk_classify(request):
+    selected_ids = _alegra_selected_ids(request)
+    if not selected_ids:
+        messages.warning(request, "Selecciona al menos un registro.")
+        return redirect("alegra_catalogo")
+    counts = AlegraItemReconciler().classify(staging_ids=selected_ids, actor=request.user)
+    messages.success(request, "Clasificación completada: " + ", ".join(f"{count} {dict(AlegraItemStaging.CLASSIFICATIONS).get(key, key)}" for key, count in counts.items() if count))
+    return redirect("alegra_catalogo")
+
+
+@alegra_change_required
+@require_POST
+def alegra_bulk_preview(request):
+    operation = request.POST.get("operation", "").strip()
+    if operation not in {"ignore", "import", "classify"}:
+        messages.error(request, "Operación masiva no válida.")
+        return redirect("alegra_catalogo")
+    selected_ids = _alegra_selected_ids(request)
+    if not selected_ids:
+        messages.warning(request, "Selecciona al menos un registro.")
+        return redirect("alegra_catalogo")
+    context = _alegra_bulk_preview_data(selected_ids, operation)
+    context.update({"operation": operation, "selected_ids": selected_ids, "categorias": Categoria.objects.filter(activa=True).order_by("orden", "nombre"), "calculo_choices": Producto.CALCULO_CHOICES})
+    return render(request, "tienda/panel/alegra_bulk_preview.html", context)
+
+
+@alegra_change_required
+@require_POST
+def alegra_bulk_confirm(request):
+    operation = request.POST.get("operation", "").strip()
+    selected_ids = _alegra_selected_ids(request)
+    if operation not in {"ignore", "import", "classify"} or not selected_ids:
+        messages.error(request, "Confirmación masiva inválida.")
+        return redirect("alegra_catalogo")
+    data = _alegra_bulk_preview_data(selected_ids, operation)
+    importer = AlegraItemImporter()
+    success = 0
+    errors = []
+    for record in data["eligible"]:
+        try:
+            if operation == "ignore":
+                importer.ignore_item(record.pk, actor=request.user)
+            elif operation == "classify":
+                importer.classify_imported_item(record.pk, category_id=request.POST.get("categoria_id") or None, calculation_type=request.POST.get("tipo_calculo") or None, actor=request.user)
+            else:
+                importer.import_item(record.pk, category_id=request.POST.get("categoria_id") or None, calculation_type=request.POST.get("tipo_calculo") or None, actor=request.user)
+            success += 1
+        except Exception as exc:
+            errors.append(f"{record.name}: {str(exc)[:160]}")
+    if data["records"]:
+        SyncAuditLog.objects.create(
+            system=data["records"][0].system,
+            operation=f"bulk_{operation}",
+            resource="items",
+            actor=request.user,
+            result=SyncAuditLog.RESULT_SUCCESS if not errors and not data["blocked"] else SyncAuditLog.RESULT_PARTIAL,
+            detail=f"Procesados: {success}; bloqueados: {data['blocked']}; errores: {len(errors)}.",
+            metadata={"selected": len(data["records"]), "success": success, "blocked": data["blocked"], "errors": len(errors)},
+        )
+    if success:
+        messages.success(request, f"Operación completada para {success} registro(s).")
+    if data["blocked"] or errors:
+        messages.warning(request, f"Operación parcial: {data['blocked']} bloqueado(s), {len(errors)} con error.")
+        if errors:
+            messages.error(request, " | ".join(errors[:5]))
+    return redirect("alegra_catalogo")
+
+
+@alegra_change_required
+@require_POST
+def alegra_item_link(request, staging_id):
+    try:
+        product_id = int(request.POST.get("producto_id", ""))
+        AlegraItemImporter().link_item(staging_id, product_id, actor=request.user)
+        messages.success(request, "Ítem de Alegra vinculado con el producto local.")
+    except (ValueError, Producto.DoesNotExist, AlegraItemStaging.DoesNotExist) as exc:
+        messages.error(request, f"No se pudo vincular: {exc}")
+    return redirect("alegra_catalogo")
+
+
+@alegra_change_required
+@require_POST
+def alegra_item_ignore(request, staging_id):
+    try:
+        AlegraItemImporter().ignore_item(staging_id, actor=request.user)
+        messages.success(request, "Ítem marcado como ignorado.")
+    except AlegraItemStaging.DoesNotExist:
+        messages.error(request, "El ítem no existe.")
+    return redirect("alegra_catalogo")
+
+
+@alegra_change_required
+@require_POST
+def alegra_item_import(request, staging_id):
+    try:
+        category_id = request.POST.get("categoria_id") or None
+        product = AlegraItemImporter().import_item(
+            staging_id,
+            category_id=category_id,
+            calculation_type=request.POST.get("tipo_calculo", ""),
+            actor=request.user,
+        )
+        messages.success(request, f"Producto importado como inactivo: {product.nombre}.")
+    except (ValueError, AlegraItemStaging.DoesNotExist) as exc:
+        messages.error(request, f"No se pudo importar: {exc}")
+    return redirect("alegra_catalogo")
+
+
+@alegra_change_required
+@require_POST
+def alegra_item_classify(request, staging_id):
+    try:
+        product = AlegraItemImporter().classify_imported_item(
+            staging_id,
+            category_id=request.POST.get("categoria_id") or None,
+            calculation_type=request.POST.get("tipo_calculo") or None,
+            actor=request.user,
+        )
+        messages.success(request, f"Clasificación local actualizada para {product.nombre}.")
+    except (ValueError, AlegraItemStaging.DoesNotExist) as exc:
+        messages.error(request, f"No se pudo clasificar: {exc}")
+    return redirect("alegra_catalogo")
+
+
+@alegra_staff_required
+def alegra_historial(request):
+    logs = SyncAuditLog.objects.select_related("actor", "system").order_by("-created_at", "-id")
+    paginator = Paginator(logs, 30)
+    page = paginator.get_page(request.GET.get("page"))
+    return render(request, "tienda/panel/alegra_historial.html", {"page_obj": page})
+
+
+def _alegra_contact_selected_ids(request):
+    selected = []
+    for value in request.POST.getlist("selected_ids")[:300]:
+        try:
+            item_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if item_id > 0 and item_id not in selected:
+            selected.append(item_id)
+    return selected
+
+
+@alegra_contact_change_required
+@require_POST
+def alegra_sync_contacts(request):
+    try:
+        limit = min(max(int(request.POST.get("limit", "100")), 1), 300)
+    except ValueError:
+        limit = 100
+    result = AlegraContactImporter().sync(limit=limit, actor=request.user)
+    if result["errors"]:
+        messages.error(request, f"No se pudo completar la consulta de Alegra: {result['errors'][0]} Contactos procesados: {result['total']}; nuevos en staging: {result['created']}; actualizados: {result['updated']}. Los registros anteriores se conservaron.")
+    else:
+        messages.success(request, f"Consulta completada: {result['total']} contactos consultados; {result['created']} nuevos en staging; {result['updated']} actualizados; errores: 0.")
+    return redirect("alegra_contactos_catalogo")
+
+
+@alegra_contact_staff_required
+def alegra_contactos_catalogo(request):
+    qs = AlegraContactStaging.objects.select_related("matched_client", "imported_client")
+    query = request.GET.get("q", "").strip()
+    classification = request.GET.get("classification", "").strip()
+    if query:
+        qs = qs.filter(Q(name__icontains=query) | Q(identification__icontains=query) | Q(email__icontains=query) | Q(external_id__icontains=query))
+    if classification in {value for value, _label in AlegraContactStaging.CLASSIFICATIONS}:
+        qs = qs.filter(classification=classification)
+    page = Paginator(qs.order_by("-fetched_at", "name"), 25).get_page(request.GET.get("page"))
+    alegra_system = ExternalSystem.objects.filter(code="alegra").first()
+    mapped_clients = ExternalObjectMap.objects.filter(
+        system=alegra_system,
+        resource_type="contacts",
+        status=ExternalObjectMap.STATUS_ACTIVE,
+        content_type__model="cliente",
+    ).count() if alegra_system else 0
+    mapped_client_ids = set(ExternalObjectMap.objects.filter(
+        system=alegra_system,
+        resource_type="contacts",
+        status=ExternalObjectMap.STATUS_ACTIVE,
+        content_type__model="cliente",
+        object_id__isnull=False,
+    ).values_list("object_id", flat=True)) if alegra_system else set()
+    last_contact_sync = SyncAuditLog.objects.filter(resource="contacts").order_by("-created_at", "-id").first()
+    counts = {
+        "linked": AlegraContactStaging.objects.filter(classification=AlegraContactStaging.CLASS_LINKED).count(),
+        "pending": AlegraContactStaging.objects.filter(classification__in=[AlegraContactStaging.CLASS_NEW, AlegraContactStaging.CLASS_PROBABLE, AlegraContactStaging.CLASS_INCOMPLETE]).count(),
+        "conflict": AlegraContactStaging.objects.filter(classification=AlegraContactStaging.CLASS_CONFLICT).count(),
+        "errors": AlegraContactStaging.objects.filter(error_detail__gt="").count(),
+        "external_unlinked": AlegraContactStaging.objects.exclude(classification__in=[AlegraContactStaging.CLASS_LINKED, AlegraContactStaging.CLASS_IGNORED]).count(),
+        "mapped_clients": mapped_clients,
+        "local_pending": Cliente.objects.exclude(pk__in=mapped_client_ids).count(),
+        "last_contact_sync": last_contact_sync,
+        "recent_sync_errors": SyncAuditLog.objects.filter(resource="contacts", result=SyncAuditLog.RESULT_ERROR).count(),
+    }
+    return render(request, "tienda/panel/alegra_contactos.html", {
+        "page_obj": page,
+        "query": query,
+        "classification": classification,
+        "classifications": AlegraContactStaging.CLASSIFICATIONS,
+        "clientes": Cliente.objects.order_by("nombre"),
+        "bidirectional_safe_mode": True,
+        "bidirectional_counts": counts,
+    })
+
+
+@alegra_contact_change_required
+@require_POST
+def alegra_contactos_clasificar(request):
+    selected = _alegra_contact_selected_ids(request)
+    if not selected:
+        messages.warning(request, "Selecciona al menos un contacto.")
+    else:
+        counts = AlegraContactReconciler().classify(staging_ids=selected, actor=request.user)
+        messages.success(request, "Clasificación completada: " + ", ".join(f"{count} {dict(AlegraContactStaging.CLASSIFICATIONS).get(key, key)}" for key, count in counts.items() if count))
+    return redirect("alegra_contactos_catalogo")
+
+
+def _contact_bulk_data(selected_ids, operation):
+    records = list(AlegraContactStaging.objects.select_related("matched_client").filter(pk__in=selected_ids).order_by("pk"))
+    eligible, reasons = [], {}
+    for record in records:
+        allowed = record.classification not in {AlegraContactStaging.CLASS_LINKED, AlegraContactStaging.CLASS_IGNORED} if operation == "ignore" else record.classification == AlegraContactStaging.CLASS_NEW and not record.matched_client_id and not record.imported_client_id
+        if allowed:
+            eligible.append(record)
+        else:
+            reason = "Ya está vinculado o ignorado." if operation == "ignore" else "Debe estar clasificado como nuevo, sin coincidencia ni importación previa."
+            reasons[reason] = reasons.get(reason, 0) + 1
+    return {"records": records, "eligible": eligible, "blocked": len(records) - len(eligible), "reasons": reasons}
+
+
+@alegra_contact_change_required
+@require_POST
+def alegra_contactos_preview(request):
+    operation = request.POST.get("operation", "")
+    selected = _alegra_contact_selected_ids(request)
+    if operation not in {"import", "ignore"} or not selected:
+        messages.error(request, "Operación masiva inválida.")
+        return redirect("alegra_contactos_catalogo")
+    context = _contact_bulk_data(selected, operation)
+    context.update({"operation": operation, "selected_ids": selected})
+    return render(request, "tienda/panel/alegra_contactos_preview.html", context)
+
+
+@alegra_contact_change_required
+@require_POST
+def alegra_contactos_confirmar(request):
+    operation = request.POST.get("operation", "")
+    selected = _alegra_contact_selected_ids(request)
+    data = _contact_bulk_data(selected, operation) if operation in {"import", "ignore"} else {"records": [], "eligible": [], "blocked": 0}
+    if not data["records"]:
+        messages.error(request, "Confirmación masiva inválida.")
+        return redirect("alegra_contactos_catalogo")
+    importer = AlegraContactImporter()
+    success, errors = 0, []
+    for record in data["eligible"]:
+        try:
+            importer.import_contact(record.pk, actor=request.user) if operation == "import" else importer.ignore_contact(record.pk, actor=request.user)
+            success += 1
+        except Exception as exc:
+            errors.append(f"{record.name}: {str(exc)[:160]}")
+    if success:
+        messages.success(request, f"Operación completada para {success} contacto(s).")
+    if data["blocked"] or errors:
+        messages.warning(request, f"Operación parcial: {data['blocked']} bloqueado(s), {len(errors)} con error.")
+    return redirect("alegra_contactos_catalogo")
+
+
+@alegra_contact_change_required
+@require_POST
+def alegra_contacto_vincular(request, staging_id):
+    try:
+        AlegraContactImporter().link_contact(staging_id, int(request.POST.get("cliente_id", "")), actor=request.user)
+        messages.success(request, "Contacto de Alegra vinculado con el cliente local.")
+    except Exception as exc:
+        messages.error(request, f"No se pudo vincular: {str(exc)[:200]}")
+    return redirect("alegra_contactos_catalogo")
+
+
+@alegra_contact_change_required
+@require_POST
+def alegra_contacto_ignorar(request, staging_id):
+    try:
+        AlegraContactImporter().ignore_contact(staging_id, actor=request.user)
+        messages.success(request, "Contacto marcado como ignorado.")
+    except Exception as exc:
+        messages.error(request, f"No se pudo ignorar: {str(exc)[:200]}")
+    return redirect("alegra_contactos_catalogo")

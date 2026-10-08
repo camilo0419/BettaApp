@@ -23,6 +23,8 @@ from .models import (
     CotizacionItem,
     EmpleadoPerfil,
     Producto,
+    UNSPSCCode,
+    UNSPSCImportJob,
     ProductoCampo,
     ProductoImagen,
     Proyecto,
@@ -30,6 +32,12 @@ from .models import (
     SolicitudAsignacion,
     SolicitudNovedad,
     SolicitudTarea,
+    Venta,
+    VentaItem,
+    AlegraInvoiceStaging,
+    CarteraGestion,
+    CompromisoPago,
+    CarteraResponsable,
 )
 
 User = get_user_model()
@@ -95,6 +103,12 @@ def proyectos_de_cliente_qs(cliente_id):
     if not cliente_id:
         return Proyecto.objects.none()
     return Proyecto.objects.filter(activo=True, cliente_id=cliente_id).select_related("cliente")
+
+
+def puntos_venta_de_cliente_qs(cliente_id):
+    if not cliente_id:
+        return ClientePuntoVenta.objects.none()
+    return ClientePuntoVenta.objects.filter(activo=True, cliente_id=cliente_id).select_related("cliente")
 
 
 def solicitudes_de_cliente_qs(cliente_id, proyecto_id=None):
@@ -228,19 +242,69 @@ def validate_user_upload(file_obj):
 
 
 class ProductoForm(forms.ModelForm):
+    asignar_unspsc = forms.BooleanField(
+        required=False,
+        label="Asignar código UNSPSC",
+        help_text="La selección es opcional y solo guarda un código confirmado del catálogo oficial.",
+    )
+
     class Meta:
         model = Producto
         fields = [
             "nombre", "slug", "categoria", "descripcion_corta", "descripcion_larga",
             "imagen_principal", "imagen_estatica", "activo", "destacado", "orden",
-            "tipo_calculo", "precio_base_m2", "precio_base_unidad", "requiere_revision",
+            "tipo_calculo", "precio_base_m2", "precio_base_unidad", "requiere_revision", "unspsc",
         ]
         widgets = {
             "descripcion_larga": forms.Textarea(attrs={"rows": 4}),
+            "unspsc": forms.HiddenInput(),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_unspsc_id = self.instance.unspsc_id if self.instance.pk else None
+        if self.instance.pk and self.instance.unspsc_id:
+            self.fields["asignar_unspsc"].initial = True
+
+    def save(self, commit=True):
+        product = super().save(commit=False)
+        if not self.cleaned_data.get("asignar_unspsc") and self._original_unspsc_id:
+            product.unspsc_id = self._original_unspsc_id
+        if commit:
+            product.save()
+        return product
 
     def clean_imagen_principal(self):
         return validate_image_upload(self.cleaned_data.get("imagen_principal"))
+
+    def clean(self):
+        cleaned = super().clean()
+        # Los productos comerciales creados/editados desde el panel siguen
+        # exigiendo configuración completa. Solo el importador de Alegra puede
+        # crear un producto pendiente mediante su servicio controlado.
+        if not cleaned.get("categoria"):
+            self.add_error("categoria", "La categoría es obligatoria para un producto comercial.")
+        if not cleaned.get("tipo_calculo"):
+            self.add_error("tipo_calculo", "El tipo de cálculo es obligatorio para un producto comercial.")
+        if cleaned.get("asignar_unspsc") and not cleaned.get("unspsc"):
+            self.add_error("unspsc", "Selecciona un código UNSPSC del catálogo oficial.")
+        return cleaned
+
+
+class UNSPSCImportJobForm(forms.ModelForm):
+    class Meta:
+        model = UNSPSCImportJob
+        fields = ["file", "catalog_version", "source_url"]
+        widgets = {"file": forms.ClearableFileInput(attrs={"accept": ".csv,.xlsx,.zip"})}
+
+    def clean_file(self):
+        uploaded = self.cleaned_data["file"]
+        suffix = Path(uploaded.name).suffix.casefold()
+        if suffix not in {".csv", ".xlsx", ".zip"}:
+            raise ValidationError("Solo se admiten archivos CSV, XLSX o ZIP oficiales.")
+        if uploaded.size > 400 * 1024 * 1024:
+            raise ValidationError("El archivo supera el límite de 400 MB.")
+        return uploaded
 
 
 class CategoriaForm(forms.ModelForm):
@@ -332,6 +396,9 @@ class ClienteForm(forms.ModelForm):
         else:
             self.fields["nombre"].label = "Nombre completo"
             self.fields["nombre"].help_text = "Nombre y apellidos de la persona."
+        self.fields["primer_nombre"].help_text = "Requerido para sincronizar una persona natural con Alegra."
+        self.fields["primer_apellido"].help_text = "Requerido para sincronizar una persona natural con Alegra."
+        self.fields["regimen_tributario"].help_text = "Debe confirmarse antes de preparar una sincronización con Alegra."
 
     def clean(self):
         cleaned_data = super().clean()
@@ -340,7 +407,16 @@ class ClienteForm(forms.ModelForm):
         razon_social = (cleaned_data.get("razon_social") or "").strip()
         nombre_comercial = (cleaned_data.get("nombre_comercial") or "").strip()
         if tipo == Cliente.TIPO_PERSONA:
-            if not nombre:
+            partes = [
+                cleaned_data.get("primer_nombre"),
+                cleaned_data.get("segundo_nombre"),
+                cleaned_data.get("primer_apellido"),
+                cleaned_data.get("segundo_apellido"),
+            ]
+            nombre_desde_partes = " ".join(str(parte).strip() for parte in partes if str(parte or "").strip())
+            if nombre_desde_partes:
+                cleaned_data["nombre"] = nombre_desde_partes
+            elif not nombre:
                 self.add_error("nombre", "El nombre completo es obligatorio para una persona.")
         elif tipo == Cliente.TIPO_EMPRESA and not nombre:
             referencia = razon_social or nombre_comercial
@@ -353,9 +429,10 @@ class ClienteForm(forms.ModelForm):
     class Meta:
         model = Cliente
         fields = [
-            "tipo_cliente", "nombre", "razon_social", "tipo_identificacion",
-            "identificacion", "email", "telefono", "whatsapp", "direccion",
-            "ciudad", "contacto_principal", "nombre_comercial", "sector",
+            "tipo_cliente", "nombre", "primer_nombre", "segundo_nombre", "primer_apellido", "segundo_apellido",
+            "razon_social", "tipo_identificacion", "identificacion", "digito_verificacion", "regimen_tributario",
+            "email", "telefono", "telefono_secundario", "celular", "whatsapp", "direccion",
+            "ciudad", "departamento", "pais", "codigo_postal", "contacto_principal", "nombre_comercial", "sector",
             "sitio_web", "preferencia_contacto", "notas", "activo",
         ]
         widgets = {
@@ -396,7 +473,7 @@ class ClientePuntoVentaForm(forms.ModelForm):
 
     class Meta:
         model = ClientePuntoVenta
-        fields = ["nombre", "direccion", "ciudad", "contacto", "telefono", "email", "observaciones", "activo"]
+        fields = ["nombre", "codigo_interno", "direccion", "ciudad", "departamento", "contacto", "telefono", "email", "observaciones", "activo", "es_principal"]
         widgets = {
             "observaciones": forms.Textarea(attrs={"rows": 3}),
         }
@@ -432,8 +509,6 @@ class ClienteRegistroForm(forms.Form):
         email = self.cleaned_data["email"].strip().lower()
         if User.objects.filter(models.Q(username__iexact=email) | models.Q(email__iexact=email)).exists():
             raise ValidationError("Ya existe una cuenta con este correo.")
-        if Cliente.objects.filter(email__iexact=email).exists():
-            raise ValidationError("Ya existe un cliente registrado con este correo. Contacta a Betta para activar tu acceso.")
         return email
 
     def clean_identificacion(self):
@@ -667,7 +742,7 @@ class CotizacionForm(forms.ModelForm):
     class Meta:
         model = Cotizacion
         fields = [
-            "cliente", "contacto", "proyecto", "solicitud", "titulo", "descripcion",
+            "cliente", "contacto", "punto_venta", "proyecto", "solicitud", "titulo", "descripcion",
             "fecha_emision", "fecha_vencimiento", "estado", "moneda",
             "observaciones_cliente", "condiciones_comerciales", "tiempo_entrega",
             "forma_pago", "garantia", "validez_dias", "activa",
@@ -686,6 +761,7 @@ class CotizacionForm(forms.ModelForm):
         contacto_id = selected_form_id(self, "contacto")
         proyecto_id = selected_form_id(self, "proyecto")
         solicitud_id = selected_form_id(self, "solicitud")
+        punto_venta_id = selected_form_id(self, "punto_venta")
 
         self.fields["cliente"].queryset = Cliente.objects.filter(activo=True).order_by("nombre", "razon_social")
         if self.instance.pk and self.instance.cliente_id:
@@ -695,15 +771,19 @@ class CotizacionForm(forms.ModelForm):
         contactos = contactos_de_cliente_qs(cliente_id).order_by("-es_principal", "nombre")
         proyectos = proyectos_de_cliente_qs(cliente_id).order_by("-fecha_creacion", "nombre")
         solicitudes = solicitudes_de_cliente_qs(cliente_id, proyecto_id)
+        puntos_venta = puntos_venta_de_cliente_qs(cliente_id)
         self.fields["contacto"].queryset = include_selected(contactos, ClienteContacto, contacto_id)
         self.fields["proyecto"].queryset = include_selected(proyectos, Proyecto, proyecto_id)
         self.fields["solicitud"].queryset = include_selected(solicitudes, Solicitud, solicitud_id)
+        self.fields["punto_venta"].queryset = include_selected(puntos_venta, ClientePuntoVenta, punto_venta_id)
         self.fields["contacto"].required = False
         self.fields["proyecto"].required = False
         self.fields["solicitud"].required = False
+        self.fields["punto_venta"].required = False
         use_related_data_select(self.fields["contacto"])
         use_related_data_select(self.fields["proyecto"])
         use_related_data_select(self.fields["solicitud"])
+        use_related_data_select(self.fields["punto_venta"])
         mark_searchable_select(self.fields["cliente"])
         mark_searchable_select(
             self.fields["contacto"],
@@ -731,6 +811,7 @@ class CotizacionForm(forms.ModelForm):
                 "data-empty-label": "Sin solicitudes disponibles",
             },
         )
+        mark_searchable_select(self.fields["punto_venta"], **{"data-filter-client-source": "id_cliente", "data-always-searchable": "true", "data-empty-label": "Sin puntos de venta disponibles"})
 
     def clean(self):
         cleaned_data = super().clean()
@@ -738,6 +819,7 @@ class CotizacionForm(forms.ModelForm):
         contacto = cleaned_data.get("contacto")
         proyecto = cleaned_data.get("proyecto")
         solicitud = cleaned_data.get("solicitud")
+        punto_venta = cleaned_data.get("punto_venta")
         if contacto and cliente and contacto.cliente_id != cliente.id:
             self.add_error("contacto", "El contacto no pertenece al cliente seleccionado.")
         if proyecto and cliente and proyecto.cliente_id != cliente.id:
@@ -748,6 +830,9 @@ class CotizacionForm(forms.ModelForm):
                 self.add_error("solicitud", "La solicitud pertenece a otro cliente.")
         if solicitud and proyecto and solicitud.proyecto_id != proyecto.id:
             self.add_error("solicitud", "La solicitud pertenece a otro proyecto.")
+        cliente_efectivo = cliente or (proyecto.cliente if proyecto else None)
+        if punto_venta and (not cliente_efectivo or punto_venta.cliente_id != cliente_efectivo.id):
+            self.add_error("punto_venta", "El punto de venta no pertenece al cliente seleccionado.")
         return cleaned_data
 
 
@@ -788,6 +873,138 @@ class CotizacionItemForm(forms.ModelForm):
         return item
 
 
+class VentaForm(forms.ModelForm):
+    class Meta:
+        model = Venta
+        fields = ["cliente", "punto_venta", "proyecto", "cotizacion", "solicitud", "fecha_venta", "estado", "observaciones"]
+        widgets = {"fecha_venta": forms.DateInput(attrs={"type": "date"}), "observaciones": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        cliente_id = selected_form_id(self, "cliente")
+        punto_venta_id = selected_form_id(self, "punto_venta")
+        proyecto_id = selected_form_id(self, "proyecto")
+        cotizacion_id = selected_form_id(self, "cotizacion")
+        solicitud_id = selected_form_id(self, "solicitud")
+        self.fields["cliente"].queryset = Cliente.objects.filter(activo=True).order_by("nombre", "razon_social")
+        if self.instance.pk:
+            self.fields["cliente"].queryset = Cliente.objects.filter(models.Q(activo=True) | models.Q(pk=self.instance.cliente_id)).order_by("nombre", "razon_social")
+        self.fields["punto_venta"].queryset = include_selected(puntos_venta_de_cliente_qs(cliente_id), ClientePuntoVenta, punto_venta_id)
+        self.fields["proyecto"].queryset = include_selected(proyectos_de_cliente_qs(cliente_id), Proyecto, proyecto_id)
+        self.fields["cotizacion"].queryset = include_selected(Cotizacion.objects.filter(cliente_id=cliente_id).select_related("cliente"), Cotizacion, cotizacion_id)
+        self.fields["solicitud"].queryset = include_selected(solicitudes_de_cliente_qs(cliente_id), Solicitud, solicitud_id)
+        for name in ("punto_venta", "proyecto", "cotizacion", "solicitud"):
+            self.fields[name].required = False
+            use_related_data_select(self.fields[name])
+        mark_searchable_select(self.fields["cliente"])
+        mark_searchable_select(self.fields["punto_venta"], **{"data-filter-client-source": "id_cliente", "data-empty-label": "Sin punto de venta"})
+        mark_searchable_select(self.fields["proyecto"], **{"data-filter-client-source": "id_cliente", "data-empty-label": "Sin proyecto"})
+        mark_searchable_select(self.fields["cotizacion"], **{"data-filter-client-source": "id_cliente", "data-empty-label": "Sin cotización"})
+        mark_searchable_select(self.fields["solicitud"], **{"data-filter-client-source": "id_cliente", "data-empty-label": "Sin solicitud"})
+
+    def clean(self):
+        cleaned = super().clean()
+        cliente = cleaned.get("cliente")
+        punto = cleaned.get("punto_venta")
+        proyecto = cleaned.get("proyecto")
+        cotizacion = cleaned.get("cotizacion")
+        solicitud = cleaned.get("solicitud")
+        if punto and cliente and punto.cliente_id != cliente.id:
+            self.add_error("punto_venta", "El punto de venta no pertenece al cliente.")
+        if proyecto and cliente and proyecto.cliente_id != cliente.id:
+            self.add_error("proyecto", "El proyecto no pertenece al cliente.")
+        if cotizacion and cliente and cotizacion.cliente_id != cliente.id:
+            self.add_error("cotizacion", "La cotización no pertenece al cliente.")
+        solicitud_cliente = (solicitud.cliente_id or getattr(solicitud.proyecto, "cliente_id", None)) if solicitud else None
+        if solicitud_cliente and cliente and solicitud_cliente != cliente.id:
+            self.add_error("solicitud", "La solicitud no pertenece al cliente.")
+        if proyecto and cotizacion and cotizacion.proyecto_id and cotizacion.proyecto_id != proyecto.id:
+            self.add_error("proyecto", "La cotización pertenece a otro proyecto.")
+        return cleaned
+
+
+class VentaItemForm(forms.ModelForm):
+    class Meta:
+        model = VentaItem
+        fields = ["producto", "descripcion", "cantidad", "unidad", "precio_unitario", "descuento", "impuesto", "orden", "activo"]
+        widgets = {"cantidad": forms.NumberInput(attrs={"step": "0.01"}), "precio_unitario": forms.NumberInput(attrs={"step": "0.01"}), "descuento": forms.NumberInput(attrs={"step": "0.01"}), "impuesto": forms.NumberInput(attrs={"step": "0.01"})}
+
+    def __init__(self, *args, venta=None, **kwargs):
+        self.venta = venta
+        super().__init__(*args, **kwargs)
+        self.fields["producto"].queryset = Producto.objects.filter(activo=True).select_related("categoria")
+        self.fields["producto"].required = False
+        mark_searchable_select(self.fields["producto"])
+
+    def save(self, commit=True):
+        item = super().save(commit=False)
+        if self.venta is not None and not item.venta_id:
+            item.venta = self.venta
+        producto = self.cleaned_data.get("producto")
+        if producto:
+            if not item.descripcion:
+                item.descripcion = producto.nombre
+            if not item.unidad:
+                item.unidad = "und"
+            if not item.precio_unitario:
+                item.precio_unitario = producto.precio_base_unidad or producto.precio_base_m2 or Decimal("0")
+        if commit:
+            item.save()
+        return item
+
+
+class CarteraGestionForm(forms.ModelForm):
+    class Meta:
+        model = CarteraGestion
+        fields = ["cliente", "factura", "responsable", "fecha_gestion", "tipo", "resultado", "observaciones", "proxima_accion", "fecha_seguimiento"]
+        widgets = {"fecha_gestion": forms.DateTimeInput(attrs={"type": "datetime-local"}), "fecha_seguimiento": forms.DateInput(attrs={"type": "date"}), "observaciones": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        cliente_id = selected_form_id(self, "cliente")
+        factura_id = selected_form_id(self, "factura")
+        self.fields["cliente"].queryset = Cliente.objects.filter(activo=True).order_by("nombre")
+        self.fields["factura"].queryset = include_selected(AlegraInvoiceStaging.objects.filter(matched_client_id=cliente_id).order_by("-issue_date"), AlegraInvoiceStaging, factura_id)
+        self.fields["factura"].required = False
+        mark_searchable_select(self.fields["cliente"])
+        mark_searchable_select(self.fields["factura"], **{"data-filter-client-source": "id_cliente", "data-empty-label": "Sin factura"})
+
+    def clean(self):
+        cleaned = super().clean()
+        cliente, factura = cleaned.get("cliente"), cleaned.get("factura")
+        if factura and factura.matched_client_id and (not cliente or factura.matched_client_id != cliente.id):
+            self.add_error("factura", "La factura no pertenece al cliente seleccionado.")
+        return cleaned
+
+
+class CompromisoPagoForm(forms.ModelForm):
+    class Meta:
+        model = CompromisoPago
+        fields = ["cliente", "factura", "responsable", "fecha_comprometida", "valor_comprometido", "estado", "observaciones"]
+        widgets = {"fecha_comprometida": forms.DateInput(attrs={"type": "date"}), "observaciones": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        cliente_id = selected_form_id(self, "cliente")
+        self.fields["cliente"].queryset = Cliente.objects.filter(activo=True).order_by("nombre")
+        self.fields["factura"].queryset = AlegraInvoiceStaging.objects.filter(matched_client_id=cliente_id).order_by("-issue_date")
+        self.fields["factura"].required = False
+        mark_searchable_select(self.fields["cliente"])
+
+    def clean(self):
+        cleaned = super().clean()
+        cliente, factura = cleaned.get("cliente"), cleaned.get("factura")
+        if factura and factura.matched_client_id and (not cliente or factura.matched_client_id != cliente.id):
+            self.add_error("factura", "La factura no pertenece al cliente seleccionado.")
+        return cleaned
+
+
+class CarteraResponsableForm(forms.ModelForm):
+    class Meta:
+        model = CarteraResponsable
+        fields = ["cliente", "responsable", "activo"]
+
+
 class CotizacionEstadoForm(forms.Form):
     estado = forms.ChoiceField(label="Nuevo estado", choices=Cotizacion.ESTADOS)
     comentario = forms.CharField(label="Comentario interno", required=False, widget=forms.Textarea(attrs={"rows": 3}))
@@ -797,7 +1014,7 @@ class ProyectoForm(forms.ModelForm):
     class Meta:
         model = Proyecto
         fields = [
-            "cliente", "contacto", "nombre", "cliente_nombre", "cliente_contacto", "cliente_telefono", "cliente_email",
+            "cliente", "contacto", "puntos_venta", "nombre", "cliente_nombre", "cliente_contacto", "cliente_telefono", "cliente_email",
             "descripcion", "estado", "prioridad", "fecha_inicio", "fecha_compromiso",
             "fecha_cierre", "responsable", "activo", "observaciones",
         ]
@@ -813,6 +1030,9 @@ class ProyectoForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         cliente_id = selected_form_id(self, "cliente")
         contacto_id = selected_form_id(self, "contacto")
+        puntos_venta_ids = (self.data.getlist(self.add_prefix("puntos_venta")) if hasattr(self.data, "getlist") else self.data.get(self.add_prefix("puntos_venta"), [])) if self.is_bound else list(self.instance.puntos_venta.values_list("id", flat=True)) if self.instance.pk else []
+        if isinstance(puntos_venta_ids, (str, int)):
+            puntos_venta_ids = [puntos_venta_ids]
         self.fields["responsable"].queryset = EmpleadoPerfil.objects.filter(
             activo=True,
             user__is_active=True,
@@ -827,8 +1047,13 @@ class ProyectoForm(forms.ModelForm):
         contactos = contactos_de_cliente_qs(cliente_id).order_by("-es_principal", "nombre")
         self.fields["contacto"].queryset = include_selected(contactos, ClienteContacto, contacto_id)
         self.fields["contacto"].required = False
+        self.fields["puntos_venta"].queryset = puntos_venta_de_cliente_qs(cliente_id)
+        if puntos_venta_ids:
+            self.fields["puntos_venta"].queryset = ClientePuntoVenta.objects.filter(models.Q(pk__in=puntos_venta_ids) | models.Q(cliente_id=cliente_id), activo=True).distinct()
+        use_related_data_select(self.fields["puntos_venta"])
         use_related_data_select(self.fields["contacto"])
         mark_searchable_select(self.fields["cliente"])
+        mark_searchable_select(self.fields["puntos_venta"], **{"data-filter-client-source": "id_cliente", "data-always-searchable": "true", "data-empty-label": "Sin puntos de venta disponibles"})
         mark_searchable_select(
             self.fields["contacto"],
             **{
@@ -843,10 +1068,13 @@ class ProyectoForm(forms.ModelForm):
         cleaned_data = super().clean()
         cliente = cleaned_data.get("cliente")
         contacto = cleaned_data.get("contacto")
+        puntos_venta = cleaned_data.get("puntos_venta")
         if contacto and cliente and contacto.cliente_id != cliente.id:
             self.add_error("contacto", "El contacto no pertenece al cliente seleccionado.")
         if contacto and not cliente:
             self.add_error("contacto", "Selecciona un cliente para asociar este contacto.")
+        if puntos_venta and (not cliente or any(punto.cliente_id != cliente.id for punto in puntos_venta)):
+            self.add_error("puntos_venta", "Todos los puntos de venta deben pertenecer al cliente seleccionado.")
         return cleaned_data
 
 
@@ -881,11 +1109,19 @@ class SolicitudProyectoForm(forms.ModelForm):
         use_related_data_select(self.fields["proyecto"])
         mark_searchable_select(self.fields["proyecto"])
 
+    def clean(self):
+        cleaned_data = super().clean()
+        proyecto = cleaned_data.get("proyecto")
+        punto_venta = getattr(self.instance, "punto_venta", None)
+        if proyecto and punto_venta and proyecto.cliente_id and punto_venta.cliente_id != proyecto.cliente_id:
+            self.add_error("proyecto", "El proyecto seleccionado pertenece a otro cliente del punto de venta.")
+        return cleaned_data
+
 
 class SolicitudClienteForm(forms.ModelForm):
     class Meta:
         model = Solicitud
-        fields = ["cliente", "contacto"]
+        fields = ["cliente", "contacto", "punto_venta"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -895,21 +1131,29 @@ class SolicitudClienteForm(forms.ModelForm):
         self.fields["cliente"].queryset = clientes.order_by("nombre", "razon_social")
         self.fields["cliente"].required = False
         self.fields["contacto"].queryset = ClienteContacto.objects.filter(activo=True).select_related("cliente")
+        cliente_id = selected_form_id(self, "cliente")
+        punto_venta_id = selected_form_id(self, "punto_venta")
+        self.fields["punto_venta"].queryset = include_selected(puntos_venta_de_cliente_qs(cliente_id), ClientePuntoVenta, punto_venta_id)
         self.fields["contacto"].required = False
+        self.fields["punto_venta"].required = False
         use_related_data_select(self.fields["contacto"])
         mark_searchable_select(self.fields["cliente"])
         mark_searchable_select(self.fields["contacto"], **{"data-filter-client-source": "id_cliente"})
+        mark_searchable_select(self.fields["punto_venta"], **{"data-filter-client-source": "id_cliente", "data-always-searchable": "true", "data-empty-label": "Sin puntos de venta disponibles"})
 
     def clean(self):
         cleaned_data = super().clean()
         cliente = cleaned_data.get("cliente")
         contacto = cleaned_data.get("contacto")
+        punto_venta = cleaned_data.get("punto_venta")
         proyecto = self.instance.proyecto if self.instance and self.instance.pk else None
         cliente_esperado = cliente or getattr(proyecto, "cliente", None)
         if contacto and cliente_esperado and contacto.cliente_id != cliente_esperado.id:
             self.add_error("contacto", "El contacto no pertenece al cliente de la solicitud.")
         if contacto and not cliente_esperado:
             self.add_error("contacto", "Selecciona un cliente o proyecto para asociar este contacto.")
+        if punto_venta and (not cliente_esperado or punto_venta.cliente_id != cliente_esperado.id):
+            self.add_error("punto_venta", "El punto de venta no pertenece al cliente de la solicitud.")
         return cleaned_data
 
 
