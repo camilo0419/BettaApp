@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections import Counter
 from pathlib import Path
 
 from django.conf import settings
@@ -96,6 +97,8 @@ class Command(BaseCommand):
             counts[candidate["state"]] += 1
             candidates.append((mapping, client, remote, candidate))
 
+        diagnostics = self._aggregate_review_causes(candidates)
+
         applied = 0
         if apply_mode:
             for mapping, client, remote, candidate in candidates:
@@ -130,7 +133,7 @@ class Command(BaseCommand):
                 detail=f"Baselines inicializados: {applied}; revisión: {counts['REVIEW'] + counts['MISSING_REMOTE']}.",
                 metadata={"counts": counts, "applied": applied, "coverage": fetched["coverage"], "direction": "alegra_to_betta"},
             )
-        report = self._report(fetched, counts, applied, apply_mode)
+        report = self._report(fetched, counts, diagnostics, applied, apply_mode)
         output = Path(options["output"])
         if not output.is_absolute():
             output = Path.cwd() / output
@@ -140,7 +143,51 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"{mode}: baselines seguros={counts['SAFE']}; revisión={counts['REVIEW'] + counts['MISSING_REMOTE']}; informe={output}"))
 
     @staticmethod
-    def _report(fetched, counts, applied, apply_mode):
+    @staticmethod
+    def _aggregate_review_causes(candidates):
+        """Agrega motivos sin conservar identificadores ni valores de contactos."""
+        reasons = Counter()
+        missing_fields = Counter()
+        different_fields = Counter()
+        categories = Counter()
+        affected_clients = set()
+        affected_by_category = {}
+        for mapping, _client, _remote, candidate in candidates:
+            if candidate.get("state") != "REVIEW":
+                continue
+            key = str(mapping.pk)
+            affected_clients.add(key)
+            missing = sorted({str(field) for field in candidate.get("missing", []) if field})
+            differences = sorted({str(field) for field in candidate.get("differences", []) if field})
+            reason = str(candidate.get("reason") or "Motivo no especificado")
+            reasons[reason] += 1
+            for field in missing:
+                missing_fields[field] += 1
+            for field in differences:
+                different_fields[field] += 1
+            if missing:
+                category = "MISSING_PROTECTED_FIELDS"
+            elif "remote_or_local" in differences:
+                category = "MISSING_LINKED_RECORD"
+            elif differences:
+                category = "FIELD_DIFFERENCES"
+            else:
+                category = "OTHER_REVIEW"
+            categories[category] += 1
+            affected_by_category.setdefault(category, set()).add(key)
+        return {
+            "reason_counts": dict(sorted(reasons.items())),
+            "missing_field_counts": dict(sorted(missing_fields.items())),
+            "different_field_counts": dict(sorted(different_fields.items())),
+            "exclusive_category_counts": dict(sorted(categories.items())),
+            "affected_clients": len(affected_clients),
+            "affected_by_category": {
+                category: len(ids) for category, ids in sorted(affected_by_category.items())
+            },
+        }
+
+    @staticmethod
+    def _report(fetched, counts, diagnostics, applied, apply_mode):
         return "\n".join([
             "# Conciliación de baselines Alegra → BettaApp",
             "",
@@ -152,6 +199,15 @@ class Command(BaseCommand):
             f"- Contactos vinculados no recuperados: {counts['MISSING_REMOTE']}.",
             f"- Baselines inicializados: {applied}.",
             f"- Errores de consulta: {len(fetched['errors'])}; IDs duplicados observados: {fetched['duplicate_external_ids']}.",
+            "",
+            "## Diagnóstico agregado de REVIEW",
+            "",
+            f"- Clientes afectados por revisión: {diagnostics['affected_clients']}.",
+            f"- Categorías excluyentes: {diagnostics['exclusive_category_counts']}.",
+            f"- Clientes por categoría: {diagnostics['affected_by_category']}.",
+            f"- Campos faltantes: {diagnostics['missing_field_counts']}.",
+            f"- Campos diferentes: {diagnostics['different_field_counts']}.",
+            f"- Motivos: {diagnostics['reason_counts']}.",
             "",
             "No se modifican clientes ni campos tributarios. Los casos con diferencias, datos protegidos incompletos o contacto remoto ausente quedan bloqueados.",
             "Las solicitudes externas del comando son exclusivamente GET.",
