@@ -2133,3 +2133,57 @@ class AlegraWriteOperation(models.Model):
 
     def __str__(self):
         return f"{self.operation}:{self.client_id}:{self.state}"
+
+
+class AlegraProductWriteOperation(models.Model):
+    """Operación durable y acotada para escribir productos en Alegra."""
+
+    OP_CREATE = "create"
+    OP_UPDATE = "update"
+    OPERATIONS = [(OP_CREATE, "Crear producto"), (OP_UPDATE, "Actualizar producto")]
+
+    STATE_PENDING = "pending"
+    STATE_SENT = "sent"
+    STATE_SYNCED = "synced"
+    STATE_FAILED = "failed"
+    STATE_BLOCKED = "blocked"
+    STATE_NEEDS_RECONCILIATION = "needs_reconciliation"
+    STATES = [
+        (STATE_PENDING, "Pendiente"),
+        (STATE_SENT, "Enviada"),
+        (STATE_SYNCED, "Sincronizada"),
+        (STATE_FAILED, "Fallida"),
+        (STATE_BLOCKED, "Requiere revisión"),
+        (STATE_NEEDS_RECONCILIATION, "Requiere conciliación"),
+    ]
+
+    system = models.ForeignKey(ExternalSystem, on_delete=models.PROTECT, related_name="product_write_operations")
+    product = models.ForeignKey(Producto, on_delete=models.PROTECT, related_name="alegra_write_operations")
+    operation = models.CharField(max_length=20, choices=OPERATIONS)
+    external_id = models.CharField(max_length=120, blank=True)
+    state = models.CharField(max_length=32, choices=STATES, default=STATE_PENDING)
+    idempotency_key = models.CharField(max_length=64, unique=True)
+    payload = models.JSONField(default=dict, blank=True)
+    attempts = models.PositiveIntegerField(default=0)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    error_code = models.CharField(max_length=40, blank=True)
+    error_message = models.CharField(max_length=500, blank=True)
+    result_metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["system", "product", "state"], name="alegra_prod_write_idx"),
+            models.Index(fields=["external_id", "state"], name="alegra_prod_ext_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(operation__in=["create", "update"]),
+                name="alegra_prod_write_op_valid",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.operation}:producto:{self.product_id}:{self.state}"

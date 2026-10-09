@@ -2,6 +2,19 @@
 {% block title %}{{ titulo }} | Admin productos{% endblock %}
 {% block content %}
 <div class="panel-head"><div><span class="eyebrow">Producto</span><h1>{{ titulo }}</h1></div><a href="{% url 'panel_productos' %}" class="btn btn-outline">Volver</a></div>
+{% if producto %}
+<div class="panel-card">
+  <div class="panel-card-head"><h2>Sincronización con Alegra</h2><span class="badge">Cola saliente</span></div>
+  {% if alegra_product_operations %}
+    {% with operation=alegra_product_operations.0 %}
+      <p class="muted">Estado: <strong>{{ operation.get_state_display }}</strong>{% if operation.error_message %} · {{ operation.error_message }}{% endif %}</p>
+    {% endwith %}
+  {% else %}
+    <p class="muted">No hay una operación de producto registrada.</p>
+  {% endif %}
+  <small class="muted">Guardar crea o actualiza una operación pendiente. Las escrituras externas permanecen desactivadas por defecto.</small>
+</div>
+{% endif %}
 <div class="panel-card">
   <form method="post" enctype="multipart/form-data" class="dynamic-form admin-form">
     {% csrf_token %}

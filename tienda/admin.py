@@ -25,6 +25,7 @@ from .models import (
     ExternalSystem,
     ExternalObjectMap,
     AlegraItemStaging,
+    AlegraProductWriteOperation,
     SyncAuditLog,
     UNSPSCCode,
     UNSPSCImportJob,
@@ -77,6 +78,14 @@ class SyncAuditLogAdmin(admin.ModelAdmin):
     list_filter = ("result", "resource", "operation")
     search_fields = ("operation", "resource", "external_id", "detail")
     readonly_fields = ("created_at", "metadata")
+
+
+@admin.register(AlegraProductWriteOperation)
+class AlegraProductWriteOperationAdmin(admin.ModelAdmin):
+    list_display = ("created_at", "product", "operation", "state", "external_id", "attempts")
+    list_filter = ("state", "operation")
+    search_fields = ("external_id", "idempotency_key", "error_message")
+    readonly_fields = ("created_at", "updated_at", "payload", "result_metadata")
 
 
 class ProductoCampoInline(admin.TabularInline):

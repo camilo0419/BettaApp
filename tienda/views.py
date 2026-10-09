@@ -110,6 +110,7 @@ from .models import (
 from .services.cotizacion_pdf import generar_pdf_cotizacion, nombre_archivo_cotizacion
 from .services.email_service import enviar_confirmacion_registro_cliente, enviar_confirmacion_solicitud, enviar_correo_cliente, enviar_notificacion_cliente, logo_email_url, remitente_betta
 from .services.alegra_import import AlegraItemImporter, AlegraItemReconciler
+from .services.alegra_product_write import enqueue_product_sync
 from .services.alegra_contact_import import AlegraContactImporter, AlegraContactReconciler
 from .services.alegra_invoice_import import AlegraInvoiceImporter
 from .services.alegra_payment_import import AlegraPaymentImporter
@@ -3907,7 +3908,9 @@ def producto_crear(request):
         datos["orden"] = siguiente_orden
     form = ProductoForm(datos, request.FILES or None, initial={"orden": siguiente_orden})
     if request.method == "POST" and form.is_valid():
-        producto = form.save()
+        with transaction.atomic():
+            producto = form.save()
+            enqueue_product_sync(producto, actor=request.user)
         messages.success(request, "Producto creado. Ahora configura sus campos y opciones.")
         return redirect("panel_producto_campos", producto_id=producto.id)
     return render(request, "tienda/panel/producto_form.html", {"form": form, "titulo": "Crear producto"})
@@ -3918,10 +3921,16 @@ def producto_editar(request, producto_id):
     producto = get_object_or_404(Producto, pk=producto_id)
     form = ProductoForm(request.POST or None, request.FILES or None, instance=producto)
     if request.method == "POST" and form.is_valid():
-        form.save()
+        with transaction.atomic():
+            producto = form.save()
+            enqueue_product_sync(producto, actor=request.user)
         messages.success(request, "Producto actualizado.")
         return redirect("panel_productos")
-    return render(request, "tienda/panel/producto_form.html", {"form": form, "producto": producto, "titulo": "Editar producto"})
+    from .models import AlegraProductWriteOperation
+    return render(request, "tienda/panel/producto_form.html", {
+        "form": form, "producto": producto, "titulo": "Editar producto",
+        "alegra_product_operations": AlegraProductWriteOperation.objects.filter(product=producto).order_by("-created_at", "-id")[:5],
+    })
 
 
 @panel_staff_required

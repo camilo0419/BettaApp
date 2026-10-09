@@ -87,22 +87,23 @@ class WriteAuthorization:
     operation: str
     environment: str
     confirmed: bool = False
+    resource_type: str = "contacts"
 
 
-def authorize_external_write(*, client_id: int, operation: str, environment: str, confirmed: bool = False) -> WriteAuthorization:
+def authorize_external_write(*, client_id: int, operation: str, environment: str, confirmed: bool = False, resource_type: str = "contacts") -> WriteAuthorization:
     """Construye una autorización acotada; no activa escrituras por sí misma."""
-    return WriteAuthorization(int(client_id), str(operation), str(environment), bool(confirmed))
+    return WriteAuthorization(int(client_id), str(operation), str(environment), bool(confirmed), str(resource_type))
 
 
 class AlegraWriteClient:
     """Transporte HTTP para contactos. POST/PUT solo pasan con autorización explícita."""
 
-    def __init__(self, *, timeout: float | None = None, opener: Callable[..., Any] = urlopen):
+    def __init__(self, *, timeout: float | None = None, opener: Callable[..., Any] | None = None):
         self.base_url = os.environ.get("ALEGRA_BASE_URL", "https://api.alegra.com/api/v1").strip().rstrip("/")
         self.email = os.environ.get("ALEGRA_EMAIL", "").strip()
         self.token = os.environ.get("ALEGRA_API_TOKEN", "").strip()
         self.timeout = timeout or float(os.environ.get("ALEGRA_TIMEOUT", "15"))
-        self.opener = opener
+        self.opener = opener or urlopen
         self.last_status: int | None = None
         if not self.email or not self.token:
             raise AlegraConfigurationError("Faltan credenciales de Alegra.")
@@ -113,19 +114,19 @@ class AlegraWriteClient:
         raw = f"{self.email}:{self.token}".encode("utf-8")
         return "Basic " + base64.b64encode(raw).decode("ascii")
 
-    def _assert_write_allowed(self, authorization: WriteAuthorization | None, *, operation: str):
+    def _assert_write_allowed(self, authorization: WriteAuthorization | None, *, operation: str, resource_type: str = "contacts"):
         enabled = os.environ.get("ALEGRA_EXTERNAL_WRITES_ENABLED", "").strip().casefold() == "true"
         if not enabled:
             raise ExternalWriteDisabled("Las escrituras externas están deshabilitadas.")
         if not authorization or not authorization.confirmed:
             raise ExternalWriteNotAuthorized("Falta autorización operativa explícita.")
-        if authorization.operation != operation or authorization.environment != "production":
+        if authorization.operation != operation or authorization.environment != "production" or authorization.resource_type != resource_type:
             raise ExternalWriteNotAuthorized("La autorización no coincide con la operación o entorno.")
 
     def _request(self, method: str, path: str, *, payload: Mapping[str, Any] | None = None,
-                 authorization: WriteAuthorization | None = None) -> dict[str, Any]:
+                 authorization: WriteAuthorization | None = None, resource_type: str = "contacts") -> dict[str, Any]:
         if method in {"POST", "PUT", "PATCH", "DELETE"}:
-            self._assert_write_allowed(authorization, operation=method)
+            self._assert_write_allowed(authorization, operation=method, resource_type=resource_type)
         url = f"{self.base_url}/{path.lstrip('/')}"
         body = json.dumps(payload).encode("utf-8") if payload is not None else None
         request = Request(url, data=body, headers={
@@ -175,6 +176,17 @@ class AlegraWriteClient:
 
     def update_contact(self, external_id: str, payload: Mapping[str, Any], *, authorization: WriteAuthorization) -> dict[str, Any]:
         return self._request("PUT", f"/contacts/{external_id}", payload=payload, authorization=authorization)
+
+    def create_item(self, payload: Mapping[str, Any], *, authorization: WriteAuthorization) -> dict[str, Any]:
+        self._assert_write_allowed(authorization, operation="POST", resource_type="items")
+        data = self._request("POST", "/items", payload=payload, authorization=authorization, resource_type="items")
+        if not data.get("id"):
+            raise AlegraWriteResponseError("Creación de producto sin ID externo; requiere conciliación.")
+        return data
+
+    def update_item(self, external_id: str, payload: Mapping[str, Any], *, authorization: WriteAuthorization) -> dict[str, Any]:
+        self._assert_write_allowed(authorization, operation="PUT", resource_type="items")
+        return self._request("PUT", f"/items/{external_id}", payload=payload, authorization=authorization, resource_type="items")
 
 
 COLOMBIA_ID_TYPES = {
