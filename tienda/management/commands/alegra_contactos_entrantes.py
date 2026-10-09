@@ -9,6 +9,7 @@ from tienda.models import Cliente, ExternalObjectMap, ExternalSystem, SyncAuditL
 from tienda.services.alegra_client import AlegraError, AlegraReadOnlyClient
 from tienda.services.alegra_inbound_sync import InboundClientSyncService, InboundSyncConflict
 from tienda.services.alegra_preimport_clients import fetch_customer_contacts
+from tienda.services.database_lock import DatabaseLockUnavailable, advisory_lock
 
 
 class Command(BaseCommand):
@@ -24,6 +25,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
+            with advisory_lock("bettaapp:alegra:inbound:contacts"):
+                self._sync(options)
+        except DatabaseLockUnavailable as exc:
+            raise CommandError(str(exc)) from exc
+
+    def _sync(self, options):
+        try:
             client = AlegraReadOnlyClient(timeout=options["timeout"])
             fetched = fetch_customer_contacts(
                 client, limit=None if options["all"] else min(max(options["limit"], 1), 1000),
@@ -32,6 +40,11 @@ class Command(BaseCommand):
             )
         except AlegraError as exc:
             raise CommandError(str(exc)) from exc
+        if fetched["errors"] or fetched["coverage"] != "complete":
+            raise CommandError(
+                "Sincronización no aplicada: consulta Alegra incompleta o con errores "
+                f"(cobertura={fetched['coverage']}, errores={len(fetched['errors'])})."
+            )
         system = ExternalSystem.objects.filter(code="alegra").first()
         if not system:
             raise CommandError("No existe el sistema externo Alegra local.")
@@ -41,9 +54,7 @@ class Command(BaseCommand):
             status=ExternalObjectMap.STATUS_ACTIVE,
         ).select_related("content_type"))
         by_external = {str(item.external_id): item for item in mappings}
-        applied = 0
-        conflicts = 0
-        blocked = 0
+        applied = conflicts = blocked = 0
         service = InboundClientSyncService(client)
         for row in fetched["rows"]:
             external_id = str(row.get("id") or "")
@@ -67,9 +78,9 @@ class Command(BaseCommand):
                 conflicts += 1
         SyncAuditLog.objects.create(
             system=system, operation="sync_inbound_contacts", resource="contacts",
-            result=SyncAuditLog.RESULT_SUCCESS if not fetched["errors"] else SyncAuditLog.RESULT_PARTIAL,
+            result=SyncAuditLog.RESULT_SUCCESS,
             detail=f"Consultados: {len(fetched['rows'])}; aplicados: {applied}; conflictos: {conflicts}; bloqueados: {blocked}.",
-            metadata={"pages": fetched["pages"], "coverage": fetched["coverage"], "errors": len(fetched["errors"])},
+            metadata={"pages": fetched["pages"], "coverage": fetched["coverage"], "errors": 0},
         )
         self.stdout.write(self.style.SUCCESS(
             f"Contactos entrantes: consultados={len(fetched['rows'])}, aplicados={applied}, "

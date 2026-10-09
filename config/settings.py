@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import re
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -115,6 +116,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "config.wsgi.application"
 
+DB_SQL_MODE = os.environ.get(
+    "DB_SQL_MODE",
+    "STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION",
+).strip()
+if not re.fullmatch(r"[A-Z0-9_,]+", DB_SQL_MODE):
+    raise ImproperlyConfigured("DB_SQL_MODE contiene caracteres no permitidos.")
+
 DATABASES = {
     "default": {
         "ENGINE": os.environ.get("DB_ENGINE", "django.db.backends.sqlite3"),
@@ -125,6 +133,7 @@ DATABASES = {
         "PORT": os.environ.get("DB_PORT", ""),
         "OPTIONS": {
             "charset": "utf8mb4",
+            "init_command": f"SET SESSION sql_mode='{DB_SQL_MODE}'",
         } if os.environ.get("DB_ENGINE") == "django.db.backends.mysql" else {},
     }
 }
