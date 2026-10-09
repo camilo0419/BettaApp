@@ -25,8 +25,14 @@ def betta_global_context(request):
         if request.user.is_staff or hasattr(request.user, "empleado_perfil"):
             empleado_unread = request.user.notificaciones.filter(leida=False).count()
 
+    alegra_connection = None
+    if getattr(request, "user", None) and request.user.is_authenticated and request.user.is_staff:
+        from .services.alegra_status import connection_state
+        alegra_connection = connection_state()
+
     return {
         "betta_whatsapp_url": whatsapp_url(),
         "cliente_unread_notifications_count": cliente_unread,
         "empleado_unread_notifications_count": empleado_unread,
+        "alegra_connection": alegra_connection,
     }

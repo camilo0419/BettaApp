@@ -120,7 +120,7 @@ from .services.sync_freshness import financial_freshness, source_freshness
 from .services.alegra_write import AlegraContactWriteService, AlegraError, AlegraWriteClient
 from .services.alegra_inbound_sync import InboundClientSyncService, InboundSyncConflict
 from .services.alegra_operation_queue import enqueue_create, enqueue_update_if_changed
-from .services.alegra_status import alegra_operational_status
+from .services.alegra_status import alegra_operational_status, check_connection, connection_state
 from .services.unspsc import recommend_unspsc, unspsc_result
 
 COTIZACION_TOKEN_SALT = "tienda.cotizacion_exito"
@@ -4164,6 +4164,16 @@ def alegra_integraciones(request):
         "alegra_status": alegra_operational_status(),
     }
     return render(request, "tienda/panel/alegra_integraciones.html", context)
+
+
+@alegra_staff_required
+@require_GET
+def alegra_connection_status(request):
+    force = request.GET.get("force") == "1"
+    state = check_connection(force=force) if force else connection_state()
+    state["integrations_url"] = reverse("alegra_integraciones")
+    state["manual_allowed"] = True
+    return JsonResponse(state)
 
 
 @alegra_change_required

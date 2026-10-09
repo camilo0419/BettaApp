@@ -131,6 +131,7 @@ urlpatterns = [
     path("panel/imagenes/<int:imagen_id>/eliminar/", views.imagen_eliminar, name="panel_imagen_eliminar"),
 
     path("panel/integraciones/alegra/", views.alegra_integraciones, name="alegra_integraciones"),
+    path("panel/integraciones/alegra/estado/", views.alegra_connection_status, name="alegra_connection_status"),
     path("panel/integraciones/alegra/catalogo/", views.alegra_catalogo, name="alegra_catalogo"),
     path("panel/integraciones/alegra/catalogo/clasificar/", views.alegra_bulk_classify, name="alegra_bulk_classify"),
     path("panel/integraciones/alegra/catalogo/preview/", views.alegra_bulk_preview, name="alegra_bulk_preview"),

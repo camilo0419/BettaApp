@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import Client, TestCase
 from django.urls import reverse
 
@@ -11,7 +12,7 @@ from tienda.models import (
     Producto,
     SyncAuditLog,
 )
-from tienda.services.alegra_client import AlegraResponse
+from tienda.services.alegra_client import AlegraHTTPError, AlegraResponse
 from tienda.services.alegra_import import AlegraItemImporter
 from tienda.services.alegra_status import alegra_operational_status
 
@@ -120,6 +121,31 @@ class AlegraImportTests(TestCase):
 
 
 class AlegraPanelSecurityTests(TestCase):
+    def test_connection_check_uses_light_get_and_cache(self):
+        user = get_user_model().objects.create_superuser(username="connection-admin", password="test-pass")
+        cache.clear()
+        fake = patch("tienda.services.alegra_status.AlegraReadOnlyClient")
+        client_class = fake.start()
+        client_class.return_value.get.return_value = AlegraResponse(200, {"data": []}, "https://example.test/contacts")
+        self.addCleanup(fake.stop)
+        self.client.force_login(user)
+        first = self.client.get(reverse("alegra_connection_status"), {"force": "1"})
+        second = self.client.get(reverse("alegra_connection_status"))
+        self.assertEqual(first.json()["state"], "connected")
+        self.assertEqual(second.json()["state"], "connected")
+        self.assertEqual(client_class.return_value.get.call_count, 1)
+        self.assertEqual(first.json()["integrations_url"], reverse("alegra_integraciones"))
+
+    def test_connection_auth_failure_is_disconnected_without_sensitive_data(self):
+        user = get_user_model().objects.create_superuser(username="connection-auth", password="test-pass")
+        cache.clear()
+        with patch("tienda.services.alegra_status.AlegraReadOnlyClient") as client_class:
+            client_class.return_value.get.side_effect = AlegraHTTPError(401, "Alegra rechazó la autenticación")
+            self.client.force_login(user)
+            response = self.client.get(reverse("alegra_connection_status"), {"force": "1"})
+        self.assertEqual(response.json()["state"], "disconnected")
+        self.assertNotIn("Authorization", response.content.decode())
+
     def test_dashboard_reports_registered_status_without_network(self):
         user = get_user_model().objects.create_superuser(username="status-admin", password="test-pass")
         system = ExternalObjectMap._meta.get_field("system").remote_field.model.objects.create(code="alegra", name="Alegra")

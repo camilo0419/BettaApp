@@ -402,8 +402,48 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
+  function initAlegraConnection() {
+    var widget = document.querySelector("[data-alegra-connection]");
+    if (!widget) return;
+    var trigger = widget.querySelector(".alegra-connection-trigger");
+    var details = widget.querySelector(".alegra-connection-details");
+    var manual = widget.querySelector("[data-alegra-check]");
+    var statusUrl = widget.getAttribute("data-status-url");
+    function render(data) {
+      widget.className = "alegra-connection-widget alegra-connection-" + (data.state || "unknown");
+      trigger.className = "alegra-connection-trigger alegra-connection-" + (data.state || "unknown");
+      widget.querySelector(".alegra-connection-label").textContent = data.label || "Verificando";
+      widget.querySelector("[data-alegra-label]").textContent = data.label || "Verificando";
+      widget.querySelector("[data-alegra-reason]").textContent = data.reason || "Sin detalle disponible.";
+      widget.querySelector("[data-alegra-checked]").textContent = data.checked_at || "—";
+      widget.querySelector("[data-alegra-success]").textContent = data.last_success_at || "—";
+    }
+    function fetchStatus(force) {
+      if (!navigator.onLine) {
+        render({state: "warning", label: "Advertencia", reason: "El navegador no tiene conexión con BettaApp."});
+        return;
+      }
+      var url = statusUrl + (force ? "?force=1" : "");
+      fetch(url, {credentials: "same-origin"}).then(function (response) {
+        if (!response.ok) throw new Error("No se pudo consultar el estado.");
+        return response.json();
+      }).then(render).catch(function () {
+        render({state: "warning", label: "Advertencia", reason: "No se pudo consultar el estado de BettaApp."});
+      });
+    }
+    trigger.addEventListener("click", function () {
+      var open = !details.hidden;
+      details.hidden = open;
+      trigger.setAttribute("aria-expanded", open ? "false" : "true");
+    });
+    manual.addEventListener("click", function () { manual.disabled = true; fetchStatus(true); setTimeout(function () { manual.disabled = false; }, 1000); });
+    fetchStatus(false);
+    window.setInterval(function () { fetchStatus(false); }, 300000);
+  }
+
   initClientMenu();
   initPanelSidebar();
+  initAlegraConnection();
   refreshTableHints();
   window.addEventListener("resize", refreshTableHints);
 

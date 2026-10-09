@@ -75,6 +75,20 @@
 </aside>
 
 <main class="panel-main">
+  {% if alegra_connection %}
+  <div class="alegra-connection-widget" data-alegra-connection data-status-url="{% url 'alegra_connection_status' %}" data-integrations-url="{% url 'alegra_integraciones' %}">
+    <button type="button" class="alegra-connection-trigger alegra-connection-{{ alegra_connection.state }}" aria-expanded="false" aria-controls="alegra-connection-details" title="Estado de conexión con Alegra">
+      <span class="alegra-connection-dot" aria-hidden="true">●</span><span>Alegra</span><span class="alegra-connection-label">{{ alegra_connection.label }}</span>
+    </button>
+    <div id="alegra-connection-details" class="alegra-connection-details" hidden>
+      <strong data-alegra-label>{{ alegra_connection.label }}</strong>
+      <span data-alegra-reason>{{ alegra_connection.reason }}</span>
+      <span>Última comprobación: <time data-alegra-checked>{{ alegra_connection.checked_at|default:'—' }}</time></span>
+      <span>Última comunicación exitosa: <time data-alegra-success>{{ alegra_connection.last_success_at|default:'—' }}</time></span>
+      <div class="alegra-connection-actions"><a href="{% url 'alegra_integraciones' %}">Detalle de integración</a><button type="button" data-alegra-check>Comprobar ahora</button></div>
+    </div>
+  </div>
+  {% endif %}
   {% if messages %}
     {% for message in messages %}
       <div class="message {{ message.tags }}">{{ message }}</div>

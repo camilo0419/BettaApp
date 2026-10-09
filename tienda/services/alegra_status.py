@@ -8,11 +8,112 @@ sin convertir cada carga de página en una comprobación contra Alegra.
 from __future__ import annotations
 
 import os
+from datetime import timedelta
 
+from django.core.cache import cache
+from django.utils import timezone
+
+from tienda.services.alegra_client import (
+    AlegraConfigurationError,
+    AlegraError,
+    AlegraHTTPError,
+    AlegraReadOnlyClient,
+)
 from tienda.models import AlegraWriteOperation, SyncAuditLog
 
 
 READ_RESOURCES = ("contacts", "items", "invoices", "payments")
+CONNECTION_CACHE_KEY = "alegra:connection:default"
+CONNECTION_LOCK_KEY = "alegra:connection:lock:default"
+CONNECTION_TTL_SECONDS = 300
+
+
+def _state_from_record(record: dict | None) -> dict:
+    if not record:
+        return {
+            "state": "unknown", "label": "Verificando", "reason": "Sin comprobación registrada.",
+            "checked_at": None, "last_success_at": None,
+        }
+    checked_at = record.get("checked_at")
+    if isinstance(checked_at, str):
+        try:
+            checked_at = timezone.datetime.fromisoformat(checked_at)
+        except ValueError:
+            checked_at = None
+    if checked_at and timezone.is_naive(checked_at):
+        checked_at = timezone.make_aware(checked_at)
+    stale = not checked_at or timezone.now() - checked_at > timedelta(seconds=CONNECTION_TTL_SECONDS)
+    state = record.get("state", "unknown")
+    if state == "connected" and stale:
+        state = "warning"
+    labels = {"connected": "Conectado", "disconnected": "Sin conexión", "warning": "Advertencia", "unknown": "Verificando"}
+    return {**record, "state": state, "label": labels.get(state, "Verificando"), "checked_at": checked_at.isoformat() if checked_at else None}
+
+
+def connection_state() -> dict:
+    """Estado para UI; no consulta la red y respeta la caché de comprobación."""
+    cached = cache.get(CONNECTION_CACHE_KEY)
+    if cached:
+        return _state_from_record(cached)
+    audit = SyncAuditLog.objects.filter(operation="alegra_connection_check").order_by("-created_at", "-id").first()
+    if not audit:
+        return _state_from_record(None)
+    metadata = audit.metadata if isinstance(audit.metadata, dict) else {}
+    return _state_from_record({
+        "state": metadata.get("state", "warning"),
+        "reason": audit.detail or "Sin detalle disponible.",
+        "checked_at": audit.created_at.isoformat(),
+        "last_success_at": metadata.get("last_success_at"),
+    })
+
+
+def check_connection(*, force=False, timeout=5) -> dict:
+    """Comprueba un endpoint ligero mediante GET y registra solo metadatos."""
+    cached = cache.get(CONNECTION_CACHE_KEY)
+    if cached and not force:
+        return _state_from_record(cached)
+    if not cache.add(CONNECTION_LOCK_KEY, "1", timeout=30):
+        return connection_state()
+    now = timezone.now()
+    previous_success = cached.get("last_success_at") if isinstance(cached, dict) else None
+    if not previous_success:
+        previous = SyncAuditLog.objects.filter(
+            operation="alegra_connection_check", result=SyncAuditLog.RESULT_SUCCESS
+        ).order_by("-created_at", "-id").first()
+        previous_success = previous.created_at.isoformat() if previous else None
+    try:
+        try:
+            response = AlegraReadOnlyClient(timeout=timeout).get(
+                "/contacts", params={"start": 0, "limit": 1, "metadata": "true"}
+            )
+            if response.status != 200:
+                raise AlegraHTTPError(response.status, f"Alegra respondió HTTP {response.status}.")
+            record = {
+                "state": "connected", "reason": "GET de comprobación exitoso.",
+                "checked_at": now.isoformat(), "last_success_at": now.isoformat(),
+            }
+            result = SyncAuditLog.RESULT_SUCCESS
+        except AlegraHTTPError as exc:
+            state = "disconnected" if exc.status in (401, 403) else "warning"
+            record = {"state": state, "reason": str(exc)[:200], "checked_at": now.isoformat(), "last_success_at": previous_success}
+            result = SyncAuditLog.RESULT_ERROR
+        except AlegraConfigurationError as exc:
+            record = {"state": "disconnected", "reason": str(exc)[:200], "checked_at": now.isoformat(), "last_success_at": previous_success}
+            result = SyncAuditLog.RESULT_ERROR
+        except AlegraError as exc:
+            record = {"state": "warning", "reason": str(exc)[:200], "checked_at": now.isoformat(), "last_success_at": previous_success}
+            result = SyncAuditLog.RESULT_ERROR
+        SyncAuditLog.objects.create(
+            operation="alegra_connection_check", resource="connection", result=result,
+            detail=record["reason"], metadata={
+                "state": record["state"], "checked_at": record["checked_at"],
+                "last_success_at": record.get("last_success_at"),
+            },
+        )
+        cache.set(CONNECTION_CACHE_KEY, record, CONNECTION_TTL_SECONDS)
+        return _state_from_record(record)
+    finally:
+        cache.delete(CONNECTION_LOCK_KEY)
 
 
 def alegra_operational_status() -> dict:
