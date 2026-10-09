@@ -56,8 +56,38 @@ class AlegraBaselineDiagnosticsTests(SimpleTestCase):
             "missing_field_counts": {},
             "different_field_counts": {"email": 1},
             "reason_counts": {"Existen diferencias entre Alegra y BettaApp; no se fuerza el baseline.": 1},
+            "protected_pair_counts": {
+                "regime": [{"pair": {"local": "COMMON_REGIME", "remote": "commonRegime"}, "count": 1}],
+            },
         }
         report = Command._report(fetched, counts, diagnostics, 0, False)
         self.assertIn("Clientes afectados por revisión: 1", report)
         self.assertIn("email", report)
         self.assertNotIn("external-hidden", report)
+
+    def test_protected_pair_diagnostics_are_aggregated_without_documents(self):
+        candidates = [
+            (
+                SimpleNamespace(pk=1), None, None,
+                {
+                    "state": "REVIEW",
+                    "reason": "Existen diferencias.",
+                    "differences": ["regime"],
+                    "diagnostic": {
+                        "regime": {
+                            "local": "COMMON_REGIME",
+                            "remote": "commonRegime",
+                            "local_normalized": "COMMON_REGIME",
+                            "remote_normalized": "",
+                        },
+                        "digito_verificacion": {"local_state": "zero", "remote_state": "present"},
+                    },
+                },
+            ),
+        ]
+        diagnostics = Command._aggregate_review_causes(candidates)
+        self.assertEqual(diagnostics["protected_pair_counts"]["regime"][0]["count"], 1)
+        self.assertEqual(diagnostics["protected_pair_counts"]["digito_verificacion"][0]["pair"]["local_state"], "zero")
+        rendered = repr(diagnostics)
+        self.assertNotIn("101905", rendered)
+        self.assertNotIn("correo", rendered)

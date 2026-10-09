@@ -143,13 +143,13 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"{mode}: baselines seguros={counts['SAFE']}; revisión={counts['REVIEW'] + counts['MISSING_REMOTE']}; informe={output}"))
 
     @staticmethod
-    @staticmethod
     def _aggregate_review_causes(candidates):
         """Agrega motivos sin conservar identificadores ni valores de contactos."""
         reasons = Counter()
         missing_fields = Counter()
         different_fields = Counter()
         categories = Counter()
+        protected_pairs = {"regime": Counter(), "tipo_identificacion": Counter(), "kindOfPerson": Counter(), "digito_verificacion": Counter()}
         affected_clients = set()
         affected_by_category = {}
         for mapping, _client, _remote, candidate in candidates:
@@ -162,6 +162,10 @@ class Command(BaseCommand):
             differences = sorted({str(field) for field in candidate.get("differences", []) if field})
             reason = str(candidate.get("reason") or "Motivo no especificado")
             reasons[reason] += 1
+            for field, pair in (candidate.get("diagnostic") or {}).items():
+                if field not in protected_pairs or not isinstance(pair, dict):
+                    continue
+                protected_pairs[field][tuple(sorted((str(key), str(value)) for key, value in pair.items()))] += 1
             for field in missing:
                 missing_fields[field] += 1
             for field in differences:
@@ -187,6 +191,13 @@ class Command(BaseCommand):
             "affected_by_category": {
                 category: len(ids) for category, ids in sorted(affected_by_category.items())
             },
+            "protected_pair_counts": {
+                field: [
+                    {"pair": dict(pair), "count": count}
+                    for pair, count in sorted(counter.items(), key=lambda item: repr(item[0]))
+                ]
+                for field, counter in protected_pairs.items() if counter
+            },
         }
 
     @staticmethod
@@ -211,6 +222,7 @@ class Command(BaseCommand):
             f"- Campos faltantes: {diagnostics['missing_field_counts']}.",
             f"- Campos diferentes: {diagnostics['different_field_counts']}.",
             f"- Motivos: {diagnostics['reason_counts']}.",
+            f"- Pares tributarios comparados (sin identificadores): {diagnostics['protected_pair_counts']}.",
             "",
             "No se modifican clientes ni campos tributarios. Los casos con diferencias, datos protegidos incompletos o contacto remoto ausente quedan bloqueados.",
             "Las solicitudes externas del comando son exclusivamente GET.",

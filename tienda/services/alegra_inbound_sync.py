@@ -48,6 +48,7 @@ class InboundClientSyncService:
             return {"state": "REVIEW", "reason": "El GET no corresponde al ID externo vinculado.", "differences": ["external_id"]}
 
         identity = extract_identification_context(remote_row)
+        diagnostic = self._protected_pair_diagnostics(client, identity)
         required_remote = {
             "tipo_identificacion": identity["type"] or "",
             "identificacion": identity["number"],
@@ -61,9 +62,9 @@ class InboundClientSyncService:
                 unknown.append(canonical_key)
         missing = [field for field, value in required_remote.items() if not value and field not in {"digito_verificacion"}]
         if unknown:
-            return {"state": "REVIEW", "reason": "Existen códigos tributarios desconocidos.", "differences": unknown, "unknown": unknown}
+            return {"state": "REVIEW", "reason": "Existen códigos tributarios desconocidos.", "differences": unknown, "unknown": unknown, "diagnostic": diagnostic}
         if missing:
-            return {"state": "REVIEW", "reason": "Faltan campos protegidos confirmables.", "differences": missing, "missing": missing}
+            return {"state": "REVIEW", "reason": "Faltan campos protegidos confirmables.", "differences": missing, "missing": missing, "diagnostic": diagnostic}
         local_kind = "LEGAL_ENTITY" if client.tipo_cliente == Cliente.TIPO_EMPRESA else "PERSON_ENTITY"
         protected = {
             "tipo_identificacion": str(client.tipo_identificacion or "").strip().casefold(),
@@ -97,12 +98,47 @@ class InboundClientSyncService:
                 "state": "REVIEW",
                 "reason": "Existen diferencias entre Alegra y BettaApp; no se fuerza el baseline.",
                 "differences": sorted(set(differences)),
+                "diagnostic": diagnostic,
             }
         return {
             "state": "SAFE",
             "reason": "Campos compartidos y protegidos confirmados por GET.",
             "baseline": remote_values,
             "protected": required_remote,
+            "diagnostic": diagnostic,
+        }
+
+    @staticmethod
+    def _protected_pair_diagnostics(client: Cliente, identity: Mapping[str, Any]) -> dict[str, dict[str, str]]:
+        """Devuelve pares tributarios agregables, nunca identificadores personales."""
+        local_kind = "LEGAL_ENTITY" if client.tipo_cliente == Cliente.TIPO_EMPRESA else "PERSON_ENTITY"
+        local_regime = str(client.regimen_tributario or "").strip().upper()
+        local_type = str(client.tipo_identificacion or "").strip().casefold()
+        local_dv = str(client.digito_verificacion or "").strip()
+        remote_dv = identity.get("dv", "")
+        return {
+            "regime": {
+                "local": local_regime,
+                "remote": identity.get("raw_regime", ""),
+                "local_normalized": local_regime if local_regime else "",
+                "remote_normalized": identity.get("regime") or "",
+            },
+            "tipo_identificacion": {
+                "local": local_type,
+                "remote": identity.get("raw_type", ""),
+                "local_normalized": local_type,
+                "remote_normalized": identity.get("type") or "",
+            },
+            "kindOfPerson": {
+                "local": local_kind,
+                "remote": identity.get("raw_kind", ""),
+                "local_normalized": local_kind,
+                "remote_normalized": identity.get("kind") or "",
+            },
+            "digito_verificacion": {
+                "local_state": "zero" if local_dv == "0" else "present" if local_dv else "empty",
+                "remote_state": "zero" if remote_dv == "0" else "present" if remote_dv else "empty",
+            },
         }
 
     @staticmethod
