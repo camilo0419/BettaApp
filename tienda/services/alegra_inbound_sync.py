@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from tienda.models import Cliente, ExternalObjectMap, SyncAuditLog
 from .alegra_bidirectional_clients import BidirectionalClientSync, CONFLICT, PENDING, SYNCED
+from .alegra_normalization import extract_identification_context
 
 LOCAL_ONLY = "local_only"
 
@@ -46,15 +47,21 @@ class InboundClientSyncService:
         if str(remote_row.get("id") or "").strip() != str(mapping.external_id):
             return {"state": "REVIEW", "reason": "El GET no corresponde al ID externo vinculado.", "differences": ["external_id"]}
 
-        identification_object = remote_row.get("identificationObject") if isinstance(remote_row.get("identificationObject"), Mapping) else {}
+        identity = extract_identification_context(remote_row)
         required_remote = {
-            "tipo_identificacion": str(remote_row.get("identificationType") or identification_object.get("type") or "").strip().casefold(),
-            "identificacion": str(remote_row.get("identification") or identification_object.get("number") or "").strip(),
-            "digito_verificacion": str(remote_row.get("verificationDigit") or remote_row.get("dv") or identification_object.get("dv") or "").strip(),
-            "kindOfPerson": str(remote_row.get("kindOfPerson") or "").strip().upper(),
-            "regime": str(remote_row.get("regime") or "").strip().upper(),
+            "tipo_identificacion": identity["type"] or "",
+            "identificacion": identity["number"],
+            "digito_verificacion": identity["dv"],
+            "kindOfPerson": identity["kind"] or "",
+            "regime": identity["regime"] or "",
         }
+        unknown = []
+        for raw_key, canonical_key in (("raw_type", "tipo_identificacion"), ("raw_kind", "kindOfPerson"), ("raw_regime", "regime")):
+            if identity[raw_key] and not required_remote[canonical_key]:
+                unknown.append(canonical_key)
         missing = [field for field, value in required_remote.items() if not value and field not in {"digito_verificacion"}]
+        if unknown:
+            return {"state": "REVIEW", "reason": "Existen códigos tributarios desconocidos.", "differences": unknown, "unknown": unknown}
         if missing:
             return {"state": "REVIEW", "reason": "Faltan campos protegidos confirmables.", "differences": missing, "missing": missing}
         local_kind = "LEGAL_ENTITY" if client.tipo_cliente == Cliente.TIPO_EMPRESA else "PERSON_ENTITY"
@@ -130,12 +137,12 @@ class InboundClientSyncService:
 
     @staticmethod
     def _protected_differences(client: Cliente, row: Mapping[str, Any]) -> list[str]:
-        identification_object = row.get("identificationObject") if isinstance(row.get("identificationObject"), Mapping) else {}
-        remote_type = str(row.get("identificationType") or identification_object.get("type") or "").strip().casefold()
+        identity = extract_identification_context(row)
+        remote_type = identity["type"] or ("__UNKNOWN__" if identity["raw_type"] else "")
         local_type = str(client.tipo_identificacion or "").strip().casefold()
-        remote_number = str(row.get("identification") or identification_object.get("number") or "").strip()
-        remote_dv = str(row.get("verificationDigit") or row.get("dv") or identification_object.get("dv") or "").strip()
-        remote_kind = str(row.get("kindOfPerson") or "").strip().upper()
+        remote_number = identity["number"]
+        remote_dv = identity["dv"]
+        remote_kind = identity["kind"] or ("__UNKNOWN__" if identity["raw_kind"] else "")
         local_kind = "LEGAL_ENTITY" if client.tipo_cliente == Cliente.TIPO_EMPRESA else "PERSON_ENTITY"
         differences = []
         if remote_type and local_type and remote_type != local_type:
@@ -146,7 +153,7 @@ class InboundClientSyncService:
             differences.append("digito_verificacion")
         if remote_kind and remote_kind != local_kind:
             differences.append("tipo_cliente")
-        remote_regime = str(row.get("regime") or "").strip().upper()
+        remote_regime = identity["regime"] or ("__UNKNOWN__" if identity["raw_regime"] else "")
         local_regime = str(client.regimen_tributario or "").strip().upper()
         if remote_regime and local_regime and remote_regime != local_regime:
             differences.append("regimen_tributario")
@@ -163,12 +170,12 @@ class InboundClientSyncService:
             raise InboundSyncConflict("No existe baseline confirmado para revisar cambios.")
         comparison = self.sync.compare_linked_client(client, remote_row, baseline)
         protected = self._protected_differences(client, remote_row)
-        identification_object = remote_row.get("identificationObject") if isinstance(remote_row.get("identificationObject"), Mapping) else {}
-        if not identification_object.get("type") or not identification_object.get("number"):
+        identity = extract_identification_context(remote_row)
+        if not identity["type"] or not identity["number"] or identity["raw_type"] and not identity["type"]:
             protected.append("identificacion")
-        if not remote_row.get("kindOfPerson"):
+        if not identity["kind"]:
             protected.append("tipo_cliente")
-        if not remote_row.get("regime"):
+        if not identity["regime"]:
             protected.append("regimen_tributario")
         protected = sorted(set(protected))
         remote_fields = [field for field in comparison.get("remote_fields", []) if field in self.WRITABLE_FIELDS]

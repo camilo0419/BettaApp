@@ -13,6 +13,7 @@ from django.utils import timezone
 from tienda.models import Cliente, ExternalObjectMap, SyncAuditLog
 from tienda.services.alegra_bidirectional_clients import BidirectionalClientSync
 from tienda.services.alegra_contact_import import normalize_identity
+from tienda.services.alegra_normalization import extract_identification_context
 from tienda.services.alegra_preimport_clients import ACTION_CREATE_LOCAL, ACTION_LINK_EXISTING, build_preimport_plan
 
 
@@ -34,15 +35,15 @@ def _types(row):
 
 def _client_values(row):
     address = _address(row)
-    raw_identification = _text(row.get("identification"), 60)
-    explicit_dv = _text(row.get("verificationDigit") or row.get("dv"), 4)
+    identity = extract_identification_context(row)
+    raw_identification = _text(identity["number"], 60)
+    explicit_dv = _text(identity["dv"], 4)
     if "-" in raw_identification:
         raw_identification, inferred_dv = [part.strip() for part in raw_identification.rsplit("-", 1)]
     else:
         inferred_dv = ""
     types = _types(row)
-    identification_type = _text(row.get("identificationType") or row.get("identification_type"), 20).casefold()
-    identification_type = {"passport": "pasaporte", "cedula": "cc", "cédula": "cc"}.get(identification_type, identification_type)
+    identification_type = _text(identity["type"], 20)
     if identification_type not in {choice[0] for choice in Cliente.TIPO_IDENTIFICACION_CHOICES}:
         identification_type = ""
     is_company = bool(types & {"company", "empresa"}) or identification_type == Cliente.ID_NIT

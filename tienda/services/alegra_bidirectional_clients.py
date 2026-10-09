@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
 from .alegra_contact_import import normalize_identity, normalize_name
+from .alegra_normalization import extract_identification_context
 
 
 PENDING = "PENDING"
@@ -275,16 +276,14 @@ class BidirectionalClientSync:
             for key in ("firstName", "secondName", "lastName", "secondLastName")
             if str(name_object.get(key, "") or "").strip()
         )
-        identification_object = row.get("identificationObject") if isinstance(row.get("identificationObject"), Mapping) else {}
-        identification = str(row.get("identification", "") or identification_object.get("number", "") or "").strip()
+        identity = extract_identification_context(row)
+        identification = identity["number"]
         if "-" in identification:
             identification = identification.rsplit("-", 1)[0].strip()
-        identification_type = str(row.get("identificationType") or row.get("identification_type", "") or identification_object.get("type", "") or "").strip().casefold()
-        identification_type = {"passport": "pasaporte", "cedula": "cc", "cédula": "cc"}.get(identification_type, identification_type)
         values = {
             "nombre": name,
             "identificacion": identification,
-            "tipo_identificacion": identification_type,
+            "tipo_identificacion": identity["type"] or "",
             "email": row.get("email", ""),
             "telefono": row.get("phonePrimary", ""),
             "telefono_secundario": row.get("phoneSecondary", ""),

@@ -153,6 +153,14 @@ class InboundAlegraSyncTests(TestCase):
         self.assertIn("email", candidate["differences"])
         self.assertNotIn("last_synced_fields", self.mapping.metadata)
 
+    def test_zero_verification_digit_is_equivalent_to_string_zero(self):
+        self.client.digito_verificacion = "0"
+        self.client.save(update_fields=["digito_verificacion", "fecha_actualizacion"])
+        row = {**self.remote, "verificationDigit": 0}
+        row["identificationObject"] = {"type": "NIT", "number": "900123456"}
+        candidate = self.service(row).baseline_candidate(self.client, self.mapping, row)
+        self.assertEqual(candidate["state"], "SAFE")
+
     def test_network_error_is_propagated_without_local_change(self):
         class ErrorTransport:
             def get_contact(self, external_id):

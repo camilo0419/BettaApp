@@ -158,6 +158,7 @@ class Command(BaseCommand):
             key = str(mapping.pk)
             affected_clients.add(key)
             missing = sorted({str(field) for field in candidate.get("missing", []) if field})
+            unknown = sorted({str(field) for field in candidate.get("unknown", []) if field})
             differences = sorted({str(field) for field in candidate.get("differences", []) if field})
             reason = str(candidate.get("reason") or "Motivo no especificado")
             reasons[reason] += 1
@@ -167,6 +168,8 @@ class Command(BaseCommand):
                 different_fields[field] += 1
             if missing:
                 category = "MISSING_PROTECTED_FIELDS"
+            elif unknown:
+                category = "UNKNOWN_PROTECTED_FIELDS"
             elif "remote_or_local" in differences:
                 category = "MISSING_LINKED_RECORD"
             elif differences:
