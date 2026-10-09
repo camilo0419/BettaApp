@@ -15,6 +15,28 @@ from tienda.models import UNSPSCImportJob
 CONFIRMATION = "APLICAR IMPORTACIÓN UNSPSC"
 
 
+def claim_job(expected_status, job_id=None):
+    """Reclama exactamente un trabajo, con defensa para SQLite y MariaDB."""
+    queryset = UNSPSCImportJob.objects.filter(status=expected_status).order_by("created_at", "pk")
+    if job_id:
+        queryset = queryset.filter(pk=job_id)
+    with transaction.atomic():
+        job = queryset.select_for_update().first()
+        if not job:
+            return None
+        claimed = UNSPSCImportJob.objects.filter(
+            pk=job.pk, status=expected_status
+        ).update(
+            status=UNSPSCImportJob.STATUS_PROCESSING,
+            started_at=timezone.now(),
+            error_message="",
+        )
+        if claimed != 1:
+            return None
+        job.refresh_from_db()
+        return job
+
+
 class Command(BaseCommand):
     help = "Valida o aplica un trabajo UNSPSC pendiente; pensado para cron."
 
@@ -24,23 +46,20 @@ class Command(BaseCommand):
         parser.add_argument("--confirm", default="")
 
     def handle(self, *args, **options):
-        queryset = UNSPSCImportJob.objects.filter(
-            status=UNSPSCImportJob.STATUS_APPLY_REQUESTED if options["apply"] else UNSPSCImportJob.STATUS_PENDING,
-        ).order_by("created_at")
-        if options.get("job_id"):
-            queryset = queryset.filter(pk=options["job_id"])
-        job = queryset.first()
-        if not job:
-            self.stdout.write("No hay trabajos UNSPSC pendientes.")
-            return
+        expected_status = (
+            UNSPSCImportJob.STATUS_APPLY_REQUESTED
+            if options["apply"]
+            else UNSPSCImportJob.STATUS_PENDING
+        )
         if options["apply"] and options["confirm"] != CONFIRMATION:
             raise CommandError(f'--apply requiere --confirm "{CONFIRMATION}".')
-        with transaction.atomic():
-            job = UNSPSCImportJob.objects.select_for_update().get(pk=job.pk)
-            job.status = UNSPSCImportJob.STATUS_PROCESSING
-            job.started_at = timezone.now()
-            job.error_message = ""
-            job.save(update_fields=["status", "started_at", "error_message"])
+
+        # En MariaDB el bloqueo protege la lectura; el UPDATE condicional es
+        # la defensa adicional para SQLite, donde select_for_update() no bloquea.
+        job = claim_job(expected_status, options.get("job_id"))
+        if not job:
+            self.stdout.write("No hay trabajos UNSPSC pendientes o el trabajo ya fue reclamado.")
+            return
         output = StringIO()
         try:
             command_options = {

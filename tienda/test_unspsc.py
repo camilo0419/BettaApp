@@ -1,10 +1,17 @@
 from django.contrib.auth.models import User
+from django.conf import settings
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.core.files.uploadedfile import SimpleUploadedFile
+from unittest.mock import patch
+import os
+import tempfile
+import zipfile
 
 from tienda.forms import ProductoForm
-from tienda.models import Categoria, Producto, UNSPSCCode
+from tienda.models import Categoria, Producto, UNSPSCCode, UNSPSCImportJob
+from tienda.storage import PrivateMediaStorage
 from tienda.services.unspsc import recommend_unspsc
 
 
@@ -68,5 +75,43 @@ class UNSPSCTests(TestCase):
             self.assertEqual(UNSPSCCode.objects.filter(catalog_version="2026-test").count(), 2)
             self.assertIsNotNone(UNSPSCCode.objects.get(catalog_version="2026-test", code="01010101"))
         finally:
-            import os
             os.unlink(filename)
+
+    def test_import_job_claim_is_idempotent(self):
+        from tienda.management.commands.unspsc_procesar_importacion import claim_job
+
+        test_tmp_root = os.path.join(settings.BASE_DIR, "tmp")
+        os.makedirs(test_tmp_root, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=test_tmp_root) as private_root, override_settings(PRIVATE_MEDIA_ROOT=private_root):
+            job = UNSPSCImportJob.objects.create(
+                file=SimpleUploadedFile("catalogo.csv", b"Codigo,Descripcion\n01000000,Agricultura\n"),
+                catalog_version="claim-test",
+            )
+        first = claim_job(UNSPSCImportJob.STATUS_PENDING, job.pk)
+        second = claim_job(UNSPSCImportJob.STATUS_PENDING, job.pk)
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        job.refresh_from_db()
+        self.assertEqual(job.status, UNSPSCImportJob.STATUS_PROCESSING)
+
+    def test_zip_catalog_is_extracted_streaming(self):
+        from tienda.management.commands.unspsc_importar import _source_file
+
+        test_tmp_root = os.path.join(settings.BASE_DIR, "tmp")
+        os.makedirs(test_tmp_root, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=test_tmp_root) as directory:
+            filename = os.path.join(directory, "catalogo.zip")
+            with zipfile.ZipFile(filename, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("catalogo.csv", "Codigo,Descripcion\n01000000,Agricultura\n")
+            with patch("zipfile.ZipFile.read", side_effect=AssertionError("no debe leer el ZIP completo")):
+                extracted = _source_file(filename)
+            try:
+                with open(extracted, encoding="utf-8") as handle:
+                    self.assertIn("01000000", handle.read())
+            finally:
+                os.unlink(extracted)
+
+    def test_private_unspsc_storage_has_no_public_url(self):
+        storage = PrivateMediaStorage()
+        with self.assertRaises(ValueError):
+            storage.url("private/unspsc/catalogo.csv")

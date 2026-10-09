@@ -9,6 +9,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
 
+from .storage import PrivateMediaStorage
+
 
 class Categoria(models.Model):
     nombre = models.CharField(max_length=120, unique=True)
@@ -102,7 +104,7 @@ class UNSPSCImportJob(models.Model):
         (STATUS_FAILED, "Fallida"),
     ]
 
-    file = models.FileField(upload_to="private/unspsc/", max_length=255)
+    file = models.FileField(storage=PrivateMediaStorage(), upload_to="private/unspsc/", max_length=255)
     catalog_version = models.CharField(max_length=40)
     source_url = models.URLField(max_length=500, blank=True)
     status = models.CharField(max_length=24, choices=STATUSES, default=STATUS_PENDING)

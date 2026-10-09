@@ -3,6 +3,7 @@
 import csv
 import io
 import re
+import shutil
 import tempfile
 import time
 import unicodedata
@@ -17,6 +18,9 @@ from tienda.models import SyncAuditLog, UNSPSCCode
 
 CONFIRMATION = "IMPORTAR CATÁLOGO UNSPSC"
 MAX_FILE_BYTES = 400 * 1024 * 1024
+MAX_ZIP_ENTRIES = 20
+MAX_ZIP_COMPRESSION_RATIO = 1000
+COPY_CHUNK_BYTES = 1024 * 1024
 LEVEL_FIELDS = {
     "segment": ("Segmento", "Título del Segmento"),
     "family": ("Familia", "Título de Familia"),
@@ -54,14 +58,22 @@ def _source_file(path):
     if path.suffix.casefold() != ".zip":
         return path
     with zipfile.ZipFile(path) as archive:
-        files = [info for info in archive.infolist() if not info.is_dir() and Path(info.filename).suffix.casefold() in {".csv", ".xlsx"}]
-        if len(files) != 1:
+        entries = [info for info in archive.infolist() if not info.is_dir()]
+        if len(entries) > MAX_ZIP_ENTRIES:
+            raise CommandError("El ZIP contiene demasiados archivos.")
+        files = [info for info in entries if Path(info.filename).suffix.casefold() in {".csv", ".xlsx"}]
+        if len(entries) != 1 or len(files) != 1:
             raise CommandError("El ZIP debe contener exactamente un CSV o XLSX de catálogo.")
-        if files[0].file_size > MAX_FILE_BYTES or files[0].compress_size == 0 or files[0].file_size / max(files[0].compress_size, 1) > 1000:
+        info = files[0]
+        member_path = Path(info.filename)
+        if member_path.is_absolute() or ".." in member_path.parts:
+            raise CommandError("El ZIP contiene una ruta de archivo no segura.")
+        if info.file_size > MAX_FILE_BYTES or info.compress_size == 0 or info.file_size / max(info.compress_size, 1) > MAX_ZIP_COMPRESSION_RATIO:
             raise CommandError("El ZIP no supera las validaciones de tamaño o compresión.")
-        target = Path(tempfile.gettempdir()) / f"unspsc-source-{time.time_ns()}{Path(files[0].filename).suffix.casefold()}"
+        target = Path(tempfile.gettempdir()) / f"unspsc-source-{time.time_ns()}{member_path.suffix.casefold()}"
         with target.open("wb") as handle:
-            handle.write(archive.read(files[0]))
+            with archive.open(info, "r") as source:
+                shutil.copyfileobj(source, handle, length=COPY_CHUNK_BYTES)
         return target
 
 

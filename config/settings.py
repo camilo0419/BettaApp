@@ -158,6 +158,10 @@ _media_root = os.environ.get("MEDIA_ROOT", "").strip()
 MEDIA_ROOT = Path(_media_root).expanduser() if _media_root else BASE_DIR / "media"
 if not MEDIA_ROOT.is_absolute():
     MEDIA_ROOT = BASE_DIR / MEDIA_ROOT
+_private_media_root = os.environ.get("PRIVATE_MEDIA_ROOT", "").strip()
+PRIVATE_MEDIA_ROOT = Path(_private_media_root).expanduser() if _private_media_root else BASE_DIR / "private_media"
+if not PRIVATE_MEDIA_ROOT.is_absolute():
+    PRIVATE_MEDIA_ROOT = BASE_DIR / PRIVATE_MEDIA_ROOT
 
 if DEBUG:
     MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
