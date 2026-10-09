@@ -5,6 +5,7 @@ from urllib.error import URLError
 
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
+from django.db import IntegrityError
 
 from tienda.models import (
     AlegraProductWriteOperation,
@@ -18,6 +19,7 @@ from tienda.services.alegra_product_write import (
     build_item_payload,
     enqueue_product_sync,
     process_pending_product_operations,
+    reconcile_product_operations,
 )
 
 
@@ -149,3 +151,84 @@ class ProductWriteTests(TestCase):
         self.assertEqual(operation.state, AlegraProductWriteOperation.STATE_SYNCED, operation.error_message)
         self.assertEqual(opener.call_args.args[0].method, "PUT")
         self.assertEqual(AlegraProductWriteOperation.objects.get(pk=operation.pk).state, AlegraProductWriteOperation.STATE_SYNCED)
+
+    def test_sent_operation_is_not_reprocessed_by_pending_processor(self):
+        product = self.product()
+        operation = enqueue_product_sync(product)
+        operation.state = AlegraProductWriteOperation.STATE_SENT
+        operation.attempts = 1
+        operation.save(update_fields=["state", "attempts"])
+        with patch("tienda.services.alegra_product_write.AlegraWriteClient") as client:
+            result = process_pending_product_operations(execute=False)
+        client.assert_not_called()
+        self.assertEqual(result["pending"], 0)
+
+    @patch.dict(os.environ, {
+        "ALEGRA_EMAIL": "test@example.test",
+        "ALEGRA_API_TOKEN": "token",
+        "ALEGRA_AUTOMATION_WRITES_ENABLED": "true",
+        "ALEGRA_EXTERNAL_WRITES_ENABLED": "true",
+    }, clear=False)
+    def test_successful_post_with_local_mapping_failure_is_recoverable(self):
+        product = self.product()
+        operation = enqueue_product_sync(product)
+        with patch("tienda.services.alegra_write.urlopen", return_value=FakeResponse({"id": "A-ITEM-LOCAL-FAIL"})), \
+             patch.object(ExternalObjectMap.objects, "create", side_effect=IntegrityError("duplicate")):
+            result = process_pending_product_operations(execute=True)
+        operation.refresh_from_db()
+        self.assertEqual(result["results"][0]["state"], AlegraProductWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(operation.state, AlegraProductWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(operation.external_id, "A-ITEM-LOCAL-FAIL")
+        self.assertEqual(operation.attempts, 1)
+
+    def test_reconcile_existing_map_finalizes_without_post(self):
+        product = self.product()
+        ct = ContentType.objects.get_for_model(Producto)
+        ExternalObjectMap.objects.create(
+            system=self.system, resource_type="items", external_id="A-ITEM-3",
+            content_type=ct, object_id=product.pk, status=ExternalObjectMap.STATUS_ACTIVE,
+        )
+        operation = enqueue_product_sync(product)
+        operation.state = AlegraProductWriteOperation.STATE_SENT
+        operation.external_id = "A-ITEM-3"
+        operation.attempts = 1
+        operation.save(update_fields=["state", "external_id", "attempts"])
+        remote = {"id": "A-ITEM-3", "name": product.nombre, "type": "product"}
+        with patch("tienda.services.alegra_client.urlopen", return_value=FakeResponse(remote)), \
+             patch("tienda.services.alegra_write.urlopen") as post:
+            result = reconcile_product_operations(apply=True)
+        operation.refresh_from_db()
+        self.assertEqual(result["results"][0]["status"], "synced")
+        self.assertEqual(operation.state, AlegraProductWriteOperation.STATE_SYNCED)
+        post.assert_not_called()
+
+    def test_reconcile_lost_create_response_links_single_exact_candidate(self):
+        product = self.product()
+        operation = enqueue_product_sync(product)
+        operation.state = AlegraProductWriteOperation.STATE_NEEDS_RECONCILIATION
+        operation.attempts = 1
+        operation.save(update_fields=["state", "attempts"])
+        remote = [{"id": "A-ITEM-4", "name": product.nombre, "type": "product"}]
+        with patch("tienda.services.alegra_client.urlopen", return_value=FakeResponse(remote)):
+            result = reconcile_product_operations(apply=True)
+        operation.refresh_from_db()
+        self.assertEqual(result["results"][0]["status"], "synced")
+        self.assertEqual(operation.external_id, "A-ITEM-4")
+        self.assertTrue(ExternalObjectMap.objects.filter(external_id="A-ITEM-4", object_id=product.pk).exists())
+
+    def test_reconcile_ambiguous_candidates_does_not_create_map(self):
+        product = self.product()
+        operation = enqueue_product_sync(product)
+        operation.state = AlegraProductWriteOperation.STATE_NEEDS_RECONCILIATION
+        operation.attempts = 1
+        operation.save(update_fields=["state", "attempts"])
+        remote = [
+            {"id": "A-ITEM-5", "name": product.nombre, "type": "product"},
+            {"id": "A-ITEM-6", "name": product.nombre, "type": "product"},
+        ]
+        with patch("tienda.services.alegra_client.urlopen", return_value=FakeResponse(remote)):
+            result = reconcile_product_operations(apply=True)
+        operation.refresh_from_db()
+        self.assertEqual(result["results"][0]["status"], "blocked_ambiguous_remote")
+        self.assertEqual(operation.state, AlegraProductWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertFalse(ExternalObjectMap.objects.filter(object_id=product.pk, resource_type="items").exists())
