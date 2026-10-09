@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -26,28 +27,51 @@ READ_RESOURCES = ("contacts", "items", "invoices", "payments")
 CONNECTION_CACHE_KEY = "alegra:connection:default"
 CONNECTION_LOCK_KEY = "alegra:connection:lock:default"
 CONNECTION_TTL_SECONDS = 300
+DISPLAY_TIMEZONE = ZoneInfo("America/Bogota")
+
+
+def _parse_datetime(value):
+    if isinstance(value, str):
+        try:
+            value = timezone.datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if value and timezone.is_naive(value):
+        value = timezone.make_aware(value)
+    return value if value else None
+
+
+def _display_datetime(value):
+    parsed = _parse_datetime(value)
+    return timezone.localtime(parsed, DISPLAY_TIMEZONE).strftime("%Y-%m-%d %H:%M") if parsed else None
 
 
 def _state_from_record(record: dict | None) -> dict:
     if not record:
         return {
-            "state": "unknown", "label": "Verificando", "reason": "Sin comprobación registrada.",
+            "state": "unknown", "label": "Sin verificar", "reason": "Sin comprobación registrada.",
             "checked_at": None, "last_success_at": None,
+            "checked_at_display": None, "last_success_at_display": None,
         }
-    checked_at = record.get("checked_at")
-    if isinstance(checked_at, str):
-        try:
-            checked_at = timezone.datetime.fromisoformat(checked_at)
-        except ValueError:
-            checked_at = None
-    if checked_at and timezone.is_naive(checked_at):
-        checked_at = timezone.make_aware(checked_at)
+    checked_at = _parse_datetime(record.get("checked_at"))
+    last_success_at = _parse_datetime(record.get("last_success_at"))
     stale = not checked_at or timezone.now() - checked_at > timedelta(seconds=CONNECTION_TTL_SECONDS)
     state = record.get("state", "unknown")
     if state == "connected" and stale:
-        state = "warning"
-    labels = {"connected": "Conectado", "disconnected": "Sin conexión", "warning": "Advertencia", "unknown": "Verificando"}
-    return {**record, "state": state, "label": labels.get(state, "Verificando"), "checked_at": checked_at.isoformat() if checked_at else None}
+        state = "stale"
+    labels = {
+        "connected": "Conectado", "disconnected": "Sin conexión", "warning": "Advertencia",
+        "stale": "Sin verificar", "unknown": "Sin verificar", "verifying": "Verificando",
+    }
+    return {
+        **record,
+        "state": state,
+        "label": labels.get(state, "Sin verificar"),
+        "checked_at": checked_at.isoformat() if checked_at else None,
+        "last_success_at": last_success_at.isoformat() if last_success_at else None,
+        "checked_at_display": _display_datetime(checked_at),
+        "last_success_at_display": _display_datetime(last_success_at),
+    }
 
 
 def connection_state() -> dict:

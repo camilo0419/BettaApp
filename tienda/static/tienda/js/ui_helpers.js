@@ -415,12 +415,12 @@ document.addEventListener("DOMContentLoaded", function () {
       widget.querySelector(".alegra-connection-label").textContent = data.label || "Verificando";
       widget.querySelector("[data-alegra-label]").textContent = data.label || "Verificando";
       widget.querySelector("[data-alegra-reason]").textContent = data.reason || "Sin detalle disponible.";
-      widget.querySelector("[data-alegra-checked]").textContent = data.checked_at || "—";
-      widget.querySelector("[data-alegra-success]").textContent = data.last_success_at || "—";
+      widget.querySelector("[data-alegra-checked]").textContent = data.checked_at_display || "—";
+      widget.querySelector("[data-alegra-success]").textContent = data.last_success_at_display || "—";
     }
     function fetchStatus(force) {
       if (!navigator.onLine) {
-        render({state: "warning", label: "Advertencia", reason: "El navegador no tiene conexión con BettaApp."});
+        render({state: "unknown", label: "Sin verificar", reason: "El navegador no tiene conexión con BettaApp."});
         return;
       }
       var url = statusUrl + (force ? "?force=1" : "");
@@ -428,7 +428,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!response.ok) throw new Error("No se pudo consultar el estado.");
         return response.json();
       }).then(render).catch(function () {
-        render({state: "warning", label: "Advertencia", reason: "No se pudo consultar el estado de BettaApp."});
+        render({state: "unknown", label: "Sin verificar", reason: "No se pudo consultar el estado de BettaApp."});
       });
     }
     trigger.addEventListener("click", function () {
@@ -438,7 +438,7 @@ document.addEventListener("DOMContentLoaded", function () {
     });
     manual.addEventListener("click", function () { manual.disabled = true; fetchStatus(true); setTimeout(function () { manual.disabled = false; }, 1000); });
     fetchStatus(false);
-    window.setInterval(function () { fetchStatus(false); }, 300000);
+    window.setInterval(function () { fetchStatus(true); }, 300000);
   }
 
   initClientMenu();

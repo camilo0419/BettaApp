@@ -154,10 +154,14 @@ def enqueue_product_sync(product: Producto, *, actor=None) -> AlegraProductWrite
     return operation_obj
 
 
-def process_pending_product_operations(*, limit=50, timeout=None, execute=False, actor=None):
+def process_pending_product_operations(*, limit=50, timeout=None, execute=False, actor=None, operation_id=None):
     qs = AlegraProductWriteOperation.objects.filter(
         state=AlegraProductWriteOperation.STATE_PENDING,
-    ).select_related("product", "system").order_by("created_at", "pk")[:max(int(limit), 1)]
+    ).select_related("product", "system").order_by("created_at", "pk")
+    if operation_id is not None:
+        qs = qs.filter(pk=operation_id)
+    else:
+        qs = qs[:max(int(limit), 1)]
     operations = list(qs)
     if not execute:
         return {"mode": "dry_run", "pending": len(operations), "results": []}

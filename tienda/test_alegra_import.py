@@ -4,6 +4,9 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import Client, TestCase
 from django.urls import reverse
+from django.utils import timezone
+from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from tienda.models import (
     AlegraItemStaging,
@@ -12,9 +15,9 @@ from tienda.models import (
     Producto,
     SyncAuditLog,
 )
-from tienda.services.alegra_client import AlegraHTTPError, AlegraResponse
+from tienda.services.alegra_client import AlegraError, AlegraHTTPError, AlegraResponse
 from tienda.services.alegra_import import AlegraItemImporter
-from tienda.services.alegra_status import alegra_operational_status
+from tienda.services.alegra_status import _state_from_record, alegra_operational_status, check_connection
 
 
 class FakeAlegraClient:
@@ -121,6 +124,41 @@ class AlegraImportTests(TestCase):
 
 
 class AlegraPanelSecurityTests(TestCase):
+    def test_connected_status_becomes_unverified_when_expired(self):
+        old = timezone.now() - timedelta(minutes=10)
+        state = _state_from_record({
+            "state": "connected", "checked_at": old.isoformat(), "last_success_at": old.isoformat(),
+        })
+        self.assertEqual(state["state"], "stale")
+        self.assertEqual(state["label"], "Sin verificar")
+        self.assertEqual(state["checked_at_display"], old.astimezone(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d %H:%M"))
+
+    def test_connected_status_keeps_bogota_display_and_recovery(self):
+        now = timezone.now()
+        state = _state_from_record({
+            "state": "connected", "checked_at": now.isoformat(), "last_success_at": now.isoformat(),
+        })
+        self.assertEqual(state["state"], "connected")
+        self.assertEqual(state["label"], "Conectado")
+        self.assertRegex(state["checked_at_display"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
+
+    def test_warning_and_disconnected_are_not_reclassified_as_stale(self):
+        old = (timezone.now() - timedelta(minutes=10)).isoformat()
+        self.assertEqual(_state_from_record({"state": "warning", "checked_at": old})["state"], "warning")
+        self.assertEqual(_state_from_record({"state": "disconnected", "checked_at": old})["state"], "disconnected")
+
+    def test_timeout_is_warning_and_successful_retry_recovers(self):
+        cache.clear()
+        with patch("tienda.services.alegra_status.AlegraReadOnlyClient") as client_class:
+            client_class.return_value.get.side_effect = [
+                AlegraError("timeout"),
+                AlegraResponse(200, {"data": []}, "https://example.test/contacts"),
+            ]
+            failed = check_connection(force=True)
+            recovered = check_connection(force=True)
+        self.assertEqual(failed["state"], "warning")
+        self.assertEqual(recovered["state"], "connected")
+
     def test_connection_check_uses_light_get_and_cache(self):
         user = get_user_model().objects.create_superuser(username="connection-admin", password="test-pass")
         cache.clear()

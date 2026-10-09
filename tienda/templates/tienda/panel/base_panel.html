@@ -83,8 +83,8 @@
     <div id="alegra-connection-details" class="alegra-connection-details" hidden>
       <strong data-alegra-label>{{ alegra_connection.label }}</strong>
       <span data-alegra-reason>{{ alegra_connection.reason }}</span>
-      <span>Última comprobación: <time data-alegra-checked>{{ alegra_connection.checked_at|default:'—' }}</time></span>
-      <span>Última comunicación exitosa: <time data-alegra-success>{{ alegra_connection.last_success_at|default:'—' }}</time></span>
+      <span>Última comprobación: <time data-alegra-checked>{{ alegra_connection.checked_at_display|default:'—' }}</time></span>
+      <span>Última comunicación exitosa: <time data-alegra-success>{{ alegra_connection.last_success_at_display|default:'—' }}</time></span>
       <div class="alegra-connection-actions"><a href="{% url 'alegra_integraciones' %}">Detalle de integración</a><button type="button" data-alegra-check>Comprobar ahora</button></div>
     </div>
   </div>

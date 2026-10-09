@@ -4,6 +4,7 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.exceptions import ValidationError
 from unittest.mock import patch
 import os
 import tempfile
@@ -25,6 +26,15 @@ class UNSPSCTests(TestCase):
     def test_code_preserves_leading_zero_and_hierarchy(self):
         self.assertEqual(self.item.code, "01010101")
         self.assertEqual(self.item.parent.code, "01000000")
+
+    def test_code_validation_rejects_non_eight_digit_values(self):
+        invalid = UNSPSCCode(code="123", description="Inválido", level="product", catalog_version="2026")
+        with self.assertRaises(ValidationError):
+            invalid.full_clean()
+
+    def test_empty_product_unspsc_remains_allowed(self):
+        product = Producto.objects.create(nombre="Sin clasificación", activo=False)
+        self.assertIsNone(product.unspsc_id)
 
     def test_recommendations_by_description_and_code(self):
         self.assertEqual(recommend_unspsc("semillas")[0].pk, self.item.pk)

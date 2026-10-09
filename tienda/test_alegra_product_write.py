@@ -6,6 +6,7 @@ from urllib.error import URLError
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.db import IntegrityError
+from django.core.management import call_command, CommandError
 
 from tienda.models import (
     AlegraProductWriteOperation,
@@ -162,6 +163,21 @@ class ProductWriteTests(TestCase):
             result = process_pending_product_operations(execute=False)
         client.assert_not_called()
         self.assertEqual(result["pending"], 0)
+
+    def test_operation_id_limits_dry_run_to_one_pending_operation(self):
+        first = enqueue_product_sync(self.product(nombre="Producto uno"))
+        second = enqueue_product_sync(self.product(nombre="Producto dos"))
+        result = process_pending_product_operations(execute=False, operation_id=first.pk)
+        self.assertEqual(result["pending"], 1)
+        self.assertEqual(result["results"], [])
+        self.assertTrue(AlegraProductWriteOperation.objects.filter(pk=second.pk, state="pending").exists())
+
+    def test_operation_id_rejects_non_pending_operation(self):
+        operation = enqueue_product_sync(self.product())
+        operation.state = AlegraProductWriteOperation.STATE_SENT
+        operation.save(update_fields=["state"])
+        with self.assertRaises(CommandError):
+            call_command("alegra_procesar_productos", operation_id=operation.pk)
 
     @patch.dict(os.environ, {
         "ALEGRA_EMAIL": "test@example.test",
