@@ -132,6 +132,27 @@ class InboundAlegraSyncTests(TestCase):
         self.assertEqual(incomplete["state"], CONFLICT)
         self.assertIn("identificacion", incomplete["protected_fields"])
 
+    def test_safe_baseline_candidate_can_be_initialized_without_changing_client(self):
+        service = self.service()
+        original_name = self.client.nombre
+        candidate = service.baseline_candidate(self.client, self.mapping, self.remote)
+        self.assertEqual(candidate["state"], "SAFE")
+        service.set_baseline(self.mapping, candidate)
+        self.mapping.refresh_from_db()
+        self.client.refresh_from_db()
+        self.assertTrue(self.mapping.metadata.get("last_synced_fields"))
+        self.assertEqual(self.mapping.metadata.get("baseline_source"), "alegra_get_reconciliation")
+        self.assertEqual(self.client.nombre, original_name)
+
+    def test_baseline_difference_is_review_only(self):
+        row = {**self.remote, "email": "otro-remoto@example.test"}
+        self.mapping.metadata = {}
+        self.mapping.save(update_fields=["metadata"])
+        candidate = self.service(row).baseline_candidate(self.client, self.mapping, row)
+        self.assertEqual(candidate["state"], "REVIEW")
+        self.assertIn("email", candidate["differences"])
+        self.assertNotIn("last_synced_fields", self.mapping.metadata)
+
     def test_network_error_is_propagated_without_local_change(self):
         class ErrorTransport:
             def get_contact(self, external_id):

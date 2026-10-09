@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command, CommandError
 from django.test import SimpleTestCase
@@ -20,6 +20,20 @@ class InboundAlegraCommandTests(SimpleTestCase):
             with self.assertRaises(DatabaseLockUnavailable):
                 with advisory_lock("test:inbound-busy"):
                     pass
+
+    def test_mariadb_advisory_lock_uses_get_and_release_lock(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (1,)
+        cursor_context = MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        fake_connection = MagicMock(vendor="mysql")
+        fake_connection.cursor.return_value = cursor_context
+        with patch("tienda.services.database_lock.connection", fake_connection):
+            with advisory_lock("test:mariadb"):
+                pass
+        self.assertEqual(cursor.execute.call_count, 2)
+        self.assertIn("GET_LOCK", cursor.execute.call_args_list[0].args[0])
+        self.assertIn("RELEASE_LOCK", cursor.execute.call_args_list[1].args[0])
 
     @patch("tienda.management.commands.alegra_contactos_entrantes.fetch_customer_contacts")
     @patch("tienda.management.commands.alegra_contactos_entrantes.AlegraReadOnlyClient")

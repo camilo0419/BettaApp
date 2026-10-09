@@ -35,6 +35,84 @@ class InboundClientSyncService:
         self.transport = transport
         self.sync = sync or BidirectionalClientSync()
 
+    def baseline_candidate(self, client: Cliente, mapping: ExternalObjectMap, remote_row: Mapping[str, Any]) -> dict[str, Any]:
+        """Evalúa si el estado remoto confirma inequívocamente un baseline.
+
+        No modifica el cliente ni el mapeo. Un campo remoto ausente no confirma
+        que un valor local sea correcto, por lo que queda para revisión manual.
+        """
+        if mapping.status != ExternalObjectMap.STATUS_ACTIVE or mapping.object_id != client.pk:
+            return {"state": "REVIEW", "reason": "El mapeo no está activo para el cliente.", "differences": ["mapping"]}
+        if str(remote_row.get("id") or "").strip() != str(mapping.external_id):
+            return {"state": "REVIEW", "reason": "El GET no corresponde al ID externo vinculado.", "differences": ["external_id"]}
+
+        identification_object = remote_row.get("identificationObject") if isinstance(remote_row.get("identificationObject"), Mapping) else {}
+        required_remote = {
+            "tipo_identificacion": str(remote_row.get("identificationType") or identification_object.get("type") or "").strip().casefold(),
+            "identificacion": str(remote_row.get("identification") or identification_object.get("number") or "").strip(),
+            "digito_verificacion": str(remote_row.get("verificationDigit") or remote_row.get("dv") or identification_object.get("dv") or "").strip(),
+            "kindOfPerson": str(remote_row.get("kindOfPerson") or "").strip().upper(),
+            "regime": str(remote_row.get("regime") or "").strip().upper(),
+        }
+        missing = [field for field, value in required_remote.items() if not value and field not in {"digito_verificacion"}]
+        if missing:
+            return {"state": "REVIEW", "reason": "Faltan campos protegidos confirmables.", "differences": missing, "missing": missing}
+        local_kind = "LEGAL_ENTITY" if client.tipo_cliente == Cliente.TIPO_EMPRESA else "PERSON_ENTITY"
+        protected = {
+            "tipo_identificacion": str(client.tipo_identificacion or "").strip().casefold(),
+            "identificacion": str(client.identificacion or "").strip(),
+            "digito_verificacion": str(client.digito_verificacion or "").strip(),
+            "kindOfPerson": local_kind,
+            "regime": str(client.regimen_tributario or "").strip().upper(),
+        }
+        differences = []
+        for field in ("tipo_identificacion", "identificacion", "digito_verificacion", "kindOfPerson", "regime"):
+            remote_value = required_remote[field]
+            local_value = protected[field]
+            if field == "identificacion":
+                remote_value = remote_value.replace(".", "")
+                local_value = local_value.replace(".", "")
+            if field == "digito_verificacion" and not remote_value and not local_value:
+                continue
+            if remote_value != local_value:
+                differences.append(field)
+
+        local_values = self.sync._local_values(client)
+        remote_values = self.sync._external_values(remote_row)
+        for field, remote_value in remote_values.items():
+            local_value = local_values.get(field, "")
+            if not remote_value and not local_value:
+                continue
+            if remote_value != local_value:
+                differences.append(field)
+        if differences:
+            return {
+                "state": "REVIEW",
+                "reason": "Existen diferencias entre Alegra y BettaApp; no se fuerza el baseline.",
+                "differences": sorted(set(differences)),
+            }
+        return {
+            "state": "SAFE",
+            "reason": "Campos compartidos y protegidos confirmados por GET.",
+            "baseline": remote_values,
+            "protected": required_remote,
+        }
+
+    @staticmethod
+    def set_baseline(mapping: ExternalObjectMap, candidate: Mapping[str, Any], *, now=None):
+        """Persiste únicamente un baseline previamente clasificado como SAFE."""
+        if candidate.get("state") != "SAFE" or not isinstance(candidate.get("baseline"), Mapping):
+            raise ValidationError("Solo puede persistirse un baseline confirmado.")
+        metadata = dict(mapping.metadata or {})
+        baseline = dict(candidate["baseline"])
+        metadata["last_synced_fields"] = baseline
+        metadata["last_confirmed"] = baseline
+        metadata["baseline_protected"] = dict(candidate.get("protected") or {})
+        metadata["baseline_source"] = "alegra_get_reconciliation"
+        mapping.metadata = metadata
+        mapping.last_synced_at = now or timezone.now()
+        mapping.save(update_fields=["metadata", "last_synced_at", "updated_at"])
+
     @staticmethod
     def _stable_hash(value: Any) -> str:
         encoded = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
