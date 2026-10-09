@@ -22,6 +22,21 @@
   <p><strong>Última consulta:</strong> {{ last_sync|default:'—' }} · <a href="{% url 'alegra_historial' %}">Ver historial</a></p>
 </div>
 
+<div class="panel-card" aria-label="Estado operativo de Alegra">
+  <div class="panel-head">
+    <div><h2>Estado operativo</h2><p>Indicadores basados en auditoría local; esta vista no realiza llamadas a Alegra.</p></div>
+  </div>
+  <p><strong>Configuración:</strong> {{ alegra_status.configuration_label }}</p>
+  <p><strong>Comunicación:</strong> {{ alegra_status.communication }}</p>
+  <p><strong>Autenticación:</strong> {{ alegra_status.authentication }}</p>
+  <p><strong>Última comunicación exitosa:</strong> {{ alegra_status.last_success.created_at|default:'—' }}</p>
+  <p><strong>Última escritura registrada:</strong>
+    {% if alegra_status.last_write %}{{ alegra_status.last_write.get_state_display }} · {{ alegra_status.last_write.updated_at }}{% else %}Sin operaciones{% endif %}
+  </p>
+  <p><strong>Operaciones pendientes:</strong> {{ alegra_status.pending_writes }} · <strong>Con error o revisión:</strong> {{ alegra_status.failed_writes }}</p>
+  <p><strong>Escrituras externas:</strong> {% if alegra_status.writes_enabled %}habilitadas por configuración{% else %}deshabilitadas{% endif %} · <strong>Automatización:</strong> {% if alegra_status.automation_enabled %}habilitada por configuración{% else %}deshabilitada{% endif %}</p>
+</div>
+
 <div class="dashboard-kpis">
   {% for label, value in metrics.items %}<div class="kpi"><span>{{ label|title }}</span><strong>{{ value }}</strong></div>{% endfor %}
 </div>

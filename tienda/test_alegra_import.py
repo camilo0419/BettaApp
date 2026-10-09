@@ -13,6 +13,7 @@ from tienda.models import (
 )
 from tienda.services.alegra_client import AlegraResponse
 from tienda.services.alegra_import import AlegraItemImporter
+from tienda.services.alegra_status import alegra_operational_status
 
 
 class FakeAlegraClient:
@@ -119,6 +120,25 @@ class AlegraImportTests(TestCase):
 
 
 class AlegraPanelSecurityTests(TestCase):
+    def test_dashboard_reports_registered_status_without_network(self):
+        user = get_user_model().objects.create_superuser(username="status-admin", password="test-pass")
+        system = ExternalObjectMap._meta.get_field("system").remote_field.model.objects.create(code="alegra", name="Alegra")
+        SyncAuditLog.objects.create(
+            system=system, operation="sync_items", resource="items",
+            result=SyncAuditLog.RESULT_SUCCESS, detail="Consulta completada",
+        )
+        self.client.force_login(user)
+        with patch("tienda.services.alegra_status.os.environ.get", side_effect=lambda key, default="": {
+            "ALEGRA_EMAIL": "configured",
+            "ALEGRA_API_TOKEN": "configured",
+        }.get(key, default)):
+            response = self.client.get(reverse("alegra_integraciones"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "API accesible")
+        self.assertContains(response, "Validada por la última consulta")
+        self.assertContains(response, "Última comunicación exitosa")
+        self.assertEqual(alegra_operational_status()["pending_writes"], 0)
+
     def test_non_staff_cannot_access_panel(self):
         user = get_user_model().objects.create_user(username="client", password="test-pass")
         self.client.force_login(user)

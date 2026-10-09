@@ -15,6 +15,7 @@ from django.core.exceptions import ValidationError
 
 from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap, ExternalSystem, SyncAuditLog
 from tienda.services.alegra_write import (
+    AlegraError,
     AlegraContactWriteService,
     AlegraWriteClient,
     WriteConflict,
@@ -60,6 +61,54 @@ def enqueue_create(client: Cliente, *, actor=None) -> AlegraWriteOperation | Non
         idempotency_key=key, defaults={"state": AlegraWriteOperation.STATE_PENDING},
     )
     return operation
+
+
+def enqueue_update_if_changed(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteOperation | None:
+    """Prepara una actualización tras un guardado local, sin ejecutar PUT.
+
+    La consulta remota se hace fuera de una transacción de negocio y cualquier
+    fallo queda auditado sin deshacer el guardado local. ``prepare_update``
+    conserva las validaciones de baseline, conflictos e idempotencia.
+    """
+    content_type = ContentType.objects.get_for_model(Cliente)
+    mapping = ExternalObjectMap.objects.filter(
+        system=alegra_system(), resource_type="contacts", content_type=content_type,
+        object_id=client.pk, status=ExternalObjectMap.STATUS_ACTIVE,
+    ).select_related("system").first()
+    if not mapping:
+        return None
+    metadata = mapping.metadata if isinstance(mapping.metadata, dict) else {}
+    baseline = metadata.get("last_confirmed") or metadata.get("last_synced_fields")
+    if not isinstance(baseline, dict) or not baseline:
+        SyncAuditLog.objects.create(
+            system=mapping.system, operation="enqueue_contact_update", resource="contacts",
+            external_id=mapping.external_id, actor=actor, result=SyncAuditLog.RESULT_PARTIAL,
+            detail="Actualización local conservada; falta baseline para preparar PUT.",
+            metadata={"client_id": client.pk, "state": "blocked_missing_baseline"},
+        )
+        return None
+    try:
+        transport = AlegraWriteClient(timeout=timeout)
+        remote = transport.get_contact(mapping.external_id)
+        operation, _ = AlegraContactWriteService(transport=transport).prepare_update(
+            client, mapping.system, external_id=mapping.external_id,
+            remote_row=remote, baseline=baseline,
+        )
+        SyncAuditLog.objects.create(
+            system=mapping.system, operation="enqueue_contact_update", resource="contacts",
+            external_id=mapping.external_id, actor=actor, result=SyncAuditLog.RESULT_SUCCESS,
+            detail="Actualización preparada; no se ejecutó PUT.",
+            metadata={"client_id": client.pk, "operation_id": operation.pk},
+        )
+        return operation
+    except (AlegraError, ValidationError, WriteConflict) as exc:
+        SyncAuditLog.objects.create(
+            system=mapping.system, operation="enqueue_contact_update", resource="contacts",
+            external_id=mapping.external_id, actor=actor, result=SyncAuditLog.RESULT_PARTIAL,
+            detail=f"Preparación bloqueada: {exc.__class__.__name__}.",
+            metadata={"client_id": client.pk, "state": "blocked"},
+        )
+        return None
 
 
 def linked_client_update_candidates(*, limit=100, timeout=None, actor=None, persist=False):

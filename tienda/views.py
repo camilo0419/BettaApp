@@ -119,7 +119,8 @@ from .services.integrity import link_invoice_to_sale
 from .services.sync_freshness import financial_freshness, source_freshness
 from .services.alegra_write import AlegraContactWriteService, AlegraError, AlegraWriteClient
 from .services.alegra_inbound_sync import InboundClientSyncService, InboundSyncConflict
-from .services.alegra_operation_queue import enqueue_create
+from .services.alegra_operation_queue import enqueue_create, enqueue_update_if_changed
+from .services.alegra_status import alegra_operational_status
 from .services.unspsc import recommend_unspsc, unspsc_result
 
 COTIZACION_TOKEN_SALT = "tienda.cotizacion_exito"
@@ -2343,6 +2344,10 @@ def cliente_editar(request, cliente_id):
     form = ClienteForm(request.POST or None, instance=cliente)
     if request.method == "POST" and form.is_valid():
         form.save()
+        # El guardado local no depende de Alegra. Si existe un vínculo y un
+        # baseline válido, se prepara una única operación idempotente; nunca
+        # se ejecuta una escritura externa desde el formulario.
+        enqueue_update_if_changed(cliente, actor=request.user)
         messages.success(request, "Cliente actualizado.")
         return redirect("panel_cliente_detalle", cliente_id=cliente.id)
     return render(request, "tienda/panel/cliente_form.html", {"form": form, "cliente": cliente, "titulo": "Editar cliente"})
@@ -4156,6 +4161,7 @@ def alegra_integraciones(request):
             "importados": staging.filter(review_status=AlegraItemStaging.REVIEW_IMPORTED).count(),
             "errores": staging.filter(review_status=AlegraItemStaging.REVIEW_ERROR).count(),
         },
+        "alegra_status": alegra_operational_status(),
     }
     return render(request, "tienda/panel/alegra_integraciones.html", context)
 
