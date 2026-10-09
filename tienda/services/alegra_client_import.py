@@ -13,7 +13,7 @@ from django.utils import timezone
 from tienda.models import Cliente, ExternalObjectMap, SyncAuditLog
 from tienda.services.alegra_bidirectional_clients import BidirectionalClientSync
 from tienda.services.alegra_contact_import import normalize_identity
-from tienda.services.alegra_preimport_clients import ACTION_CREATE_LOCAL, build_preimport_plan
+from tienda.services.alegra_preimport_clients import ACTION_CREATE_LOCAL, ACTION_LINK_EXISTING, build_preimport_plan
 
 
 def _text(value, length):
@@ -63,12 +63,115 @@ def _client_values(row):
         "departamento": _text(address.get("department"), 120),
         "pais": _text(address.get("country"), 80),
         "codigo_postal": _text(address.get("zipCode"), 20),
-        "activo": str(row.get("status") or "").casefold() != "inactive",
+        "activo": (str(row.get("status") or "").casefold() != "inactive") if row.get("status") else None,
     }
 
 
 def _external_id(row):
     return str(row.get("id") or row.get("external_id") or "").strip()
+
+
+_INITIAL_IMPORT_FIELDS = (
+    "tipo_cliente", "nombre", "razon_social", "identificacion", "tipo_identificacion",
+    "digito_verificacion", "email", "telefono", "telefono_secundario", "celular",
+    "direccion", "ciudad", "departamento", "pais", "codigo_postal", "activo",
+)
+
+
+def _save_shared_values(client, values):
+    changed = []
+    for field_name in _INITIAL_IMPORT_FIELDS:
+        value = values.get(field_name)
+        if value in (None, ""):
+            continue
+        if getattr(client, field_name) != value:
+            setattr(client, field_name, value)
+            changed.append(field_name)
+    if changed:
+        client.full_clean()
+        client.save(update_fields=[*changed, "fecha_actualizacion"])
+    return changed
+
+
+def apply_initial_import_plan(rows, plans, *, system, actor=None):
+    """Aplica solo CREATE_LOCAL y LINK_EXISTING de un plan ya conciliado."""
+    rows = list(rows)
+    plans = list(plans)
+    result = Counter()
+    errors = []
+    created_ids = []
+    for row, plan in zip(rows, plans):
+        external_id = _external_id(row)
+        if plan.get("action") not in {ACTION_CREATE_LOCAL, ACTION_LINK_EXISTING}:
+            result["OMITTED"] += 1
+            continue
+        try:
+            with transaction.atomic():
+                existing = list(ExternalObjectMap.objects.select_for_update().filter(
+                    system=system, resource_type="contacts", external_id=external_id,
+                ))
+                active = [item for item in existing if item.status == ExternalObjectMap.STATUS_ACTIVE]
+                if active:
+                    result["NO_ACTION"] += 1
+                    continue
+                values = _client_values(row)
+                if not values["nombre"] or not normalize_identity(values["identificacion"]):
+                    result["SKIP_INVALID"] += 1
+                    continue
+                values["activo"] = True if values["activo"] is None else values["activo"]
+                matches = list(
+                    Cliente.objects.select_for_update().filter(
+                        identificacion__isnull=False,
+                    ).only("id", "identificacion")
+                )
+                local_matches = [
+                    client for client in matches
+                    if normalize_identity(client.identificacion) == normalize_identity(values["identificacion"])
+                ]
+                if len(local_matches) > 1:
+                    result["REVIEW_CONFLICT"] += 1
+                    errors.append(f"{external_id}: múltiples coincidencias locales.")
+                    continue
+                if local_matches:
+                    client = Cliente.objects.select_for_update().get(pk=local_matches[0].pk)
+                    local_maps = ExternalObjectMap.objects.filter(
+                        system=system, resource_type="contacts", object_id=client.pk,
+                        status=ExternalObjectMap.STATUS_ACTIVE,
+                    )
+                    if local_maps.exists():
+                        result["REVIEW_CONFLICT"] += 1
+                        errors.append(f"{external_id}: el cliente ya tiene otro mapeo activo.")
+                        continue
+                    changed = _save_shared_values(client, values)
+                    ExternalObjectMap.objects.create(
+                        system=system, resource_type="contacts", external_id=external_id,
+                        content_type=ContentType.objects.get_for_model(Cliente), object_id=client.pk,
+                        status=ExternalObjectMap.STATUS_ACTIVE, last_synced_at=timezone.now(),
+                        metadata={"source": "alegra_initial_import", "phase": "initial", "fields": changed},
+                    )
+                    result["UPDATED"] += 1
+                    continue
+                client = Cliente(**values)
+                client.full_clean()
+                client.save(force_insert=True)
+                ExternalObjectMap.objects.create(
+                    system=system, resource_type="contacts", external_id=external_id,
+                    content_type=ContentType.objects.get_for_model(Cliente), object_id=client.pk,
+                    status=ExternalObjectMap.STATUS_ACTIVE, last_synced_at=timezone.now(),
+                    metadata={"source": "alegra_initial_import", "phase": "initial"},
+                )
+                created_ids.append(client.pk)
+                result["CREATE_LOCAL"] += 1
+        except (ValidationError, IntegrityError, ValueError) as exc:
+            result["FAILED"] += 1
+            errors.append(f"{external_id}: {str(exc)[:160]}")
+    SyncAuditLog.objects.create(
+        system=system, operation="alegra_initial_client_import", resource="contacts", actor=actor,
+        result=SyncAuditLog.RESULT_SUCCESS if not errors else SyncAuditLog.RESULT_PARTIAL,
+        detail=f"Creados: {result['CREATE_LOCAL']}; actualizados: {result['UPDATED']}; omitidos: {result['OMITTED'] + result['NO_ACTION']}; errores: {len(errors)}.",
+        metadata={"created": result["CREATE_LOCAL"], "updated": result["UPDATED"], "omitted": result["OMITTED"] + result["NO_ACTION"], "errors": len(errors), "phase": "initial"},
+    )
+    return {"counts": dict(result), "errors": errors, "created_ids": created_ids}
 
 
 def apply_create_plan(rows: Iterable[Mapping[str, Any]], *, system, actor=None):
@@ -98,6 +201,7 @@ def apply_create_plan(rows: Iterable[Mapping[str, Any]], *, system, actor=None):
                 if not values["nombre"] or not normalize_identity(values["identificacion"]):
                     result["SKIP_INVALID"] += 1
                     continue
+                values["activo"] = True if values["activo"] is None else values["activo"]
                 local_matches = []
                 for client in Cliente.objects.select_for_update().only("id", "identificacion").iterator(chunk_size=500):
                     if normalize_identity(client.identificacion) == normalize_identity(values["identificacion"]):

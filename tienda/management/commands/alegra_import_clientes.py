@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from django.conf import settings
@@ -10,11 +11,15 @@ from django.core.management.base import BaseCommand, CommandError
 
 from tienda.models import Cliente, ExternalObjectMap, ExternalSystem
 from tienda.services.alegra_client import AlegraError, AlegraReadOnlyClient
-from tienda.services.alegra_client_import import apply_create_plan
+from tienda.services.alegra_client_import import apply_initial_import_plan
+from tienda.services.alegra_preimport_clients import ACTION_LINK_EXISTING
 from tienda.services.alegra_preimport_clients import ACTION_CREATE_LOCAL, build_preimport_plan, fetch_customer_contacts
+from tienda.services.database_lock import DatabaseLockUnavailable, advisory_lock
 
 
 CONFIRMATION = "IMPORTAR CLIENTES LOCALMENTE"
+MARIADB_CONFIRMATION = "IMPORTAR CLIENTES EN MARIADB"
+IMPORT_LOCK = "bettaapp:alegra:initial-client-import"
 
 
 class Command(BaseCommand):
@@ -25,6 +30,10 @@ class Command(BaseCommand):
         mode.add_argument("--dry-run", action="store_true", help="Solo genera el plan; es el comportamiento por defecto.")
         mode.add_argument("--apply", action="store_true", help="Aplica altas locales después de todas las validaciones.")
         parser.add_argument("--confirm", default="", help=f"Para --apply debe ser exactamente: {CONFIRMATION}")
+        parser.add_argument(
+            "--mariadb", action="store_true",
+            help="Habilita explícitamente la ruta MariaDB; requiere configuración de sistema y confirmación propia.",
+        )
         parser.add_argument("--limit", type=int, default=1000)
         parser.add_argument("--max-pages", type=int, default=100)
         parser.add_argument("--pause", type=float, default=0)
@@ -33,9 +42,23 @@ class Command(BaseCommand):
         parser.add_argument("--output", default="docs/auditorias/betta_importacion_controlada_clientes_2026_10.md")
 
     def handle(self, *args, **options):
-        self._assert_local_sqlite()
-        if options["apply"] and options["confirm"] != CONFIRMATION:
-            raise CommandError(f"--apply requiere --confirm \"{CONFIRMATION}\".")
+        apply_mode = bool(options.get("apply"))
+        mariadb_mode = bool(options.get("mariadb"))
+        if mariadb_mode and not apply_mode:
+            raise CommandError("--mariadb solo puede utilizarse junto con --apply.")
+        if apply_mode:
+            self._assert_apply_database(mariadb_mode)
+            expected_confirmation = MARIADB_CONFIRMATION if mariadb_mode else CONFIRMATION
+            if options.get("confirm") != expected_confirmation:
+                raise CommandError(f"--apply requiere --confirm \"{expected_confirmation}\".")
+            try:
+                with advisory_lock(IMPORT_LOCK):
+                    return self._handle_import(*args, **options)
+            except DatabaseLockUnavailable as exc:
+                raise CommandError(str(exc)) from exc
+        return self._handle_import(*args, **options)
+
+    def _handle_import(self, *args, **options):
         try:
             client = AlegraReadOnlyClient(timeout=options["timeout"])
             fetched = fetch_customer_contacts(
@@ -54,10 +77,11 @@ class Command(BaseCommand):
         active_maps = [item for item in all_maps if item.status == ExternalObjectMap.STATUS_ACTIVE and item.object_id and item.content_type_id == content_type.pk]
         plan = build_preimport_plan(fetched["rows"], local_clients=local_clients, active_maps=active_maps, all_maps=all_maps)
         applied = None
-        if options["apply"]:
+        if options.get("apply"):
             self._assert_apply_allowed(fetched, plan, system)
-            eligible_rows = [row for row, item in zip(fetched["rows"], plan["plans"]) if item["action"] == ACTION_CREATE_LOCAL]
-            applied = apply_create_plan(eligible_rows, system=system)
+            eligible_rows = [row for row, item in zip(fetched["rows"], plan["plans"]) if item["action"] in {ACTION_CREATE_LOCAL, ACTION_LINK_EXISTING}]
+            eligible_plans = [item for item in plan["plans"] if item["action"] in {ACTION_CREATE_LOCAL, ACTION_LINK_EXISTING}]
+            applied = apply_initial_import_plan(eligible_rows, eligible_plans, system=system)
         report = self._report(fetched, plan, applied, options["apply"], options)
         output = Path(options["output"])
         if not output.is_absolute():
@@ -65,7 +89,7 @@ class Command(BaseCommand):
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(report, encoding="utf-8")
         counts = plan["counts"]
-        mode = "APLICACIÓN" if options["apply"] else "DRY-RUN"
+        mode = "APLICACIÓN" if options.get("apply") else "DRY-RUN"
         self.stdout.write(self.style.SUCCESS(f"{mode}: {len(fetched['rows'])} contactos; CREATE_LOCAL={counts.get(ACTION_CREATE_LOCAL, 0)}; informe: {output}"))
 
     @staticmethod
@@ -78,6 +102,32 @@ class Command(BaseCommand):
             raise CommandError("Ejecución bloqueada: solo se permite SQLite local db.sqlite3; no se identificó un entorno local confiable.")
 
     @staticmethod
+    def _assert_apply_database(mariadb_mode):
+        if not mariadb_mode:
+            Command._assert_local_sqlite()
+            return
+        database = settings.DATABASES["default"]
+        engine = str(database.get("ENGINE", ""))
+        if "mysql" not in engine:
+            raise CommandError("Ejecución bloqueada: --mariadb exige django.db.backends.mysql.")
+        if os.environ.get("ALEGRA_INITIAL_CLIENT_IMPORT_MARIADB_ENABLED", "").strip().casefold() != "true":
+            raise CommandError(
+                "Ejecución bloqueada: la ruta MariaDB requiere "
+                "ALEGRA_INITIAL_CLIENT_IMPORT_MARIADB_ENABLED=true."
+            )
+        if os.environ.get("DJANGO_ENV", "").strip().casefold() != "production":
+            raise CommandError("Ejecución bloqueada: la ruta MariaDB exige DJANGO_ENV=production explícito.")
+        missing = [
+            name for name in ("DB_NAME", "DB_USER", "DB_HOST", "ALEGRA_EMAIL", "ALEGRA_API_TOKEN")
+            if not os.environ.get(name, "").strip()
+        ]
+        if missing:
+            raise CommandError(
+                "Ejecución bloqueada: faltan variables de configuración requeridas: "
+                + ", ".join(missing)
+            )
+
+    @staticmethod
     def _assert_apply_allowed(fetched, plan, system):
         if not system:
             raise CommandError("Ejecución bloqueada: no existe el sistema externo Alegra local configurado.")
@@ -87,6 +137,26 @@ class Command(BaseCommand):
             raise CommandError("Ejecución bloqueada: se detectaron IDs externos repetidos.")
         if plan["counts"].get("REVIEW_CONFLICT", 0):
             raise CommandError("Ejecución bloqueada: existen conflictos estructurales de identidad o mapeo.")
+        Command._assert_no_contradictory_active_mappings(system)
+
+    @staticmethod
+    def _assert_no_contradictory_active_mappings(system):
+        content_type = ContentType.objects.get_for_model(Cliente)
+        mappings = list(ExternalObjectMap.objects.filter(
+            system=system,
+            resource_type="contacts",
+            content_type=content_type,
+            status=ExternalObjectMap.STATUS_ACTIVE,
+        ).only("external_id", "object_id"))
+        by_external = {}
+        by_object = {}
+        for mapping in mappings:
+            by_external.setdefault(str(mapping.external_id), set()).add(mapping.object_id)
+            by_object.setdefault(mapping.object_id, set()).add(str(mapping.external_id))
+        if any(len(object_ids) > 1 for object_ids in by_external.values()):
+            raise CommandError("Ejecución bloqueada: un ID externo activo apunta a varios clientes locales.")
+        if any(len(external_ids) > 1 for external_ids in by_object.values()):
+            raise CommandError("Ejecución bloqueada: un cliente local tiene varios mapeos externos activos.")
 
     @staticmethod
     def _report(fetched, plan, applied, apply_mode, options):
@@ -134,7 +204,8 @@ class Command(BaseCommand):
         else:
             lines.extend([
                 f"- Creados: {applied['counts'].get('CREATE_LOCAL', 0)}.",
-                f"- Omitidos: {applied['counts'].get('NO_ACTION', 0) + applied['counts'].get('SKIP_INVALID', 0)}.",
+                f"- Actualizados/vinculados: {applied['counts'].get('UPDATED', 0)}.",
+                f"- Omitidos: {applied['counts'].get('OMITTED', 0) + applied['counts'].get('NO_ACTION', 0) + applied['counts'].get('SKIP_INVALID', 0)}.",
                 f"- Errores: {len(applied['errors'])}.",
             ])
         lines.extend([

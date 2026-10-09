@@ -1,13 +1,15 @@
 from types import SimpleNamespace
+import os
 from unittest.mock import patch
 
 from django.core.management.base import CommandError
 from django.db import IntegrityError
 from django.test import TestCase
+from django.conf import settings
 
 from tienda.management.commands.alegra_import_clientes import Command, CONFIRMATION
 from tienda.models import Cliente, ExternalObjectMap
-from tienda.services.alegra_client_import import apply_create_plan
+from tienda.services.alegra_client_import import apply_create_plan, apply_initial_import_plan
 from tienda.services.alegra_import import get_alegra_system
 from tienda.services.alegra_preimport_clients import build_preimport_plan
 
@@ -65,6 +67,43 @@ class ClientImportApplyTests(TestCase):
         self.assertEqual(result["counts"]["CREATE_LOCAL"], 1)
         self.assertEqual(client.puntos_venta.count(), 1)
 
+    def test_inequivocal_match_is_updated_and_linked_without_second_client(self):
+        client = Cliente.objects.create(nombre="Nombre local", identificacion="900123456")
+        from tienda.models import ClientePuntoVenta
+        ClientePuntoVenta.objects.create(cliente=client, nombre="Principal")
+        row = customer()
+        plan = build_preimport_plan([row], local_clients=[client], active_maps=[], all_maps=[])
+        self.assertEqual(plan["plans"][0]["action"], "LINK_EXISTING")
+        result = apply_initial_import_plan([row], plan["plans"], system=self.system)
+        client.refresh_from_db()
+        self.assertEqual(result["counts"]["UPDATED"], 1)
+        self.assertEqual(Cliente.objects.count(), 1)
+        self.assertEqual(client.nombre, "Cliente de prueba")
+        self.assertEqual(client.puntos_venta.count(), 1)
+        self.assertEqual(ExternalObjectMap.objects.filter(resource_type="contacts").count(), 1)
+
+    def test_initial_import_is_idempotent_for_linked_match(self):
+        client = Cliente.objects.create(nombre="Nombre local", identificacion="900123456")
+        row = customer()
+        plan = build_preimport_plan([row], local_clients=[client], active_maps=[], all_maps=[])
+        apply_initial_import_plan([row], plan["plans"], system=self.system)
+        second = apply_initial_import_plan([row], plan["plans"], system=self.system)
+        self.assertEqual(second["counts"]["NO_ACTION"], 1)
+        self.assertEqual(Cliente.objects.count(), 1)
+
+    def test_ambiguous_match_is_blocked_without_update(self):
+        first = Cliente.objects.create(nombre="Primero", identificacion="900-123-456")
+        second = Cliente.objects.create(nombre="Segundo", identificacion="900123456")
+        row = customer()
+        plan = build_preimport_plan([row], local_clients=[first, second], active_maps=[], all_maps=[])
+        self.assertEqual(plan["plans"][0]["action"], "REVIEW_CONFLICT")
+        result = apply_initial_import_plan([row], plan["plans"], system=self.system)
+        self.assertEqual(result["counts"]["OMITTED"], 1)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.nombre, "Primero")
+        self.assertEqual(second.nombre, "Segundo")
+
 
 class ClientImportSafetyTests(TestCase):
     def test_apply_requires_exact_confirmation(self):
@@ -76,6 +115,53 @@ class ClientImportSafetyTests(TestCase):
             with self.assertRaises(CommandError):
                 Command().handle(**options)
         self.assertEqual(CONFIRMATION, "IMPORTAR CLIENTES LOCALMENTE")
+
+    def test_mariadb_apply_requires_explicit_system_enablement(self):
+        database = {
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": "bettaapp",
+            "USER": "bettaapp",
+            "HOST": "db.example.test",
+        }
+        with patch.object(settings, "DATABASES", {"default": database}), patch.dict(
+            os.environ,
+            {"DJANGO_ENV": "production", "DB_NAME": "bettaapp", "DB_USER": "bettaapp", "DB_HOST": "db.example.test", "ALEGRA_EMAIL": "configured", "ALEGRA_API_TOKEN": "configured"},
+            clear=False,
+        ):
+            with self.assertRaises(CommandError):
+                Command._assert_apply_database(True)
+
+    def test_mariadb_apply_can_be_validated_without_connecting_or_applying(self):
+        database = {
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": "bettaapp",
+            "USER": "bettaapp",
+            "HOST": "db.example.test",
+        }
+        with patch.object(settings, "DATABASES", {"default": database}), patch.dict(
+            os.environ,
+            {
+                "DJANGO_ENV": "production",
+                "DB_NAME": "bettaapp",
+                "DB_USER": "bettaapp",
+                "DB_HOST": "db.example.test",
+                "ALEGRA_EMAIL": "configured",
+                "ALEGRA_API_TOKEN": "configured",
+                "ALEGRA_INITIAL_CLIENT_IMPORT_MARIADB_ENABLED": "true",
+            },
+            clear=False,
+        ):
+            Command._assert_apply_database(True)
+
+    def test_contradictory_active_mappings_block_apply(self):
+        system = get_alegra_system()
+        fake_qs = SimpleNamespace(only=lambda *args: [
+            SimpleNamespace(external_id="one", object_id=10),
+            SimpleNamespace(external_id="two", object_id=10),
+        ])
+        with patch.object(ExternalObjectMap.objects, "filter", return_value=fake_qs):
+            with self.assertRaises(CommandError):
+                Command._assert_no_contradictory_active_mappings(system)
 
     def test_incomplete_coverage_is_blocked(self):
         with self.assertRaises(Exception):

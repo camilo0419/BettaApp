@@ -193,7 +193,7 @@ def build_preimport_plan(rows: Iterable[Mapping[str, Any]], *, local_clients=(),
         elif len(candidate_clients) > 1:
             action, reason = ACTION_REVIEW_CONFLICT, "Coincide con varios clientes locales."
         elif len(candidate_clients) == 1:
-            action, reason = ACTION_LINK_EXISTING, "Coincidencia por identificación; requiere confirmación manual."
+            action, reason = ACTION_LINK_EXISTING, "Coincidencia inequívoca por identificación; se actualizará y vinculará."
         else:
             action, reason = ACTION_CREATE_LOCAL, "No hay coincidencia local por identificación."
         plans.append({
