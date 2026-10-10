@@ -111,6 +111,23 @@ class SalesTests(TestCase):
         client.force_login(regular)
         self.assertEqual(client.get(reverse("panel_ventas")).status_code, 403)
 
+    def test_sale_form_uses_internal_client_picker_and_preserves_creation_flow(self):
+        client = Client()
+        client.force_login(self.user)
+        response = client.get(reverse("panel_venta_crear"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-client-picker')
+        self.assertContains(response, 'data-client-search')
+        self.assertContains(response, 'Buscar por nombre o razón social')
+        self.assertNotContains(response, 'select-search-input')
+
+        response = client.post(
+            reverse("panel_venta_crear"),
+            {"cliente": self.client_obj.pk, "fecha_venta": "2026-10-10", "estado": Venta.ESTADO_BORRADOR, "observaciones": "Venta de prueba"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Venta.objects.filter(cliente=self.client_obj).count(), 1)
+
     def test_invoice_preparation_detailed_uses_product_mapping_without_external_write(self):
         from tienda.models import ExternalSystem
         system, _ = ExternalSystem.objects.get_or_create(code="alegra", defaults={"name": "Alegra"})

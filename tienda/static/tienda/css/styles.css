@@ -2630,3 +2630,12 @@ body {
 .unspsc-result span{font-weight:500}.unspsc-result small{display:block;color:#64748b;margin-top:.15rem}
 @media(max-width:680px){.unspsc-panel{max-width:none;margin-top:24px}.unspsc-toggle-help{margin-left:0}}
 .alegra-connection-widget{position:fixed;top:14px;right:20px;z-index:30;font-size:.82rem}.alegra-connection-trigger{display:flex;align-items:center;gap:.38rem;border:1px solid rgba(0,0,0,.12);border-radius:999px;padding:.45rem .7rem;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.08);cursor:pointer;font:inherit}.alegra-connection-dot{font-size:.85rem}.alegra-connection-connected .alegra-connection-dot{color:#16a34a}.alegra-connection-disconnected .alegra-connection-dot{color:#dc2626}.alegra-connection-warning .alegra-connection-dot{color:#d97706}.alegra-connection-stale .alegra-connection-dot,.alegra-connection-unknown .alegra-connection-dot{color:#64748b}.alegra-connection-label{color:#64748b}.alegra-connection-details{position:absolute;right:0;top:calc(100% + .5rem);display:grid;gap:.4rem;width:min(320px,calc(100vw - 2rem));padding:.85rem;background:#fff;border:1px solid #d8dde6;border-radius:.65rem;box-shadow:0 10px 30px rgba(0,0,0,.14)}.alegra-connection-details[hidden]{display:none}.alegra-connection-actions{display:flex;justify-content:space-between;gap:.5rem;align-items:center;margin-top:.25rem}.alegra-connection-actions button{border:0;background:transparent;color:#075985;text-decoration:underline;cursor:pointer;font:inherit}.alegra-connection-disconnected .alegra-connection-details{border-color:#fecaca}.alegra-connection-warning .alegra-connection-details{border-color:#fde68a}@media(max-width:760px){.alegra-connection-widget{top:10px;right:10px}.alegra-connection-trigger{padding:.4rem .55rem}.alegra-connection-label{display:none}}
+.venta-form-shell{width:min(1120px,100%);margin-inline:auto}
+.venta-form{max-width:100%}
+.venta-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 20px}
+.venta-field-full{grid-column:1/-1}
+.venta-form .field{min-width:0}
+.venta-client-picker{width:100%}
+.venta-client-picker > select{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.venta-form-actions{display:flex;justify-content:flex-end;margin-top:24px;padding-top:20px;border-top:1px solid var(--line)}
+@media(max-width:680px){.venta-form-grid{grid-template-columns:1fr}.venta-field-full{grid-column:auto}.venta-form-actions{justify-content:stretch}.venta-form-actions .btn{width:100%}}

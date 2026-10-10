@@ -1,3 +1,123 @@
 {% extends 'tienda/panel/base_panel.html' %}
 {% block title %}{{ titulo }} | Betta{% endblock %}
-{% block content %}<div class="panel-head"><div><span class="eyebrow">Ventas</span><h1>{{ titulo }}</h1></div><a class="btn btn-outline" href="{% url 'panel_ventas' %}">Volver</a></div><div class="panel-card"><form method="post" class="dynamic-form">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Crear venta</button></form></div>{% endblock %}
+{% block content %}
+<div class="panel-head"><div><span class="eyebrow">Ventas</span><h1>{{ titulo }}</h1></div><a class="btn btn-outline" href="{% url 'panel_ventas' %}">Volver</a></div>
+<div class="panel-card venta-form-shell">
+  <form method="post" class="dynamic-form venta-form">
+    {% csrf_token %}
+    {% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
+
+    <div class="venta-form-grid">
+      <div class="field venta-field-full">
+        {{ form.cliente.label_tag }}
+        <div class="category-picker venta-client-picker" data-client-picker>
+          {{ form.cliente }}
+          <button type="button" class="category-picker-trigger" data-client-trigger aria-haspopup="listbox" aria-expanded="false" aria-controls="venta-client-options">
+            <span data-client-value>Seleccionar cliente</span><span class="category-picker-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div class="category-picker-dropdown" data-client-dropdown hidden>
+            <input type="search" class="category-picker-search" data-client-search placeholder="Buscar por nombre o razón social..." autocomplete="off" aria-label="Buscar cliente">
+            <div class="category-picker-options" id="venta-client-options" data-client-options role="listbox"></div>
+          </div>
+        </div>
+        {{ form.cliente.errors }}
+        {% if form.cliente.help_text %}<small>{{ form.cliente.help_text }}</small>{% endif %}
+      </div>
+
+      <div class="field">{{ form.punto_venta.label_tag }}{{ form.punto_venta }}{{ form.punto_venta.errors }}{% if form.punto_venta.help_text %}<small>{{ form.punto_venta.help_text }}</small>{% endif %}</div>
+      <div class="field">{{ form.proyecto.label_tag }}{{ form.proyecto }}{{ form.proyecto.errors }}{% if form.proyecto.help_text %}<small>{{ form.proyecto.help_text }}</small>{% endif %}</div>
+      <div class="field">{{ form.cotizacion.label_tag }}{{ form.cotizacion }}{{ form.cotizacion.errors }}{% if form.cotizacion.help_text %}<small>{{ form.cotizacion.help_text }}</small>{% endif %}</div>
+      <div class="field">{{ form.solicitud.label_tag }}{{ form.solicitud }}{{ form.solicitud.errors }}{% if form.solicitud.help_text %}<small>{{ form.solicitud.help_text }}</small>{% endif %}</div>
+      <div class="field">{{ form.fecha_venta.label_tag }}{{ form.fecha_venta }}{{ form.fecha_venta.errors }}{% if form.fecha_venta.help_text %}<small>{{ form.fecha_venta.help_text }}</small>{% endif %}</div>
+      <div class="field">{{ form.estado.label_tag }}{{ form.estado }}{{ form.estado.errors }}{% if form.estado.help_text %}<small>{{ form.estado.help_text }}</small>{% endif %}</div>
+      <div class="field venta-field-full">{{ form.observaciones.label_tag }}{{ form.observaciones }}{{ form.observaciones.errors }}{% if form.observaciones.help_text %}<small>{{ form.observaciones.help_text }}</small>{% endif %}</div>
+    </div>
+    <div class="venta-form-actions"><button class="btn btn-primary">Guardar venta</button></div>
+  </form>
+</div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const picker = document.querySelector("[data-client-picker]");
+  if (!picker) return;
+  const select = picker.querySelector("select");
+  const trigger = picker.querySelector("[data-client-trigger]");
+  const value = picker.querySelector("[data-client-value]");
+  const dropdown = picker.querySelector("[data-client-dropdown]");
+  const search = picker.querySelector("[data-client-search]");
+  const options = picker.querySelector("[data-client-options]");
+
+  function normalize(text) {
+    return text.trim().toLocaleLowerCase().replace(/\s+/g, " ");
+  }
+  function closePicker() {
+    dropdown.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+  }
+  function selectClient(option) {
+    select.value = option.value;
+    select.dispatchEvent(new Event("change", {bubbles: true}));
+    value.textContent = option.value ? option.textContent.trim() : "Seleccionar cliente";
+    closePicker();
+    trigger.focus();
+  }
+  function renderOptions() {
+    const query = normalize(search.value);
+    options.replaceChildren();
+    let matches = 0;
+    Array.from(select.options).forEach(function (option) {
+      const label = option.textContent.trim();
+      if (query && !normalize(label).includes(query)) return;
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "category-picker-option";
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", option.value === select.value ? "true" : "false");
+      item.textContent = option.value ? label : "Seleccionar cliente";
+      item.addEventListener("click", function () { selectClient(option); });
+      options.appendChild(item);
+      matches += 1;
+    });
+    if (!matches) {
+      const empty = document.createElement("p");
+      empty.className = "category-picker-empty";
+      empty.textContent = "No se encontraron clientes";
+      options.appendChild(empty);
+    }
+  }
+  function syncPicker() {
+    const selected = select.options[select.selectedIndex];
+    value.textContent = selected && selected.value ? selected.textContent.trim() : "Seleccionar cliente";
+    renderOptions();
+  }
+  trigger.addEventListener("click", function () {
+    const opening = dropdown.hidden;
+    if (opening) {
+      dropdown.hidden = false;
+      trigger.setAttribute("aria-expanded", "true");
+      search.value = "";
+      renderOptions();
+      search.focus();
+    } else closePicker();
+  });
+  trigger.addEventListener("keydown", function (event) {
+    if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (dropdown.hidden) trigger.click();
+    } else if (event.key === "Escape") closePicker();
+  });
+  search.addEventListener("input", renderOptions);
+  search.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") { closePicker(); trigger.focus(); }
+    if (event.key === "Enter") {
+      const first = options.querySelector(".category-picker-option");
+      if (first) { event.preventDefault(); first.click(); }
+    }
+  });
+  document.addEventListener("click", function (event) {
+    if (!picker.contains(event.target)) closePicker();
+  });
+  select.addEventListener("change", syncPicker);
+  syncPicker();
+});
+</script>
+{% endblock %}

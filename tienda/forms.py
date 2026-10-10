@@ -902,7 +902,6 @@ class VentaForm(forms.ModelForm):
         for name in ("punto_venta", "proyecto", "cotizacion", "solicitud"):
             self.fields[name].required = False
             use_related_data_select(self.fields[name])
-        mark_searchable_select(self.fields["cliente"])
         mark_searchable_select(self.fields["punto_venta"], **{"data-filter-client-source": "id_cliente", "data-empty-label": "Sin punto de venta"})
         mark_searchable_select(self.fields["proyecto"], **{"data-filter-client-source": "id_cliente", "data-empty-label": "Sin proyecto"})
         mark_searchable_select(self.fields["cotizacion"], **{"data-filter-client-source": "id_cliente", "data-empty-label": "Sin cotización"})
