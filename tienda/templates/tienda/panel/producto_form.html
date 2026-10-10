@@ -50,22 +50,28 @@
         {% endif %}
       {% endfor %}
     </div>
-    <section class="panel-card" data-unspsc-picker>
+    <section class="panel-card unspsc-panel" data-unspsc-picker>
       <h2>Clasificación UNSPSC</h2>
       <p class="muted">Opcional. Selecciona únicamente códigos del catálogo oficial cargado localmente.</p>
-      <div class="field">
-        {{ form.asignar_unspsc }} {{ form.asignar_unspsc.label_tag }}
-        {% if form.asignar_unspsc.help_text %}<small>{{ form.asignar_unspsc.help_text }}</small>{% endif %}
-        {{ form.unspsc }}{{ form.unspsc.errors }}
+      <div class="unspsc-toggle">
+        {{ form.asignar_unspsc }}
+        <label for="{{ form.asignar_unspsc.id_for_label }}" class="unspsc-switch-label">
+          <span class="unspsc-switch-track" aria-hidden="true"><span class="unspsc-switch-thumb"></span></span>
+          <span>{{ form.asignar_unspsc.label }}</span>
+        </label>
       </div>
-      <div class="unspsc-selection" data-unspsc-selection><strong data-unspsc-selected>{% if producto and producto.unspsc %}{{ producto.unspsc.code }} · {{ producto.unspsc.description }}{% else %}Sin clasificación seleccionada{% endif %}</strong></div>
-      <div class="field">
-        <label for="unspsc-search">Buscar por código o descripción</label>
-        <input id="unspsc-search" type="search" data-unspsc-search placeholder="Ej. impresión, 4321..." autocomplete="off" {% if not form.asignar_unspsc.value %}disabled{% endif %}>
-        <div class="unspsc-results" data-unspsc-results aria-live="polite"></div>
-        <small class="muted" data-unspsc-status aria-live="polite"></small>
+      {% if form.asignar_unspsc.help_text %}<small class="muted unspsc-toggle-help">{{ form.asignar_unspsc.help_text }}</small>{% endif %}
+      {{ form.unspsc }}{{ form.unspsc.errors }}
+      <div class="unspsc-content{% if not form.asignar_unspsc.value %} is-collapsed{% endif %}" data-unspsc-content aria-hidden="{% if form.asignar_unspsc.value %}false{% else %}true{% endif %}">
+        <div class="unspsc-selection" data-unspsc-selection><strong data-unspsc-selected>{% if producto and producto.unspsc %}{{ producto.unspsc.code }} · {{ producto.unspsc.description }}{% else %}Sin clasificación seleccionada{% endif %}</strong></div>
+        <div class="field">
+          <label for="unspsc-search">Buscar por código o descripción</label>
+          <input id="unspsc-search" type="search" data-unspsc-search placeholder="Ej. impresión, 4321..." autocomplete="off" {% if not form.asignar_unspsc.value %}disabled{% endif %}>
+          <div class="unspsc-results" data-unspsc-results aria-live="polite"></div>
+          <small class="muted" data-unspsc-status aria-live="polite"></small>
+        </div>
+        {% if producto and producto.unspsc %}<button type="submit" form="unspsc-remove-form" class="btn btn-outline">Quitar clasificación UNSPSC</button>{% endif %}
       </div>
-      {% if producto and producto.unspsc %}<button type="submit" form="unspsc-remove-form" class="btn btn-outline">Quitar clasificación UNSPSC</button>{% endif %}
     </section>
     <button class="btn btn-primary">Guardar producto</button>
   </form>
@@ -229,6 +235,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const searchInput = document.querySelector("[data-unspsc-search]");
     const results = document.querySelector("[data-unspsc-results]");
     const selected = document.querySelector("[data-unspsc-selected]");
+    const content = document.querySelector("[data-unspsc-content]");
     const nameInput = document.getElementById("id_nombre");
     let timer;
     let requestNumber = 0;
@@ -285,8 +292,14 @@ document.addEventListener("DOMContentLoaded", function () {
       clearTimeout(timer);
       timer = setTimeout(function () { searchUnspsc(query.trim()); }, 250);
     }
+    function syncUnspscVisibility() {
+      const collapsed = !checkbox.checked;
+      content.classList.toggle("is-collapsed", collapsed);
+      content.setAttribute("aria-hidden", String(collapsed));
+      searchInput.disabled = collapsed;
+    }
     checkbox?.addEventListener("change", function () {
-      searchInput.disabled = !checkbox.checked;
+      syncUnspscVisibility();
       if (!checkbox.checked) {
         results.replaceChildren();
         const status = unspscPicker.querySelector("[data-unspsc-status]");
@@ -303,6 +316,7 @@ document.addEventListener("DOMContentLoaded", function () {
     nameInput?.addEventListener("input", function () {
       if (checkbox.checked && !searchInput.value.trim()) scheduleSearch(nameInput.value);
     });
+    syncUnspscVisibility();
   }
 });
 </script>

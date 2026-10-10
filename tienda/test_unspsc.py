@@ -148,6 +148,26 @@ class UNSPSCTests(TestCase):
         response = self.client.get(reverse("panel_producto_unspsc_buscar"), {"q": "semillas"})
         self.assertEqual(response.status_code, 302)
 
+    def test_unspsc_switch_is_off_and_content_collapsed_for_new_product(self):
+        response = self.client.get(reverse("panel_producto_crear"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="panel-card unspsc-panel"')
+        self.assertContains(response, 'class="unspsc-switch-track"')
+        self.assertContains(response, 'class="unspsc-content is-collapsed"')
+        self.assertContains(response, 'aria-hidden="true"')
+
+    def test_unspsc_switch_is_on_for_classified_product(self):
+        category = Categoria.objects.create(nombre="UNSPSC QA visual")
+        product = Producto.objects.create(
+            nombre="Producto clasificado visual", categoria=category,
+            tipo_calculo=Producto.CALCULO_UNIDAD, unspsc=self.item,
+        )
+        response = self.client.get(reverse("panel_producto_editar", args=[product.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="unspsc-content"')
+        self.assertContains(response, 'aria-hidden="false"')
+        self.assertContains(response, self.item.code)
+
     def test_catalog_panel_is_staff_only_and_exposes_upload_workflow(self):
         response = self.client.get(reverse("panel_unspsc_catalogo"))
         self.assertEqual(response.status_code, 200)
