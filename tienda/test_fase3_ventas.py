@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from tienda.models import AlegraInvoicePreparation, AlegraInvoiceStaging, Categoria, Cliente, Cotizacion, CotizacionItem, ExternalObjectMap, Producto, SyncAuditLog, Venta, VentaItem
+from tienda.models import AlegraInvoicePreparation, AlegraInvoiceStaging, Categoria, Cliente, Cotizacion, CotizacionItem, ExternalObjectMap, Producto, Proyecto, SyncAuditLog, Venta, VentaItem
 from tienda.services.alegra_client import AlegraResponse
 from tienda.services.alegra_invoice_import import AlegraInvoiceImporter
 from tienda.services.alegra_invoice_prepare import prepare_invoice
@@ -52,6 +52,28 @@ class SalesTests(TestCase):
         client.post(reverse("panel_cotizacion_convertir", kwargs={"cotizacion_id": quote.pk}))
         self.assertEqual(Venta.objects.filter(cotizacion=quote).count(), 1)
         self.assertEqual(Venta.objects.get(cotizacion=quote).items.count(), 1)
+        self.assertEqual(Venta.objects.get(cotizacion=quote).estado, Venta.ESTADO_BORRADOR)
+
+    def test_project_starts_reviewable_draft_with_client_and_project_prefilled(self):
+        project = Proyecto.objects.create(nombre="Proyecto venta", cliente=self.client_obj)
+        client = Client()
+        client.force_login(self.user)
+        response = client.get(reverse("panel_venta_desde_proyecto", kwargs={"proyecto_id": project.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Nueva venta desde proyecto")
+        self.assertContains(response, 'value="%s"' % self.client_obj.pk)
+        self.assertContains(response, 'value="%s"' % project.pk)
+        self.assertEqual(Venta.objects.count(), 0)
+
+        response = client.post(
+            reverse("panel_venta_desde_proyecto", kwargs={"proyecto_id": project.pk}),
+            {"cliente": self.client_obj.pk, "proyecto": project.pk, "fecha_venta": "2026-10-10", "estado": Venta.ESTADO_BORRADOR},
+        )
+        self.assertEqual(response.status_code, 302)
+        sale = Venta.objects.get()
+        self.assertEqual(sale.estado, Venta.ESTADO_BORRADOR)
+        self.assertEqual(sale.cliente_id, self.client_obj.pk)
+        self.assertEqual(sale.proyecto_id, project.pk)
 
     def test_invoice_pagination_idempotence_and_client_match(self):
         rows = [{"id": "INV-1", "number": "FV-001", "date": "2026-01-02", "dueDate": "2026-02-01", "client": {"id": "C-1", "name": "Cliente venta", "identification": "9001234567"}, "subtotal": 100, "tax": 19, "total": 119, "balance": 119, "status": "open", "items": [{"name": "Producto venta"}]}]

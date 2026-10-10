@@ -130,7 +130,7 @@
         {% if cotizacion.estado == 'aprobada' %}
         <form method="post" action="{% url 'panel_cotizacion_convertir' cotizacion.id %}">
           {% csrf_token %}
-          <button class="btn btn-outline btn-wide">Convertir</button>
+          <button class="btn btn-outline btn-wide">Crear venta para revisión</button>
         </form>
         {% endif %}
       </div>

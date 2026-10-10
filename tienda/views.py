@@ -1941,7 +1941,7 @@ def cotizacion_convertir(request, cotizacion_id):
                 responsable=request.user,
                 creado_por=request.user,
                 actualizado_por=request.user,
-                estado=Venta.ESTADO_CONFIRMADA,
+                estado=Venta.ESTADO_BORRADOR,
                 observaciones=cotizacion.condiciones_comerciales,
             )
             for item in items:
@@ -1966,7 +1966,7 @@ def cotizacion_convertir(request, cotizacion_id):
             cotizacion.solicitud.estado = Solicitud.ESTADO_COTIZADA
             cotizacion.solicitud.save(update_fields=["precio_final", "estado", "actualizado"])
             crear_novedad(cotizacion.solicitud, request.user, SolicitudNovedad.TIPO_SISTEMA, f"Cotización {cotizacion.numero} convertida a venta {venta.numero}.")
-    messages.success(request, f"Venta {venta.numero} confirmada desde la cotización.")
+    messages.success(request, f"Venta {venta.numero} creada como borrador desde la cotización para revisión.")
     return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
 
 
@@ -1999,6 +1999,24 @@ def venta_crear(request):
         messages.success(request, f"Venta {venta.numero} creada como borrador.")
         return redirect("panel_venta_detalle", venta_id=venta.id)
     return render(request, "tienda/panel/venta_form.html", {"form": form, "titulo": "Nueva venta"})
+
+
+@panel_staff_required
+def venta_desde_proyecto(request, proyecto_id):
+    proyecto = get_object_or_404(Proyecto.objects.select_related("cliente"), pk=proyecto_id)
+    initial = {"cliente": proyecto.cliente_id, "proyecto": proyecto.id}
+    form = VentaForm(request.POST or None, initial=initial)
+    if request.method == "POST" and form.is_valid():
+        with transaction.atomic():
+            venta = form.save(commit=False)
+            venta.creado_por = request.user
+            venta.actualizado_por = request.user
+            venta.responsable = request.user
+            venta.estado = Venta.ESTADO_BORRADOR
+            venta.save()
+        messages.success(request, f"Venta {venta.numero} creada como borrador para revisión.")
+        return redirect("panel_venta_detalle", venta_id=venta.id)
+    return render(request, "tienda/panel/venta_form.html", {"form": form, "titulo": "Nueva venta desde proyecto"})
 
 
 @panel_staff_required

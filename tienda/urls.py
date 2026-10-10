@@ -47,6 +47,7 @@ urlpatterns = [
     path("panel/cotizaciones/<int:cotizacion_id>/convertir/", views.cotizacion_convertir, name="panel_cotizacion_convertir"),
     path("panel/ventas/", views.ventas_lista, name="panel_ventas"),
     path("panel/ventas/crear/", views.venta_crear, name="panel_venta_crear"),
+    path("panel/proyectos/<int:proyecto_id>/ventas/crear/", views.venta_desde_proyecto, name="panel_venta_desde_proyecto"),
     path("panel/ventas/<int:venta_id>/", views.venta_detalle, name="panel_venta_detalle"),
     path("panel/ventas/<int:venta_id>/items/nuevo/", views.venta_item_crear, name="panel_venta_item_crear"),
     path("panel/ventas/<int:venta_id>/confirmar/", views.venta_confirmar, name="panel_venta_confirmar"),
