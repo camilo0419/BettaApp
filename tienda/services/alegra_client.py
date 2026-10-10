@@ -102,6 +102,7 @@ class AlegraReadOnlyClient:
         max_pages: int | None = None,
         pause: float = 0,
         stop_on_short_page: bool = True,
+        require_complete: bool = False,
     ) -> list[AlegraResponse]:
         """Consulta por páginas; ``limit=None`` recorre hasta el fin verificable."""
         page_size = min(max(int(limit or 30), 1), 30)
@@ -130,15 +131,25 @@ class AlegraReadOnlyClient:
                     declared_total = int(raw_total) if raw_total is not None else declared_total
                 except (TypeError, ValueError):
                     pass
-            if not rows or (stop_on_short_page and len(rows) < current):
+            received = start + len(rows)
+            if declared_total is not None and received < declared_total and not rows:
+                if require_complete:
+                    raise AlegraPaginationError("Alegra declaró registros pendientes, pero devolvió una página vacía.")
+            if not rows:
                 break
-            start += len(rows)
+            if stop_on_short_page and len(rows) < current:
+                if require_complete and declared_total is not None and received < declared_total:
+                    raise AlegraPaginationError("Alegra declaró más registros que los recuperados; cobertura incompleta.")
+                break
+            start = received
             if remaining is not None:
                 remaining -= len(rows)
             if declared_total is not None and start >= declared_total:
                 break
             if pause and (remaining is None or remaining > 0) and (max_pages is None or pages < max_pages):
                 time.sleep(max(float(pause), 0))
+        if require_complete and declared_total is not None and start < declared_total:
+            raise AlegraPaginationError("No se alcanzó el total declarado por Alegra; cobertura incompleta.")
         return responses
 
 

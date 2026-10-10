@@ -171,6 +171,7 @@ class AlegraWriteClient:
             params["name"] = name
         responses = AlegraReadOnlyClient(timeout=self.timeout).paged_get(
             "/contacts", limit=None, params=params,
+            stop_on_short_page=False, require_complete=True,
         )
         rows = []
         seen_ids = set()
