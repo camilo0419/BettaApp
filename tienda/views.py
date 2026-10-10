@@ -1608,6 +1608,21 @@ def panel_ajax_cliente_proyectos(request, cliente_id):
     return JsonResponse({"results": [proyecto_option(proyecto) for proyecto in proyectos]})
 
 
+def cotizacion_option(cotizacion):
+    return {
+        "id": cotizacion.id,
+        "label": f"{cotizacion.numero} · {cotizacion.titulo} · {cotizacion.get_estado_display()}",
+        "client_id": cotizacion.cliente_id,
+        "project_id": cotizacion.proyecto_id,
+    }
+
+
+@panel_staff_required
+def panel_ajax_cliente_cotizaciones(request, cliente_id):
+    cotizaciones = Cotizacion.objects.filter(cliente_id=cliente_id, activa=True).select_related("cliente", "proyecto").order_by("-fecha_creacion")
+    return JsonResponse({"results": [cotizacion_option(cotizacion) for cotizacion in cotizaciones]})
+
+
 @panel_staff_required
 def panel_ajax_cliente_puntos_venta(request, cliente_id):
     puntos = ClientePuntoVenta.objects.filter(activo=True, cliente_id=cliente_id).select_related("cliente").order_by("-es_principal", "nombre")
@@ -1917,6 +1932,53 @@ def cotizacion_enviar(request, cotizacion_id):
     return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
 
 
+def _crear_venta_desde_cotizacion(cotizacion, actor, *, datos=None):
+    """Materializa una cotización aprobada como venta borrador, una sola vez."""
+    if cotizacion.estado not in {Cotizacion.ESTADO_APROBADA, Cotizacion.ESTADO_CONVERTIDA}:
+        raise ValidationError("Solo una cotización aprobada puede convertirse.")
+    items = list(cotizacion.items.filter(activo=True).select_related("producto"))
+    if not items:
+        raise ValidationError("La cotización debe tener al menos un ítem activo.")
+
+    datos = datos or {}
+    venta = Venta.objects.create(
+        cliente=cotizacion.cliente,
+        punto_venta=datos.get("punto_venta") or cotizacion.punto_venta,
+        proyecto=datos.get("proyecto") or cotizacion.proyecto,
+        cotizacion=cotizacion,
+        solicitud=datos.get("solicitud") or cotizacion.solicitud,
+        fecha_venta=datos.get("fecha_venta") or timezone.localdate(),
+        responsable=actor,
+        creado_por=actor,
+        actualizado_por=actor,
+        estado=Venta.ESTADO_BORRADOR,
+        observaciones=datos.get("observaciones") or cotizacion.condiciones_comerciales,
+    )
+    for item in items:
+        VentaItem.objects.create(
+            venta=venta,
+            producto=item.producto,
+            descripcion=item.descripcion,
+            cantidad=item.cantidad,
+            unidad=item.unidad,
+            precio_unitario=item.valor_unitario,
+            descuento=item.descuento_calculado,
+            impuesto=item.impuesto_calculado,
+            orden=item.orden,
+            activo=item.activo,
+        )
+    venta.recalcular_totales()
+    cotizacion.estado = Cotizacion.ESTADO_CONVERTIDA
+    cotizacion.actualizada_por = actor
+    cotizacion.save(update_fields=["estado", "actualizada_por", "fecha_actualizacion"])
+    if cotizacion.solicitud_id:
+        cotizacion.solicitud.precio_final = cotizacion.total
+        cotizacion.solicitud.estado = Solicitud.ESTADO_COTIZADA
+        cotizacion.solicitud.save(update_fields=["precio_final", "estado", "actualizado"])
+        crear_novedad(cotizacion.solicitud, actor, SolicitudNovedad.TIPO_SISTEMA, f"Cotización {cotizacion.numero} convertida a venta {venta.numero}.")
+    return venta
+
+
 @panel_staff_required
 @require_POST
 def cotizacion_convertir(request, cotizacion_id):
@@ -1927,45 +1989,11 @@ def cotizacion_convertir(request, cotizacion_id):
             return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
         venta = Venta.objects.filter(cotizacion=cotizacion).first()
         if not venta:
-            items = list(cotizacion.items.filter(activo=True).select_related("producto"))
-            if not items:
-                messages.error(request, "La cotización debe tener al menos un ítem activo.")
+            try:
+                venta = _crear_venta_desde_cotizacion(cotizacion, request.user)
+            except ValidationError as exc:
+                messages.error(request, str(exc))
                 return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
-            venta = Venta.objects.create(
-                cliente=cotizacion.cliente,
-                punto_venta=cotizacion.punto_venta,
-                proyecto=cotizacion.proyecto,
-                cotizacion=cotizacion,
-                solicitud=cotizacion.solicitud,
-                fecha_venta=timezone.localdate(),
-                responsable=request.user,
-                creado_por=request.user,
-                actualizado_por=request.user,
-                estado=Venta.ESTADO_BORRADOR,
-                observaciones=cotizacion.condiciones_comerciales,
-            )
-            for item in items:
-                VentaItem.objects.create(
-                    venta=venta,
-                    producto=item.producto,
-                    descripcion=item.descripcion,
-                    cantidad=item.cantidad,
-                    unidad=item.unidad,
-                    precio_unitario=item.valor_unitario,
-                    descuento=item.descuento_calculado,
-                    impuesto=item.impuesto_calculado,
-                    orden=item.orden,
-                    activo=item.activo,
-                )
-            venta.recalcular_totales()
-        cotizacion.estado = Cotizacion.ESTADO_CONVERTIDA
-        cotizacion.actualizada_por = request.user
-        cotizacion.save()
-        if cotizacion.solicitud_id:
-            cotizacion.solicitud.precio_final = cotizacion.total
-            cotizacion.solicitud.estado = Solicitud.ESTADO_COTIZADA
-            cotizacion.solicitud.save(update_fields=["precio_final", "estado", "actualizado"])
-            crear_novedad(cotizacion.solicitud, request.user, SolicitudNovedad.TIPO_SISTEMA, f"Cotización {cotizacion.numero} convertida a venta {venta.numero}.")
     messages.success(request, f"Venta {venta.numero} creada como borrador desde la cotización para revisión.")
     return redirect("panel_cotizacion_detalle", cotizacion_id=cotizacion.id)
 
@@ -1991,6 +2019,16 @@ def venta_crear(request):
     form = VentaForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         with transaction.atomic():
+            cotizacion = form.cleaned_data.get("cotizacion")
+            if cotizacion:
+                cotizacion = Cotizacion.objects.select_for_update().get(pk=cotizacion.pk)
+                venta = Venta.objects.filter(cotizacion=cotizacion).first()
+                if venta:
+                    messages.info(request, f"La cotización ya tiene la venta {venta.numero}; se abrió la venta existente.")
+                    return redirect("panel_venta_detalle", venta_id=venta.id)
+                venta = _crear_venta_desde_cotizacion(cotizacion, request.user, datos=form.cleaned_data)
+                messages.success(request, f"Venta {venta.numero} creada como borrador desde la cotización para revisión.")
+                return redirect("panel_venta_detalle", venta_id=venta.id)
             venta = form.save(commit=False)
             venta.creado_por = request.user
             venta.actualizado_por = request.user

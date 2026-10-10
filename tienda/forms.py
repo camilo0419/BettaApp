@@ -919,6 +919,8 @@ class VentaForm(forms.ModelForm):
             self.add_error("proyecto", "El proyecto no pertenece al cliente.")
         if cotizacion and cliente and cotizacion.cliente_id != cliente.id:
             self.add_error("cotizacion", "La cotización no pertenece al cliente.")
+        if cotizacion and cotizacion.estado not in {Cotizacion.ESTADO_APROBADA, Cotizacion.ESTADO_CONVERTIDA}:
+            self.add_error("cotizacion", "Solo una cotización aprobada puede convertirse en venta.")
         solicitud_cliente = (solicitud.cliente_id or getattr(solicitud.proyecto, "cliente_id", None)) if solicitud else None
         if solicitud_cliente and cliente and solicitud_cliente != cliente.id:
             self.add_error("solicitud", "La solicitud no pertenece al cliente.")

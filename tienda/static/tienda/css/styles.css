@@ -2637,6 +2637,10 @@ body {
 .venta-item-grid .field{min-width:0}
 @media(max-width:860px){.sales-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.sales-filter-button{width:100%}}
 @media(max-width:680px){.sales-filters{grid-template-columns:1fr}.sales-filter-button{width:100%}}
+.filter-picker{width:100%}
+.filter-picker > select{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.filter-picker .category-picker-trigger{min-height:48px;padding:10px 12px}
+.filter-picker .category-picker-dropdown{top:calc(100% + 6px)}
 .venta-form-shell{width:min(1120px,100%);margin-inline:auto}
 .venta-form{max-width:100%}
 .venta-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 20px}

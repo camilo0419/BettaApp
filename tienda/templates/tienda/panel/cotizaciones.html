@@ -1,4 +1,5 @@
 {% extends 'tienda/panel/base_panel.html' %}
+{% load comercial %}
 
 {% block title %}Cotizaciones | Admin productos{% endblock %}
 
@@ -25,16 +26,24 @@
       </select>
     </label>
     <label>Cliente
-      <select name="cliente" data-searchable-select="true">
-        <option value="">Todos</option>
-        {% for cliente in clientes %}<option value="{{ cliente.id }}" {% if cliente_id == cliente.id|stringformat:"s" %}selected{% endif %}>{{ cliente }}</option>{% endfor %}
-      </select>
+      <div class="category-picker filter-picker" data-internal-picker data-empty-label="Todos">
+        <select name="cliente" id="cotizaciones-cliente">
+          <option value="">Todos</option>
+          {% for cliente in clientes %}<option value="{{ cliente.id }}" {% if cliente_id == cliente.id|stringformat:"s" %}selected{% endif %}>{{ cliente }}</option>{% endfor %}
+        </select>
+        <button type="button" class="category-picker-trigger" data-picker-trigger aria-haspopup="listbox" aria-expanded="false"><span data-picker-value>Todos</span><span class="category-picker-chevron" aria-hidden="true">▾</span></button>
+        <div class="category-picker-dropdown" data-picker-dropdown hidden><input type="search" class="category-picker-search" data-picker-search placeholder="Buscar cliente..." autocomplete="off" aria-label="Buscar cliente"><div class="category-picker-options" data-picker-options role="listbox"></div></div>
+      </div>
     </label>
     <label>Proyecto
-      <select name="proyecto" data-searchable-select="true">
-        <option value="">Todos</option>
-        {% for proyecto in proyectos %}<option value="{{ proyecto.id }}" {% if proyecto_id == proyecto.id|stringformat:"s" %}selected{% endif %}>{{ proyecto.nombre }}{% if proyecto.cliente %} - {{ proyecto.cliente }}{% endif %}</option>{% endfor %}
-      </select>
+      <div class="category-picker filter-picker" data-internal-picker data-empty-label="Todos">
+        <select name="proyecto" id="cotizaciones-proyecto">
+          <option value="">Todos</option>
+          {% for proyecto in proyectos %}<option value="{{ proyecto.id }}" {% if proyecto_id == proyecto.id|stringformat:"s" %}selected{% endif %}>{{ proyecto.nombre }}{% if proyecto.cliente %} - {{ proyecto.cliente }}{% endif %}</option>{% endfor %}
+        </select>
+        <button type="button" class="category-picker-trigger" data-picker-trigger aria-haspopup="listbox" aria-expanded="false"><span data-picker-value>Todos</span><span class="category-picker-chevron" aria-hidden="true">▾</span></button>
+        <div class="category-picker-dropdown" data-picker-dropdown hidden><input type="search" class="category-picker-search" data-picker-search placeholder="Buscar proyecto..." autocomplete="off" aria-label="Buscar proyecto"><div class="category-picker-options" data-picker-options role="listbox"></div></div>
+      </div>
     </label>
     <label>Fecha
       <input type="date" name="fecha" value="{{ fecha }}">
@@ -68,12 +77,17 @@
           <td>{{ cotizacion.fecha_creacion|date:'d/m/Y' }}</td>
           <td>{{ cotizacion.fecha_vencimiento|date:'d/m/Y'|default:'-' }}</td>
           <td><span class="badge">{{ cotizacion.get_estado_display }}</span></td>
-          <td>${{ cotizacion.total|floatformat:0 }}</td>
+          <td>{{ cotizacion.total|cop }}</td>
           <td class="actions-column">
             <div class="table-actions">
               <a href="{% url 'panel_cotizacion_detalle' cotizacion.id %}" class="link-button">Ver</a>
               <a href="{% url 'panel_cotizacion_editar' cotizacion.id %}" class="link-button">Editar</a>
               <a href="{% url 'panel_cotizacion_pdf' cotizacion.id %}" class="link-button" target="_blank" rel="noopener">PDF</a>
+              {% with venta=cotizacion.ventas.first %}
+                {% if venta %}<a href="{% url 'panel_venta_detalle' venta.id %}" class="link-button">Facturar · revisar venta</a>
+                {% elif cotizacion.estado == 'aprobada' %}<form method="post" action="{% url 'panel_cotizacion_convertir' cotizacion.id %}">{% csrf_token %}<button class="link-button" type="submit">Facturar</button></form>
+                {% else %}<span class="muted" title="Solo las cotizaciones aprobadas pueden iniciar una venta">No elegible</span>{% endif %}
+              {% endwith %}
               <form method="post" action="{% url 'panel_cotizacion_duplicar' cotizacion.id %}">
                 {% csrf_token %}
                 <button class="link-button" type="submit">Duplicar</button>

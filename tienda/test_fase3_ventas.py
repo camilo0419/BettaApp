@@ -55,6 +55,76 @@ class SalesTests(TestCase):
         self.assertEqual(Venta.objects.get(cotizacion=quote).items.count(), 1)
         self.assertEqual(Venta.objects.get(cotizacion=quote).estado, Venta.ESTADO_BORRADOR)
 
+    def test_new_sale_with_approved_quote_copies_commercial_snapshot(self):
+        quote = Cotizacion.objects.create(
+            cliente=self.client_obj,
+            titulo="Cotización para nueva venta",
+            estado=Cotizacion.ESTADO_APROBADA,
+            creada_por=self.user,
+        )
+        quote_item = CotizacionItem.objects.create(
+            cotizacion=quote,
+            producto=self.product,
+            descripcion="Precio histórico",
+            cantidad=Decimal("3"),
+            valor_unitario=Decimal("120"),
+            descuento_porcentaje=Decimal("10"),
+            impuesto_porcentaje=Decimal("19"),
+        )
+        client = Client()
+        client.force_login(self.user)
+        response = client.post(
+            reverse("panel_venta_crear"),
+            {
+                "cliente": self.client_obj.pk,
+                "cotizacion": quote.pk,
+                "fecha_venta": "2026-10-10",
+                "estado": Venta.ESTADO_BORRADOR,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        sale = Venta.objects.get(cotizacion=quote)
+        item = sale.items.get()
+        self.assertEqual(item.cantidad, quote_item.cantidad)
+        self.assertEqual(item.precio_unitario, quote_item.valor_unitario)
+        self.assertEqual(item.descuento, quote_item.descuento_calculado)
+        self.assertEqual(item.impuesto, quote_item.impuesto_calculado)
+        self.assertEqual(sale.estado, Venta.ESTADO_BORRADOR)
+        self.assertEqual(sale.total, quote_item.total)
+
+    def test_new_sale_reuses_existing_quote_sale_and_rejects_draft_quote(self):
+        approved = Cotizacion.objects.create(
+            cliente=self.client_obj,
+            titulo="Cotización existente",
+            estado=Cotizacion.ESTADO_APROBADA,
+            creada_por=self.user,
+        )
+        CotizacionItem.objects.create(cotizacion=approved, producto=self.product, descripcion="Único", cantidad=1, valor_unitario=Decimal("100"))
+        client = Client()
+        client.force_login(self.user)
+        data = {"cliente": self.client_obj.pk, "cotizacion": approved.pk, "fecha_venta": "2026-10-10", "estado": Venta.ESTADO_BORRADOR}
+        first = client.post(reverse("panel_venta_crear"), data)
+        second = client.post(reverse("panel_venta_crear"), data)
+        self.assertEqual(first.status_code, 302)
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(Venta.objects.filter(cotizacion=approved).count(), 1)
+
+        draft = Cotizacion.objects.create(cliente=self.client_obj, titulo="Cotización borrador", estado=Cotizacion.ESTADO_BORRADOR)
+        blocked = client.post(reverse("panel_venta_crear"), {**data, "cotizacion": draft.pk})
+        self.assertEqual(blocked.status_code, 200)
+        self.assertContains(blocked, "Solo una cotización aprobada puede convertirse en venta")
+        self.assertFalse(Venta.objects.filter(cotizacion=draft).exists())
+
+    def test_facturar_actions_use_same_conversion_route(self):
+        quote = Cotizacion.objects.create(cliente=self.client_obj, titulo="Cotización facturable", estado=Cotizacion.ESTADO_APROBADA)
+        CotizacionItem.objects.create(cotizacion=quote, producto=self.product, descripcion="Línea", cantidad=1, valor_unitario=Decimal("100"))
+        client = Client()
+        client.force_login(self.user)
+        listing = client.get(reverse("panel_cotizaciones"))
+        detail = client.get(reverse("panel_cotizacion_detalle", kwargs={"cotizacion_id": quote.pk}))
+        self.assertContains(listing, reverse("panel_cotizacion_convertir", kwargs={"cotizacion_id": quote.pk}))
+        self.assertContains(detail, reverse("panel_cotizacion_convertir", kwargs={"cotizacion_id": quote.pk}))
+
     def test_project_starts_reviewable_draft_with_client_and_project_prefilled(self):
         project = Proyecto.objects.create(nombre="Proyecto venta", cliente=self.client_obj)
         client = Client()
@@ -83,6 +153,26 @@ class SalesTests(TestCase):
         product_ids = set(form.fields["producto"].queryset.values_list("pk", flat=True))
         self.assertIn(self.product.pk, product_ids)
         self.assertNotIn(inactive.pk, product_ids)
+
+    def test_client_cotizaciones_endpoint_returns_quotes_for_selected_client(self):
+        quote = Cotizacion.objects.create(cliente=self.client_obj, titulo="Cotización elegible", estado=Cotizacion.ESTADO_APROBADA)
+        client = Client()
+        client.force_login(self.user)
+        response = client.get(reverse("panel_ajax_cliente_cotizaciones", kwargs={"cliente_id": self.client_obj.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["results"][0]["id"], quote.pk)
+        self.assertIn("Aprobada", response.json()["results"][0]["label"])
+
+    def test_cop_filter_keeps_decimal_precision_in_sales_and_quotes(self):
+        quote = Cotizacion.objects.create(cliente=self.client_obj, titulo="Cotización moneda", total=Decimal("599000.50"))
+        sale = Venta.objects.create(cliente=self.client_obj, total=Decimal("1250000"))
+        client = Client()
+        client.force_login(self.user)
+        quote_response = client.get(reverse("panel_cotizaciones"))
+        sale_response = client.get(reverse("panel_ventas"))
+        self.assertContains(quote_response, "$599.000,50")
+        self.assertContains(sale_response, "$1.250.000")
+        self.assertTrue(quote.pk and sale.pk)
 
     def test_invoice_pagination_idempotence_and_client_match(self):
         rows = [{"id": "INV-1", "number": "FV-001", "date": "2026-01-02", "dueDate": "2026-02-01", "client": {"id": "C-1", "name": "Cliente venta", "identification": "9001234567"}, "subtotal": 100, "tax": 19, "total": 119, "balance": 119, "status": "open", "items": [{"name": "Producto venta"}]}]

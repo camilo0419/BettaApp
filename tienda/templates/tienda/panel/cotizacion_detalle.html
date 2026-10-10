@@ -1,4 +1,5 @@
 {% extends 'tienda/panel/base_panel.html' %}
+{% load comercial %}
 
 {% block title %}{{ cotizacion.numero }} | Admin productos{% endblock %}
 
@@ -17,10 +18,10 @@
 </div>
 
 <div class="kpi-grid production-kpis">
-  <div class="kpi"><span>Subtotal</span><strong>${{ cotizacion.subtotal|floatformat:0 }}</strong></div>
-  <div class="kpi"><span>Descuento</span><strong>${{ cotizacion.descuento_total|floatformat:0 }}</strong></div>
-  <div class="kpi"><span>Impuestos</span><strong>${{ cotizacion.impuesto_total|floatformat:0 }}</strong></div>
-  <div class="kpi"><span>Total</span><strong>${{ cotizacion.total|floatformat:0 }}</strong></div>
+  <div class="kpi"><span>Subtotal</span><strong>{{ cotizacion.subtotal|cop }}</strong></div>
+  <div class="kpi"><span>Descuento</span><strong>{{ cotizacion.descuento_total|cop }}</strong></div>
+  <div class="kpi"><span>Impuestos</span><strong>{{ cotizacion.impuesto_total|cop }}</strong></div>
+  <div class="kpi"><span>Total</span><strong>{{ cotizacion.total|cop }}</strong></div>
 </div>
 
 <div class="split-grid">
@@ -69,10 +70,10 @@
               <td>{{ item.orden }}</td>
               <td><strong>{{ item.descripcion }}</strong><br><small>{{ item.detalle|linebreaksbr }}</small></td>
               <td>{{ item.cantidad }} {{ item.unidad }}</td>
-              <td>${{ item.valor_unitario|floatformat:0 }}</td>
-              <td>${{ item.descuento_calculado|floatformat:0 }}</td>
-              <td>${{ item.impuesto_calculado|floatformat:0 }}</td>
-              <td><strong>${{ item.total|floatformat:0 }}</strong></td>
+              <td>{{ item.valor_unitario|cop }}</td>
+              <td>{{ item.descuento_calculado|cop }}</td>
+              <td>{{ item.impuesto_calculado|cop }}</td>
+              <td><strong>{{ item.total|cop }}</strong></td>
               <td class="actions-column">
                 <div class="table-actions">
                   <a href="{% url 'panel_cotizacion_item_editar' item.id %}" class="link-button">Editar</a>
@@ -127,12 +128,11 @@
           {% csrf_token %}
           <button class="btn btn-outline btn-wide">Duplicar cotización</button>
         </form>
-        {% if cotizacion.estado == 'aprobada' %}
-        <form method="post" action="{% url 'panel_cotizacion_convertir' cotizacion.id %}">
-          {% csrf_token %}
-          <button class="btn btn-outline btn-wide">Crear venta para revisión</button>
-        </form>
-        {% endif %}
+        {% with venta=cotizacion.ventas.first %}
+          {% if venta %}<a class="btn btn-primary btn-wide" href="{% url 'panel_venta_detalle' venta.id %}">Facturar · revisar venta</a>
+          {% elif cotizacion.estado == 'aprobada' %}<form method="post" action="{% url 'panel_cotizacion_convertir' cotizacion.id %}">{% csrf_token %}<button class="btn btn-primary btn-wide">Facturar</button></form>
+          {% else %}<p class="muted">No elegible para facturar: la cotización debe estar aprobada.</p>{% endif %}
+        {% endwith %}
       </div>
     </div>
   </div>

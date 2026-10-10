@@ -61,6 +61,7 @@ urlpatterns = [
     path("panel/cartera/clientes/<int:cliente_id>/responsable/", views.cartera_asignar_responsable, name="panel_cartera_asignar_responsable"),
     path("panel/ajax/clientes/<int:cliente_id>/contactos/", views.panel_ajax_cliente_contactos, name="panel_ajax_cliente_contactos"),
     path("panel/ajax/clientes/<int:cliente_id>/proyectos/", views.panel_ajax_cliente_proyectos, name="panel_ajax_cliente_proyectos"),
+    path("panel/ajax/clientes/<int:cliente_id>/cotizaciones/", views.panel_ajax_cliente_cotizaciones, name="panel_ajax_cliente_cotizaciones"),
     path("panel/ajax/clientes/<int:cliente_id>/puntos-venta/", views.panel_ajax_cliente_puntos_venta, name="panel_ajax_cliente_puntos_venta"),
     path("panel/ajax/clientes/<int:cliente_id>/solicitudes/", views.panel_ajax_cliente_solicitudes, name="panel_ajax_cliente_solicitudes"),
     path("panel/ajax/proyectos/<int:proyecto_id>/solicitudes/", views.panel_ajax_proyecto_solicitudes, name="panel_ajax_proyecto_solicitudes"),

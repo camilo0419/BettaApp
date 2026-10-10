@@ -191,7 +191,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function relatedKind(select) {
     const name = select.name || select.id.replace(/^id_/, "");
-    if (["contacto", "proyecto", "solicitud", "punto_venta", "puntos_venta"].includes(name)) {
+    if (["contacto", "proyecto", "cotizacion", "solicitud", "punto_venta", "puntos_venta"].includes(name)) {
       return name === "puntos_venta" ? "punto_venta" : name;
     }
     return "";
@@ -215,6 +215,9 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     if (kind === "proyecto") {
       return `/panel/ajax/clientes/${encodeURIComponent(clientId)}/proyectos/`;
+    }
+    if (kind === "cotizacion") {
+      return `/panel/ajax/clientes/${encodeURIComponent(clientId)}/cotizaciones/`;
     }
     if (kind === "punto_venta") {
       return `/panel/ajax/clientes/${encodeURIComponent(clientId)}/puntos-venta/`;
