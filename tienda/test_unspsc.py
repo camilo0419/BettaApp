@@ -7,6 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.exceptions import ValidationError
 from unittest.mock import patch
 import os
+import shutil
 import tempfile
 import zipfile
 
@@ -18,10 +19,22 @@ from tienda.services.unspsc import recommend_unspsc
 
 class UNSPSCTests(TestCase):
     def setUp(self):
+        test_tmp_root = os.path.join(settings.BASE_DIR, "tmp")
+        os.makedirs(test_tmp_root, exist_ok=True)
+        self._private_media_tmp = tempfile.mkdtemp(
+            prefix="betta-unspsc-tests-", dir=test_tmp_root
+        )
+        self._private_media_override = override_settings(PRIVATE_MEDIA_ROOT=self._private_media_tmp)
+        self._private_media_override.enable()
         self.segment = UNSPSCCode.objects.create(code="01000000", description="Agricultura", level="segment", catalog_version="2026", source="official")
         self.item = UNSPSCCode.objects.create(code="01010101", description="Semillas de prueba", level="product", parent=self.segment, catalog_version="2026", source="official")
         staff = User.objects.create_user(username="unspsc-staff", password="Test123!", is_staff=True)
         self.client.force_login(staff)
+
+    def tearDown(self):
+        self._private_media_override.disable()
+        shutil.rmtree(self._private_media_tmp, ignore_errors=True)
+        super().tearDown()
 
     def test_code_preserves_leading_zero_and_hierarchy(self):
         self.assertEqual(self.item.code, "01010101")

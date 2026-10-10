@@ -35,6 +35,7 @@ Thumbs.db
 # Django / archivos generados
 staticfiles/
 media/
+private_media/
 *.log
 
 # Pytest / coverage
