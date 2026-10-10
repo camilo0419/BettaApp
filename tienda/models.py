@@ -544,6 +544,13 @@ class Cliente(models.Model):
         ("SPECIAL_REGIME", "Régimen especial"),
     ]
 
+    ALEGRA_SYNC_AUTO = "auto"
+    ALEGRA_SYNC_HISTORICAL_PENDING = "historical_pending"
+    ALEGRA_SYNC_POLICY_CHOICES = [
+        (ALEGRA_SYNC_AUTO, "Sincronización automática"),
+        (ALEGRA_SYNC_HISTORICAL_PENDING, "Pendiente de conciliación histórica"),
+    ]
+
     tipo_cliente = models.CharField(max_length=20, choices=TIPO_CHOICES, default=TIPO_PERSONA)
     nombre = models.CharField(max_length=180)
     primer_nombre = models.CharField(max_length=80, blank=True)
@@ -565,6 +572,9 @@ class Cliente(models.Model):
     codigo_postal = models.CharField(max_length=20, blank=True)
     digito_verificacion = models.CharField(max_length=4, blank=True)
     regimen_tributario = models.CharField(max_length=40, choices=ALEGRA_REGIME_CHOICES, blank=True)
+    alegra_sync_policy = models.CharField(
+        max_length=32, choices=ALEGRA_SYNC_POLICY_CHOICES, default=ALEGRA_SYNC_AUTO,
+    )
     contacto_principal = models.CharField(max_length=160, blank=True)
     nombre_comercial = models.CharField(max_length=180, blank=True)
     sector = models.CharField(max_length=120, blank=True)

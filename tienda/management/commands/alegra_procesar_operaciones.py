@@ -43,7 +43,9 @@ class Command(BaseCommand):
         created = AlegraWriteOperation.objects.filter(state=AlegraWriteOperation.STATE_PENDING).count()
         queued = enqueue_missing_creates(limit=options["limit"], timeout=options["timeout"]) if options["execute"] else []
         created = AlegraWriteOperation.objects.filter(state=AlegraWriteOperation.STATE_PENDING).count()
-        self.stdout.write(f"Operaciones pendientes: {created}; altas locales encoladas: {len(queued)}. Modo dry-run; no se ejecutaron escrituras.")
+        mode = "ejecución" if options["execute"] else "dry-run"
+        suffix = "" if options["execute"] else "; no se ejecutaron escrituras"
+        self.stdout.write(f"Operaciones pendientes: {created}; altas locales encoladas: {len(queued)}. Modo {mode}{suffix}.")
         try:
             result = linked_client_update_candidates(
                 limit=options["limit"], timeout=options["timeout"], persist=options["execute"],

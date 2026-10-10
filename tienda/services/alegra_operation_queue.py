@@ -56,6 +56,14 @@ def alegra_system() -> ExternalSystem:
 
 def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteOperation | None:
     """Registra una alta pendiente solo después de una comprobación GET segura."""
+    if client.alegra_sync_policy != Cliente.ALEGRA_SYNC_AUTO:
+        SyncAuditLog.objects.create(
+            system=alegra_system(), operation="enqueue_contact_create", resource="contacts",
+            actor=actor, result=SyncAuditLog.RESULT_PARTIAL,
+            detail="Alta automática bloqueada: cliente histórico pendiente de conciliación.",
+            metadata={"client_id": client.pk, "queued": False, "state": "historical_pending"},
+        )
+        return None
     content_type = ContentType.objects.get_for_model(Cliente)
     if ExternalObjectMap.objects.filter(
         system=alegra_system(), resource_type="contacts", content_type=content_type,
@@ -189,7 +197,7 @@ def linked_client_update_candidates(*, limit=100, timeout=None, actor=None, pers
 
 
 def enqueue_missing_creates(*, limit=100, actor=None, timeout=None):
-    """Encola altas locales elegibles; nunca realiza HTTP."""
+    """Encola solo altas locales marcadas para sincronización automática."""
     system = alegra_system()
     ct = ContentType.objects.get_for_model(Cliente)
     mapped_ids = set(ExternalObjectMap.objects.filter(
@@ -197,7 +205,9 @@ def enqueue_missing_creates(*, limit=100, actor=None, timeout=None):
         status=ExternalObjectMap.STATUS_ACTIVE, object_id__isnull=False,
     ).values_list("object_id", flat=True))
     queued = []
-    for client in Cliente.objects.exclude(pk__in=mapped_ids).order_by("pk")[: max(int(limit), 1)]:
+    for client in Cliente.objects.filter(
+        alegra_sync_policy=Cliente.ALEGRA_SYNC_AUTO,
+    ).exclude(pk__in=mapped_ids).order_by("pk")[: max(int(limit), 1)]:
         operation = enqueue_create(client, actor=actor, timeout=timeout)
         if operation:
             queued.append(operation.pk)
