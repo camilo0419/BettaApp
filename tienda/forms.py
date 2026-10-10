@@ -268,8 +268,13 @@ class ProductoForm(forms.ModelForm):
 
     def save(self, commit=True):
         product = super().save(commit=False)
-        if not self.cleaned_data.get("asignar_unspsc") and self._original_unspsc_id:
-            product.unspsc_id = self._original_unspsc_id
+        if not self.cleaned_data.get("asignar_unspsc"):
+            if self._original_unspsc_id:
+                product.unspsc_id = self._original_unspsc_id
+            else:
+                # El campo oculto nunca debe permitir una asignación sin
+                # confirmación explícita en el selector UNSPSC.
+                product.unspsc_id = None
         if commit:
             product.save()
         return product

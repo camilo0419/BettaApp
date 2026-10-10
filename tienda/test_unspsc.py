@@ -41,6 +41,97 @@ class UNSPSCTests(TestCase):
         self.assertEqual(recommend_unspsc("01010101")[0].code, "01010101")
         self.assertLessEqual(len(recommend_unspsc("semillas")), 5)
 
+    def test_recommendations_prioritize_product_and_ignore_generic_query(self):
+        generic = UNSPSCCode.objects.create(
+            code="01010100", description="Semillas agrícolas", level="class",
+            catalog_version="2026", source="official",
+        )
+        results = recommend_unspsc("producto semillas")
+        self.assertEqual(results[0].pk, self.item.pk)
+        self.assertIn(generic, results)
+        self.assertEqual(recommend_unspsc("producto"), [])
+
+    def test_recommendations_match_accented_description(self):
+        item = UNSPSCCode.objects.create(
+            code="01010102", description="Impresión de prueba", level="product",
+            catalog_version="2026", source="official",
+        )
+        self.assertEqual(recommend_unspsc("impresion")[0].pk, item.pk)
+
+    def test_unchecked_new_product_cannot_assign_hidden_unspsc(self):
+        category = Categoria.objects.create(nombre="UNSPSC QA 3")
+        form = ProductoForm({
+            "nombre": "Producto nuevo", "categoria": category.pk,
+            "tipo_calculo": Producto.CALCULO_UNIDAD, "orden": 0,
+            "precio_base_m2": "0", "precio_base_unidad": "0",
+            "unspsc": self.item.pk, "asignar_unspsc": "",
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        product = form.save()
+        self.assertIsNone(product.unspsc_id)
+
+    def test_checked_product_form_persists_only_confirmed_code(self):
+        category = Categoria.objects.create(nombre="UNSPSC QA 4")
+        form = ProductoForm({
+            "nombre": "Producto clasificado", "categoria": category.pk,
+            "tipo_calculo": Producto.CALCULO_UNIDAD, "orden": 0,
+            "precio_base_m2": "0", "precio_base_unidad": "0",
+            "unspsc": self.item.pk, "asignar_unspsc": "on",
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.save().unspsc_id, self.item.pk)
+
+    def test_editing_only_unspsc_reuses_external_operation_without_integrity_error(self):
+        second_item = UNSPSCCode.objects.create(
+            code="01010103", description="Otra semilla de prueba", level="product",
+            catalog_version="2026", source="official",
+        )
+        category = Categoria.objects.create(nombre="UNSPSC QA 5")
+        product = Producto.objects.create(
+            nombre="Producto UNSPSC editable", categoria=category,
+            tipo_calculo=Producto.CALCULO_UNIDAD, precio_base_unidad="25.00",
+            unspsc=self.item,
+        )
+
+        def edit(code_id):
+            return self.client.post(
+                reverse("panel_producto_editar", args=[product.pk]),
+                {
+                    "nombre": product.nombre,
+                    "slug": product.slug,
+                    "categoria": category.pk,
+                    "descripcion_corta": "",
+                    "descripcion_larga": "",
+                    "imagen_estatica": "",
+                    "activo": "on",
+                    "destacado": "on",
+                    "orden": product.orden,
+                    "tipo_calculo": Producto.CALCULO_UNIDAD,
+                    "precio_base_m2": "0",
+                    "precio_base_unidad": "25.00",
+                    "requiere_revision": "",
+                    "unspsc": code_id,
+                    "asignar_unspsc": "on",
+                },
+            )
+
+        first = edit(self.item.pk)
+        self.assertEqual(first.status_code, 302)
+        product.refresh_from_db()
+        self.assertEqual(product.unspsc_id, self.item.pk)
+
+        second = edit(second_item.pk)
+        self.assertEqual(second.status_code, 302)
+        product.refresh_from_db()
+        self.assertEqual(product.unspsc_id, second_item.pk)
+
+        third = edit(self.item.pk)
+        self.assertEqual(third.status_code, 302)
+        product.refresh_from_db()
+        self.assertEqual(product.unspsc_id, self.item.pk)
+
+        self.assertEqual(product.alegra_write_operations.count(), 1)
+
     def test_product_can_be_saved_without_unspsc_and_form_preserves_existing(self):
         category = Categoria.objects.create(nombre="UNSPSC QA")
         product = Producto.objects.create(nombre="Producto QA", categoria=category, tipo_calculo=Producto.CALCULO_UNIDAD, unspsc=self.item)

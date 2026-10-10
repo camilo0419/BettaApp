@@ -119,6 +119,20 @@ def enqueue_product_sync(product: Producto, *, actor=None) -> AlegraProductWrite
         error = str(exc)[:500]
     key = _key(operation, product.pk, external_id, payload)
 
+    # La clave representa el contenido de la operación externa, no cada
+    # guardado local. Por ejemplo, cambiar únicamente UNSPSC no cambia el
+    # payload de Alegra. Si esa operación ya terminó, reutilizar su registro
+    # evita crear una fila idéntica y conserva su historial.
+    same_key = AlegraProductWriteOperation.objects.filter(idempotency_key=key).first()
+    if same_key:
+        if same_key.state == AlegraProductWriteOperation.STATE_PENDING:
+            same_key.payload = payload
+            same_key.external_id = external_id
+            same_key.state = state
+            same_key.error_message = error
+            same_key.save(update_fields=["payload", "external_id", "state", "error_message", "updated_at"])
+        return same_key
+
     existing = AlegraProductWriteOperation.objects.filter(
         system=system, product=product, operation=operation,
         state__in=[AlegraProductWriteOperation.STATE_PENDING, AlegraProductWriteOperation.STATE_SENT,
@@ -135,11 +149,21 @@ def enqueue_product_sync(product: Producto, *, actor=None) -> AlegraProductWrite
         existing.save(update_fields=["payload", "external_id", "idempotency_key", "state", "error_message", "updated_at"])
         operation_obj = existing
     else:
-        operation_obj = AlegraProductWriteOperation.objects.create(
-            system=system, product=product, operation=operation,
-            external_id=external_id, state=state, idempotency_key=key,
-            payload=payload, error_message=error,
-        )
+        try:
+            # El índice UNIQUE sigue siendo la última defensa cuando dos
+            # procesos encolan el mismo evento simultáneamente (MariaDB o
+            # SQLite). El savepoint permite recuperar únicamente la carrera
+            # de esta clave sin ocultar otros IntegrityError.
+            with transaction.atomic():
+                operation_obj = AlegraProductWriteOperation.objects.create(
+                    system=system, product=product, operation=operation,
+                    external_id=external_id, state=state, idempotency_key=key,
+                    payload=payload, error_message=error,
+                )
+        except IntegrityError:
+            operation_obj = AlegraProductWriteOperation.objects.filter(idempotency_key=key).first()
+            if operation_obj is None:
+                raise
 
     # The operation is already durable in the same transaction as the product.
     # on_commit is only used for post-commit audit activation, never as the sole

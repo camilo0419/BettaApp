@@ -89,6 +89,30 @@ class ProductWriteTests(TestCase):
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(AlegraProductWriteOperation.objects.filter(product=product).count(), 1)
 
+    def test_terminal_same_payload_is_reused_without_unique_key_error(self):
+        product = self.product()
+        first = enqueue_product_sync(product)
+        first.state = AlegraProductWriteOperation.STATE_SYNCED
+        first.save(update_fields=["state"])
+
+        second = enqueue_product_sync(product)
+
+        self.assertEqual(second.pk, first.pk)
+        self.assertEqual(AlegraProductWriteOperation.objects.filter(product=product).count(), 1)
+
+    def test_changed_payload_after_terminal_operation_creates_new_operation(self):
+        product = self.product()
+        first = enqueue_product_sync(product)
+        first.state = AlegraProductWriteOperation.STATE_SYNCED
+        first.save(update_fields=["state"])
+
+        product.nombre = "Producto de prueba actualizado"
+        product.save(update_fields=["nombre", "actualizado"])
+        second = enqueue_product_sync(product)
+
+        self.assertNotEqual(second.pk, first.pk)
+        self.assertEqual(AlegraProductWriteOperation.objects.filter(product=product).count(), 2)
+
     def test_dry_run_never_calls_transport(self):
         product = self.product()
         enqueue_product_sync(product)

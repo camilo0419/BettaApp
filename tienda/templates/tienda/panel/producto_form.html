@@ -63,6 +63,7 @@
         <label for="unspsc-search">Buscar por código o descripción</label>
         <input id="unspsc-search" type="search" data-unspsc-search placeholder="Ej. impresión, 4321..." autocomplete="off" {% if not form.asignar_unspsc.value %}disabled{% endif %}>
         <div class="unspsc-results" data-unspsc-results aria-live="polite"></div>
+        <small class="muted" data-unspsc-status aria-live="polite"></small>
       </div>
       {% if producto and producto.unspsc %}<button type="submit" form="unspsc-remove-form" class="btn btn-outline">Quitar clasificación UNSPSC</button>{% endif %}
     </section>
@@ -228,10 +229,18 @@ document.addEventListener("DOMContentLoaded", function () {
     const searchInput = document.querySelector("[data-unspsc-search]");
     const results = document.querySelector("[data-unspsc-results]");
     const selected = document.querySelector("[data-unspsc-selected]");
+    const nameInput = document.getElementById("id_nombre");
     let timer;
+    let requestNumber = 0;
     function renderUnspsc(items) {
       results.replaceChildren();
-      if (!items.length) { results.textContent = "No se encontraron códigos oficiales."; return; }
+      const status = unspscPicker.querySelector("[data-unspsc-status]");
+      if (!items.length) {
+        results.textContent = "No se encontraron códigos oficiales.";
+        if (status) status.textContent = "Las sugerencias no asignan ningún código automáticamente.";
+        return;
+      }
+      if (status) status.textContent = "Sugerencias del catálogo oficial. Confirma una para asignarla.";
       items.forEach(function (item) {
         const button = document.createElement("button");
         button.type = "button";
@@ -246,24 +255,53 @@ document.addEventListener("DOMContentLoaded", function () {
           searchInput.disabled = false;
           selected.textContent = item.code + " · " + item.description;
           results.replaceChildren();
+          const status = unspscPicker.querySelector("[data-unspsc-status]");
+          if (status) status.textContent = "Código seleccionado. Guarda el producto para confirmar la clasificación.";
         });
         results.appendChild(button);
       });
     }
+    async function searchUnspsc(query) {
+      const status = unspscPicker.querySelector("[data-unspsc-status]");
+      const currentRequest = ++requestNumber;
+      if (query.length < 2) {
+        results.replaceChildren();
+        if (status) status.textContent = "Escribe al menos dos caracteres para buscar.";
+        return;
+      }
+      if (status) status.textContent = "Buscando en el catálogo oficial...";
+      try {
+        const response = await fetch("{% url 'panel_producto_unspsc_buscar' %}?q=" + encodeURIComponent(query), {headers: {"X-Requested-With": "XMLHttpRequest"}});
+        if (!response.ok) throw new Error("unspsc-search-failed");
+        const payload = await response.json();
+        if (currentRequest === requestNumber) renderUnspsc(payload.results || []);
+      } catch (error) {
+        if (currentRequest !== requestNumber) return;
+        results.replaceChildren();
+        if (status) status.textContent = "No fue posible consultar el catálogo UNSPSC.";
+      }
+    }
+    function scheduleSearch(query) {
+      clearTimeout(timer);
+      timer = setTimeout(function () { searchUnspsc(query.trim()); }, 250);
+    }
     checkbox?.addEventListener("change", function () {
       searchInput.disabled = !checkbox.checked;
-      if (!checkbox.checked) results.replaceChildren();
+      if (!checkbox.checked) {
+        results.replaceChildren();
+        const status = unspscPicker.querySelector("[data-unspsc-status]");
+        if (status) status.textContent = "La clasificación sigue siendo opcional.";
+      } else {
+        const query = searchInput.value.trim() || (nameInput ? nameInput.value.trim() : "");
+        if (!searchInput.value.trim() && query) searchInput.value = query;
+        scheduleSearch(query);
+      }
     });
     searchInput?.addEventListener("input", function () {
-      clearTimeout(timer);
-      const query = searchInput.value.trim();
-      if (query.length < 2) { results.replaceChildren(); return; }
-      timer = setTimeout(async function () {
-        try {
-          const response = await fetch("{% url 'panel_producto_unspsc_buscar' %}?q=" + encodeURIComponent(query), {headers: {"X-Requested-With": "XMLHttpRequest"}});
-          renderUnspsc((await response.json()).results || []);
-        } catch (error) { results.textContent = "No fue posible consultar el catálogo UNSPSC."; }
-      }, 250);
+      scheduleSearch(searchInput.value);
+    });
+    nameInput?.addEventListener("input", function () {
+      if (checkbox.checked && !searchInput.value.trim()) scheduleSearch(nameInput.value);
     });
   }
 });
