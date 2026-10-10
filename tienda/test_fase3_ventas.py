@@ -6,6 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import Client, TestCase
 from django.urls import reverse
 
+from tienda.forms import VentaItemForm
 from tienda.models import AlegraInvoicePreparation, AlegraInvoiceStaging, Categoria, Cliente, Cotizacion, CotizacionItem, ExternalObjectMap, Producto, Proyecto, SyncAuditLog, Venta, VentaItem
 from tienda.services.alegra_client import AlegraResponse
 from tienda.services.alegra_invoice_import import AlegraInvoiceImporter
@@ -74,6 +75,14 @@ class SalesTests(TestCase):
         self.assertEqual(sale.estado, Venta.ESTADO_BORRADOR)
         self.assertEqual(sale.cliente_id, self.client_obj.pk)
         self.assertEqual(sale.proyecto_id, project.pk)
+
+    def test_sales_product_selector_keeps_active_products_and_excludes_inactive(self):
+        inactive = Producto.objects.create(nombre="Producto archivado", categoria=self.category, activo=False)
+        sale = Venta.objects.create(cliente=self.client_obj)
+        form = VentaItemForm(venta=sale)
+        product_ids = set(form.fields["producto"].queryset.values_list("pk", flat=True))
+        self.assertIn(self.product.pk, product_ids)
+        self.assertNotIn(inactive.pk, product_ids)
 
     def test_invoice_pagination_idempotence_and_client_match(self):
         rows = [{"id": "INV-1", "number": "FV-001", "date": "2026-01-02", "dueDate": "2026-02-01", "client": {"id": "C-1", "name": "Cliente venta", "identification": "9001234567"}, "subtotal": 100, "tax": 19, "total": 119, "balance": 119, "status": "open", "items": [{"name": "Producto venta"}]}]

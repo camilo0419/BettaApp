@@ -858,7 +858,6 @@ class CotizacionItemForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["producto"].queryset = Producto.objects.filter(activo=True).select_related("categoria")
         self.fields["producto"].required = False
-        mark_searchable_select(self.fields["producto"])
         if cotizacion is not None and not self.instance.pk:
             self.instance.cotizacion = cotizacion
 

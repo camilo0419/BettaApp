@@ -115,6 +115,80 @@ document.addEventListener("DOMContentLoaded", function () {
     refreshSelect(select, input);
   }
 
+  function initInternalPicker(picker) {
+    const select = picker.querySelector("select");
+    const trigger = picker.querySelector("[data-picker-trigger]");
+    const value = picker.querySelector("[data-picker-value]");
+    const dropdown = picker.querySelector("[data-picker-dropdown]");
+    const search = picker.querySelector("[data-picker-search]");
+    const options = picker.querySelector("[data-picker-options]");
+    if (!select || !trigger || !value || !dropdown || !search || !options) return;
+
+    function normalize(text) { return text.trim().toLocaleLowerCase().replace(/\s+/g, " "); }
+    function closePicker() {
+      dropdown.hidden = true;
+      trigger.setAttribute("aria-expanded", "false");
+    }
+    function renderOptions() {
+      const query = normalize(search.value);
+      options.replaceChildren();
+      let matches = 0;
+      Array.from(select.options).forEach(function (option) {
+        const label = option.textContent.trim();
+        if (query && !normalize(label).includes(query)) return;
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "category-picker-option";
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", option.value === select.value ? "true" : "false");
+        item.textContent = option.value ? label : (picker.getAttribute("data-empty-label") || "Seleccionar opción");
+        item.addEventListener("click", function () {
+          select.value = option.value;
+          select.dispatchEvent(new Event("change", {bubbles: true}));
+          closePicker();
+          trigger.focus();
+        });
+        options.appendChild(item);
+        matches += 1;
+      });
+      if (!matches) {
+        const empty = document.createElement("p");
+        empty.className = "category-picker-empty";
+        empty.textContent = "No se encontraron opciones";
+        options.appendChild(empty);
+      }
+    }
+    function syncPicker() {
+      const selected = select.options[select.selectedIndex];
+      value.textContent = selected && selected.value ? selected.textContent.trim() : (picker.getAttribute("data-empty-label") || "Seleccionar opción");
+      renderOptions();
+    }
+    trigger.addEventListener("click", function () {
+      if (dropdown.hidden) {
+        dropdown.hidden = false;
+        trigger.setAttribute("aria-expanded", "true");
+        search.value = "";
+        renderOptions();
+        search.focus();
+      } else closePicker();
+    });
+    trigger.addEventListener("keydown", function (event) {
+      if (["ArrowDown", "Enter", " "].includes(event.key)) { event.preventDefault(); if (dropdown.hidden) trigger.click(); }
+      if (event.key === "Escape") closePicker();
+    });
+    search.addEventListener("input", renderOptions);
+    search.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") { closePicker(); trigger.focus(); }
+      if (event.key === "Enter") {
+        const first = options.querySelector(".category-picker-option");
+        if (first) { event.preventDefault(); first.click(); }
+      }
+    });
+    document.addEventListener("click", function (event) { if (!picker.contains(event.target)) closePicker(); });
+    select.addEventListener("change", syncPicker);
+    syncPicker();
+  }
+
   function relatedKind(select) {
     const name = select.name || select.id.replace(/^id_/, "");
     if (["contacto", "proyecto", "solicitud", "punto_venta", "puntos_venta"].includes(name)) {
@@ -231,6 +305,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   document.querySelectorAll("select[data-searchable-select]").forEach(initSearchableSelect);
+  document.querySelectorAll("[data-internal-picker]").forEach(initInternalPicker);
 
   document.querySelectorAll("select[data-filter-client-source], select[data-filter-project-source]").forEach(function (select) {
     const clientSource = document.getElementById(select.getAttribute("data-filter-client-source") || "");

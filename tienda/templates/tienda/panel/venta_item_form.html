@@ -1,3 +1,30 @@
 {% extends 'tienda/panel/base_panel.html' %}
 {% block title %}{{ titulo }} | Betta{% endblock %}
-{% block content %}<div class="panel-head"><div><span class="eyebrow">{{ venta.numero }}</span><h1>{{ titulo }}</h1></div><a class="btn btn-outline" href="{% url 'panel_venta_detalle' venta.id %}">Volver</a></div><div class="panel-card"><form method="post" class="dynamic-form">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary">Guardar ítem</button></form></div>{% endblock %}
+{% block content %}
+<div class="panel-head"><div><span class="eyebrow">{{ venta.numero }}</span><h1>{{ titulo }}</h1></div><a class="btn btn-outline" href="{% url 'panel_venta_detalle' venta.id %}">Volver</a></div>
+<div class="panel-card venta-form-shell">
+  <form method="post" class="dynamic-form venta-form">
+    {% csrf_token %}{% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
+    <div class="venta-form-grid venta-item-grid">
+      <div class="field venta-field-full">
+        {{ form.producto.label_tag }}
+        <div class="category-picker venta-product-picker" data-internal-picker data-empty-label="Seleccionar producto">
+          {{ form.producto }}
+          <button type="button" class="category-picker-trigger" data-picker-trigger aria-haspopup="listbox" aria-expanded="false"><span data-picker-value>Seleccionar producto</span><span class="category-picker-chevron" aria-hidden="true">▾</span></button>
+          <div class="category-picker-dropdown" data-picker-dropdown hidden><input type="search" class="category-picker-search" data-picker-search placeholder="Buscar producto..." autocomplete="off" aria-label="Buscar producto"><div class="category-picker-options" data-picker-options role="listbox"></div></div>
+        </div>
+        {{ form.producto.errors }}
+      </div>
+      <div class="field">{{ form.descripcion.label_tag }}{{ form.descripcion }}{{ form.descripcion.errors }}</div>
+      <div class="field">{{ form.cantidad.label_tag }}{{ form.cantidad }}{{ form.cantidad.errors }}</div>
+      <div class="field">{{ form.unidad.label_tag }}{{ form.unidad }}{{ form.unidad.errors }}</div>
+      <div class="field">{{ form.precio_unitario.label_tag }}{{ form.precio_unitario }}{{ form.precio_unitario.errors }}</div>
+      <div class="field">{{ form.descuento.label_tag }}{{ form.descuento }}{{ form.descuento.errors }}</div>
+      <div class="field">{{ form.impuesto.label_tag }}{{ form.impuesto }}{{ form.impuesto.errors }}</div>
+      <div class="field">{{ form.orden.label_tag }}{{ form.orden }}{{ form.orden.errors }}</div>
+      <div class="field">{{ form.activo.label_tag }}{{ form.activo }}{{ form.activo.errors }}</div>
+    </div>
+    <div class="venta-form-actions"><button class="btn btn-primary">Guardar ítem</button></div>
+  </form>
+</div>
+{% endblock %}

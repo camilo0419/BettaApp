@@ -2630,6 +2630,13 @@ body {
 .unspsc-result span{font-weight:500}.unspsc-result small{display:block;color:#64748b;margin-top:.15rem}
 @media(max-width:680px){.unspsc-panel{max-width:none;margin-top:24px}.unspsc-toggle-help{margin-left:0}}
 .alegra-connection-widget{position:fixed;top:14px;right:20px;z-index:30;font-size:.82rem}.alegra-connection-trigger{display:flex;align-items:center;gap:.38rem;border:1px solid rgba(0,0,0,.12);border-radius:999px;padding:.45rem .7rem;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.08);cursor:pointer;font:inherit}.alegra-connection-dot{font-size:.85rem}.alegra-connection-connected .alegra-connection-dot{color:#16a34a}.alegra-connection-disconnected .alegra-connection-dot{color:#dc2626}.alegra-connection-warning .alegra-connection-dot{color:#d97706}.alegra-connection-stale .alegra-connection-dot,.alegra-connection-unknown .alegra-connection-dot{color:#64748b}.alegra-connection-label{color:#64748b}.alegra-connection-details{position:absolute;right:0;top:calc(100% + .5rem);display:grid;gap:.4rem;width:min(320px,calc(100vw - 2rem));padding:.85rem;background:#fff;border:1px solid #d8dde6;border-radius:.65rem;box-shadow:0 10px 30px rgba(0,0,0,.14)}.alegra-connection-details[hidden]{display:none}.alegra-connection-actions{display:flex;justify-content:space-between;gap:.5rem;align-items:center;margin-top:.25rem}.alegra-connection-actions button{border:0;background:transparent;color:#075985;text-decoration:underline;cursor:pointer;font:inherit}.alegra-connection-disconnected .alegra-connection-details{border-color:#fecaca}.alegra-connection-warning .alegra-connection-details{border-color:#fde68a}@media(max-width:760px){.alegra-connection-widget{top:10px;right:10px}.alegra-connection-trigger{padding:.4rem .55rem}.alegra-connection-label{display:none}}
+.sales-filters{display:grid;grid-template-columns:minmax(240px,1.5fr) minmax(160px,.8fr) minmax(220px,1fr) auto;gap:16px;align-items:end}
+.sales-filters .field{min-width:0}
+.sales-filters input,.sales-filters select{min-height:48px}
+.sales-filter-button{min-height:48px;white-space:nowrap}
+.venta-item-grid .field{min-width:0}
+@media(max-width:860px){.sales-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.sales-filter-button{width:100%}}
+@media(max-width:680px){.sales-filters{grid-template-columns:1fr}.sales-filter-button{width:100%}}
 .venta-form-shell{width:min(1120px,100%);margin-inline:auto}
 .venta-form{max-width:100%}
 .venta-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 20px}
