@@ -35,6 +35,7 @@ from .models import (
     Venta,
     VentaItem,
     AlegraInvoiceStaging,
+    AlegraInvoicePreparation,
     CarteraGestion,
     CompromisoPago,
     CarteraResponsable,
@@ -956,6 +957,13 @@ class VentaItemForm(forms.ModelForm):
         if commit:
             item.save()
         return item
+
+
+class AlegraInvoicePreparationForm(forms.Form):
+    mode = forms.ChoiceField(label="Modalidad", choices=AlegraInvoicePreparation.MODES)
+    service_external_id = forms.CharField(label="ID externo del ítem SERVICIO", max_length=120, required=False)
+    reference = forms.CharField(label="Referencia", max_length=240, required=False)
+    description = forms.CharField(label="Descripción", max_length=500, required=False, widget=forms.Textarea(attrs={"rows": 3}))
 
 
 class CarteraGestionForm(forms.ModelForm):

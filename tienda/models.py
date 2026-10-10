@@ -1361,6 +1361,26 @@ class VentaFacturaAlegra(models.Model):
         constraints = [models.UniqueConstraint(fields=["venta", "factura"], name="unique_venta_alegra_invoice_link")]
 
 
+class AlegraInvoicePreparation(models.Model):
+    """Previsualización local de una factura; no representa una escritura externa."""
+    MODE_DETAILED = "detailed"
+    MODE_CONSOLIDATED_SERVICE = "consolidated_service"
+    MODES = [(MODE_DETAILED, "Detallada"), (MODE_CONSOLIDATED_SERVICE, "Consolidada de servicio")]
+    STATUS_READY = "ready"
+    STATUS_BLOCKED = "blocked"
+    STATUSES = [(STATUS_READY, "Lista"), (STATUS_BLOCKED, "Bloqueada")]
+
+    venta = models.OneToOneField(Venta, on_delete=models.CASCADE, related_name="alegra_preparation")
+    mode = models.CharField(max_length=32, choices=MODES)
+    status = models.CharField(max_length=16, choices=STATUSES, default=STATUS_BLOCKED)
+    payload = models.JSONField(default=dict, blank=True)
+    warnings = models.JSONField(default=list, blank=True)
+    validation_errors = models.JSONField(default=list, blank=True)
+    sale_snapshot_hash = models.CharField(max_length=64, blank=True)
+    prepared_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    prepared_at = models.DateTimeField(auto_now=True)
+
+
 class AlegraPaymentStaging(models.Model):
     """Ingreso consultado de Alegra; nunca representa un pago local registrado."""
 

@@ -2,12 +2,14 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from tienda.models import AlegraInvoiceStaging, Categoria, Cliente, Cotizacion, CotizacionItem, Producto, SyncAuditLog, Venta, VentaItem
+from tienda.models import AlegraInvoicePreparation, AlegraInvoiceStaging, Categoria, Cliente, Cotizacion, CotizacionItem, ExternalObjectMap, Producto, SyncAuditLog, Venta, VentaItem
 from tienda.services.alegra_client import AlegraResponse
 from tienda.services.alegra_invoice_import import AlegraInvoiceImporter
+from tienda.services.alegra_invoice_prepare import prepare_invoice
 
 
 class FakeInvoiceClient:
@@ -108,3 +110,29 @@ class SalesTests(TestCase):
         regular = get_user_model().objects.create_user(username="regular-sales", password="test-pass")
         client.force_login(regular)
         self.assertEqual(client.get(reverse("panel_ventas")).status_code, 403)
+
+    def test_invoice_preparation_detailed_uses_product_mapping_without_external_write(self):
+        from tienda.models import ExternalSystem
+        system, _ = ExternalSystem.objects.get_or_create(code="alegra", defaults={"name": "Alegra"})
+        ct_client = ContentType.objects.get_for_model(self.client_obj)
+        ct_product = ContentType.objects.get_for_model(self.product)
+        ExternalObjectMap.objects.create(system=system, resource_type="contacts", external_id="101", content_type=ct_client, object_id=self.client_obj.pk)
+        ExternalObjectMap.objects.create(system=system, resource_type="items", external_id="202", content_type=ct_product, object_id=self.product.pk)
+        sale = Venta.objects.create(cliente=self.client_obj, estado=Venta.ESTADO_CONFIRMADA)
+        VentaItem.objects.create(venta=sale, producto=self.product, descripcion="Línea", cantidad=2, precio_unitario=100)
+        preparation = prepare_invoice(sale, mode=AlegraInvoicePreparation.MODE_DETAILED)
+        self.assertEqual(preparation.status, AlegraInvoicePreparation.STATUS_READY)
+        self.assertEqual(preparation.payload["items"][0]["id"], 202)
+        self.assertEqual(AlegraInvoicePreparation.objects.count(), 1)
+
+    def test_invoice_preparation_switches_mode_without_duplicate_preparation(self):
+        from tienda.models import ExternalSystem
+        system, _ = ExternalSystem.objects.get_or_create(code="alegra", defaults={"name": "Alegra"})
+        ExternalObjectMap.objects.create(system=system, resource_type="contacts", external_id="101", content_type=ContentType.objects.get_for_model(self.client_obj), object_id=self.client_obj.pk)
+        sale = Venta.objects.create(cliente=self.client_obj, estado=Venta.ESTADO_CONFIRMADA)
+        VentaItem.objects.create(venta=sale, producto=self.product, descripcion="Servicio", cantidad=1, precio_unitario=100)
+        first = prepare_invoice(sale, mode=AlegraInvoicePreparation.MODE_CONSOLIDATED_SERVICE, service_external_id="303")
+        second = prepare_invoice(sale, mode=AlegraInvoicePreparation.MODE_DETAILED)
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(AlegraInvoicePreparation.objects.filter(venta=sale).count(), 1)
+        self.assertEqual(second.mode, AlegraInvoicePreparation.MODE_DETAILED)

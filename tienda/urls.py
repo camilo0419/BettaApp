@@ -50,6 +50,7 @@ urlpatterns = [
     path("panel/ventas/<int:venta_id>/", views.venta_detalle, name="panel_venta_detalle"),
     path("panel/ventas/<int:venta_id>/items/nuevo/", views.venta_item_crear, name="panel_venta_item_crear"),
     path("panel/ventas/<int:venta_id>/confirmar/", views.venta_confirmar, name="panel_venta_confirmar"),
+    path("panel/ventas/<int:venta_id>/factura/preparar/", views.venta_factura_preparar, name="panel_venta_factura_preparar"),
     path("panel/ventas/<int:venta_id>/cancelar/", views.venta_cancelar, name="panel_venta_cancelar"),
     path("panel/ventas/informes/", views.ventas_informes, name="panel_ventas_informes"),
     path("panel/cartera/", views.cartera_dashboard, name="panel_cartera"),

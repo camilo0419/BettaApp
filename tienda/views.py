@@ -62,6 +62,7 @@ from .forms import (
     SolicitudTareaForm,
     VentaForm,
     VentaItemForm,
+    AlegraInvoicePreparationForm,
     CarteraGestionForm,
     CompromisoPagoForm,
     CarteraResponsableForm,
@@ -100,6 +101,7 @@ from .models import (
     SyncAuditLog,
     Venta,
     VentaItem,
+    AlegraInvoicePreparation,
     AlegraInvoiceStaging,
     VentaFacturaAlegra,
     AlegraPaymentStaging,
@@ -113,6 +115,7 @@ from .services.alegra_import import AlegraItemImporter, AlegraItemReconciler
 from .services.alegra_product_write import enqueue_product_sync
 from .services.alegra_contact_import import AlegraContactImporter, AlegraContactReconciler
 from .services.alegra_invoice_import import AlegraInvoiceImporter
+from .services.alegra_invoice_prepare import prepare_invoice
 from .services.alegra_payment_import import AlegraPaymentImporter
 from .services.cartera import cartera_rows, cartera_summary, facturacion_summary, invoice_cartera_row, STATUS_OVERDUE, STATUS_PAID, STATUS_PARTIAL, STATUS_PENDING, STATUS_INSUFFICIENT, AGING_BUCKETS
 from .services.centro_control import centro_control_snapshot, refresh_control_alerts
@@ -2001,7 +2004,24 @@ def venta_crear(request):
 @panel_staff_required
 def venta_detalle(request, venta_id):
     venta = get_object_or_404(Venta.objects.select_related("cliente", "punto_venta", "proyecto", "cotizacion", "solicitud", "responsable", "creado_por").prefetch_related("items__producto", "facturas_alegra__factura"), pk=venta_id)
-    return render(request, "tienda/panel/venta_detalle.html", {"venta": venta, "item_form": VentaItemForm(venta=venta), "estados": Venta.ESTADOS})
+    return render(request, "tienda/panel/venta_detalle.html", {"venta": venta, "item_form": VentaItemForm(venta=venta), "estados": Venta.ESTADOS, "invoice_preparation": getattr(venta, "alegra_preparation", None)})
+
+
+@panel_staff_required
+def venta_factura_preparar(request, venta_id):
+    venta = get_object_or_404(Venta.objects.select_related("cliente"), pk=venta_id)
+    existing = getattr(venta, "alegra_preparation", None)
+    initial = {"mode": existing.mode, "service_external_id": existing.payload.get("service_external_id", ""), "reference": existing.payload.get("reference", ""), "description": existing.payload.get("description", "")} if existing else {}
+    form = AlegraInvoicePreparationForm(request.POST or None, initial=initial)
+    preparation = existing
+    if request.method == "POST" and form.is_valid():
+        try:
+            preparation = prepare_invoice(venta, actor=request.user, **form.cleaned_data)
+            message = "Previsualización preparada." if preparation.status == AlegraInvoicePreparation.STATUS_READY else "La preparación quedó bloqueada; revisa las validaciones."
+            (messages.success if preparation.status == AlegraInvoicePreparation.STATUS_READY else messages.warning)(request, message + " No se realizó ninguna escritura externa.")
+        except ValidationError as exc:
+            form.add_error(None, exc.messages)
+    return render(request, "tienda/panel/venta_factura_preparar.html", {"venta": venta, "form": form, "preparation": preparation})
 
 
 @panel_staff_required
