@@ -33,13 +33,36 @@ class ClienteCrearViewTests(TestCase):
             "regimen_tributario": "SIMPLIFIED_REGIME",
             "activo": "on",
         }
-        with patch("tienda.views.AlegraWriteClient") as transport:
+        with patch("tienda.views.AlegraWriteClient") as transport, \
+             patch("tienda.services.alegra_operation_queue.AlegraWriteClient") as queue_transport:
+            queue_transport.return_value.find_candidates.return_value = []
             response = self.client.post(self.url, data)
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Cliente.objects.count(), 1)
         self.assertEqual(Cliente.objects.get().nombre, "Cliente Formulario")
         transport.assert_not_called()
+        queue_transport.return_value.find_candidates.assert_called_once()
+
+    def test_post_valido_con_candidato_remoto_no_encola_alta(self):
+        data = {
+            "tipo_cliente": Cliente.TIPO_PERSONA,
+            "nombre": "Cliente Duplicado QA",
+            "primer_nombre": "Cliente",
+            "primer_apellido": "Duplicado",
+            "tipo_identificacion": Cliente.ID_CC,
+            "identificacion": "1019059655",
+            "regimen_tributario": "SIMPLIFIED_REGIME",
+            "activo": "on",
+        }
+        with patch("tienda.services.alegra_operation_queue.AlegraWriteClient") as queue_transport:
+            queue_transport.return_value.find_candidates.return_value = [{"id": "A-EXISTING"}]
+            response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Cliente.objects.count(), 1)
+        from tienda.models import AlegraWriteOperation
+        self.assertFalse(AlegraWriteOperation.objects.exists())
 
     def test_nombres_separados_construyen_nombre_local(self):
         data = {

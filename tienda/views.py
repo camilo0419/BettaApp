@@ -2365,7 +2365,9 @@ def cliente_alegra_preparar(request, cliente_id):
         return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
     try:
         transport = AlegraWriteClient()
-        candidates = transport.find_candidates(identification=cliente.identificacion, name=cliente.nombre)
+        # La identificación es el único criterio suficiente para bloquear un
+        # alta; el nombre por sí solo no autoriza una coincidencia.
+        candidates = transport.find_candidates(identification=cliente.identificacion)
         if candidates:
             messages.error(request, "La preparación fue bloqueada: Alegra devolvió candidatos que requieren revisión manual.")
         else:

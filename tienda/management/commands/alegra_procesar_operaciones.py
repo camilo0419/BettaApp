@@ -41,7 +41,7 @@ class Command(BaseCommand):
             if os.environ.get("ALEGRA_EXTERNAL_WRITES_ENABLED", "").casefold() != "true":
                 raise CommandError("Las escrituras externas permanecen deshabilitadas.")
         created = AlegraWriteOperation.objects.filter(state=AlegraWriteOperation.STATE_PENDING).count()
-        queued = enqueue_missing_creates(limit=options["limit"]) if options["execute"] else []
+        queued = enqueue_missing_creates(limit=options["limit"], timeout=options["timeout"]) if options["execute"] else []
         created = AlegraWriteOperation.objects.filter(state=AlegraWriteOperation.STATE_PENDING).count()
         self.stdout.write(f"Operaciones pendientes: {created}; altas locales encoladas: {len(queued)}. Modo dry-run; no se ejecutaron escrituras.")
         try:

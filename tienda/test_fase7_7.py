@@ -11,6 +11,7 @@ from io import StringIO
 
 from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap
 from tienda.services.alegra_import import get_alegra_system
+from tienda.services.alegra_client import AlegraResponse, AlegraPaginationError
 from tienda.services.alegra_write import (
     AlegraContactWriteService,
     AlegraWriteClient,
@@ -25,14 +26,18 @@ from tienda.services.alegra_write import (
 
 
 class FakeTransport:
-    def __init__(self, create_result=None, update_result=None, detail=None, create_error=None, update_error=None):
+    def __init__(self, create_result=None, update_result=None, detail=None, create_error=None, update_error=None, candidates=None):
         self.create_result = {"id": "A-NEW"} if create_result is None else create_result
         self.update_result = {"id": "A-1"} if update_result is None else update_result
         self.detail = {"id": "A-1", "name": "Actualizado"} if detail is None else detail
         self.create_error = create_error
         self.update_error = update_error
+        self.candidates = candidates or []
         self.create_calls = []
         self.update_calls = []
+
+    def find_candidates(self, *, identification="", name=""):
+        return list(self.candidates)
 
     def create_contact(self, payload, *, authorization):
         self.create_calls.append((payload, authorization))
@@ -169,6 +174,50 @@ class AlegraWriteAdapterTests(TestCase):
         self.assertEqual(result.state, AlegraWriteOperation.STATE_SYNCED)
         self.assertEqual(ExternalObjectMap.objects.filter(system=self.system, external_id="A-NEW", object_id=self.client.pk).count(), 1)
         self.assertEqual(len(transport.create_calls), 1)
+
+    def test_create_is_blocked_when_remote_candidate_exists(self):
+        transport = FakeTransport(candidates=[{"id": "A-EXISTING"}])
+        service = AlegraContactWriteService(transport=transport)
+        operation, _ = service.prepare_create(self.client, self.system, colombia_profile=self.profile)
+        result = service.execute_create(operation.pk, authorization=self.authorization, colombia_profile=self.profile)
+        operation.refresh_from_db()
+        self.assertEqual(result.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(operation.attempts, 0)
+        self.assertEqual(operation.error_code, "remote_candidate")
+        self.assertEqual(transport.create_calls, [])
+
+    def test_create_candidate_check_failure_leaves_operation_pending(self):
+        transport = FakeTransport()
+        transport.find_candidates = Mock(side_effect=TimeoutError("timeout"))
+        service = AlegraContactWriteService(transport=transport)
+        operation, _ = service.prepare_create(self.client, self.system, colombia_profile=self.profile)
+        with self.assertRaises(TimeoutError):
+            service.execute_create(operation.pk, authorization=self.authorization, colombia_profile=self.profile)
+        operation.refresh_from_db()
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
+        self.assertEqual(operation.attempts, 0)
+        self.assertEqual(transport.create_calls, [])
+
+    @patch.dict("os.environ", {"ALEGRA_EMAIL": "test@example.test", "ALEGRA_API_TOKEN": "secret"}, clear=False)
+    @patch("tienda.services.alegra_write.AlegraReadOnlyClient")
+    def test_candidate_search_reads_all_pages_and_filters_identity(self, readonly_class):
+        readonly_class.return_value.paged_get.return_value = [
+            AlegraResponse(200, {"data": [{"id": "A-1", "identificationObject": {"type": "CC", "number": "123456789"}}]}, "https://example.test/contacts"),
+            AlegraResponse(200, {"data": [{"id": "A-2", "identificationObject": {"type": "CC", "number": "999999999"}}]}, "https://example.test/contacts"),
+        ]
+        transport = AlegraWriteClient()
+        rows = transport.find_candidates(identification="123.456.789")
+        self.assertEqual([row["id"] for row in rows], ["A-1"])
+        readonly_class.return_value.paged_get.assert_called_once()
+        self.assertIsNone(readonly_class.return_value.paged_get.call_args.kwargs["limit"])
+
+    @patch.dict("os.environ", {"ALEGRA_EMAIL": "test@example.test", "ALEGRA_API_TOKEN": "secret"}, clear=False)
+    @patch("tienda.services.alegra_write.AlegraReadOnlyClient")
+    def test_candidate_search_propagates_incomplete_pagination(self, readonly_class):
+        readonly_class.return_value.paged_get.side_effect = AlegraPaginationError("página repetida")
+        with self.assertRaises(AlegraPaginationError):
+            AlegraWriteClient().find_candidates(identification="123456789")
 
     def test_uncertain_create_blocks_retry(self):
         transport = FakeTransport(create_error=AlegraWriteUncertain("timeout"))

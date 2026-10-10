@@ -34,7 +34,8 @@ class Command(BaseCommand):
         if not system:
             raise CommandError("Sistema Alegra local no disponible.")
         transport = AlegraWriteClient(timeout=options["timeout"])
-        candidates = transport.find_candidates(identification=client.identificacion, name=client.nombre)
+        # No se usa el nombre como criterio suficiente para autorizar un POST.
+        candidates = transport.find_candidates(identification=client.identificacion)
         if candidates:
             raise CommandError("Ejecución bloqueada: existen candidatos externos; requiere revisión manual.")
         try:

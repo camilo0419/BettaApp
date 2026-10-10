@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from tienda.models import Categoria, Producto, AlegraItemStaging, AlegraWriteOperation, Cliente, ExternalObjectMap
@@ -37,7 +39,9 @@ class AutomationTests(TestCase):
         self.assertTrue(plan.simulated)
         self.assertIn("simulada", plan.reason)
 
-    def test_new_client_queues_without_http(self):
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_new_client_queues_after_empty_remote_check(self, transport_class):
+        transport_class.return_value.find_candidates.return_value = []
         client = Cliente.objects.create(
             tipo_cliente=Cliente.TIPO_PERSONA, nombre="Persona", primer_nombre="Ana",
             primer_apellido="Prueba", identificacion="123456789", tipo_identificacion=Cliente.ID_CC,
@@ -47,6 +51,29 @@ class AutomationTests(TestCase):
         self.assertIsNotNone(operation)
         self.assertEqual(AlegraWriteOperation.objects.filter(client=client).count(), 1)
         self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
+        transport_class.return_value.find_candidates.assert_called_once_with(identification="123456789")
+
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_new_client_with_remote_candidate_is_not_queued(self, transport_class):
+        transport_class.return_value.find_candidates.return_value = [{"id": "A-1"}]
+        client = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Persona", primer_nombre="Ana",
+            primer_apellido="Prueba", identificacion="123456790", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME",
+        )
+        self.assertIsNone(enqueue_create(client))
+        self.assertEqual(AlegraWriteOperation.objects.filter(client=client).count(), 0)
+
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_remote_check_failure_does_not_queue_create(self, transport_class):
+        transport_class.return_value.find_candidates.side_effect = TimeoutError("timeout")
+        client = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Persona", primer_nombre="Ana",
+            primer_apellido="Prueba", identificacion="123456791", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME",
+        )
+        self.assertIsNone(enqueue_create(client))
+        self.assertEqual(AlegraWriteOperation.objects.filter(client=client).count(), 0)
 
     def test_outbound_processor_is_dry_run_by_default(self):
         result = process_pending_operations(execute=False)

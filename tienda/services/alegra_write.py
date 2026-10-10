@@ -25,7 +25,9 @@ from django.utils import timezone
 
 from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap, ExternalSystem
 from .alegra_bidirectional_clients import BidirectionalClientSync
-from .alegra_client import AlegraConfigurationError, AlegraError, AlegraReadOnlyClient
+from .alegra_client import AlegraConfigurationError, AlegraError, AlegraReadOnlyClient, extract_rows
+from .alegra_contact_import import normalize_identity
+from .alegra_normalization import extract_identification_context
 
 
 class ExternalWriteDisabled(AlegraError):
@@ -53,6 +55,10 @@ class AlegraWriteUncertain(AlegraError):
 
 class WriteConflict(AlegraError):
     pass
+
+
+class RemoteCandidateConflict(WriteConflict):
+    """Alegra confirmó candidatos; requiere conciliación, no reintento."""
 
 
 def _safe_http_error_detail(error: HTTPError) -> str:
@@ -163,10 +169,30 @@ class AlegraWriteClient:
             params["identification"] = identification
         if name:
             params["name"] = name
-        response = AlegraReadOnlyClient(timeout=self.timeout).get("/contacts", params)
-        data = response.data
-        rows = data if isinstance(data, list) else data.get("data", []) if isinstance(data, dict) else []
-        return [row for row in rows if isinstance(row, dict)]
+        responses = AlegraReadOnlyClient(timeout=self.timeout).paged_get(
+            "/contacts", limit=None, params=params,
+        )
+        rows = []
+        seen_ids = set()
+        requested_identity = normalize_identity(identification)
+        for response in responses:
+            for row in extract_rows(response.data):
+                if not isinstance(row, dict):
+                    continue
+                external_id = str(row.get("id") or "")
+                if external_id and external_id in seen_ids:
+                    continue
+                if external_id:
+                    seen_ids.add(external_id)
+                if requested_identity:
+                    remote_identity = extract_identification_context(row).get("number", "")
+                    # Si el contacto carece de identidad, se conserva como
+                    # candidato para fallar de forma segura; no se autoriza
+                    # una creación ante una respuesta ambigua.
+                    if remote_identity and normalize_identity(remote_identity) != requested_identity:
+                        continue
+                rows.append(row)
+        return rows
 
     def create_contact(self, payload: Mapping[str, Any], *, authorization: WriteAuthorization) -> dict[str, Any]:
         data = self._request("POST", "/contacts", payload=payload, authorization=authorization)
@@ -289,6 +315,14 @@ class AlegraContactWriteService:
 
     def __init__(self, *, transport: AlegraWriteClient | None = None):
         self.transport = transport
+
+    def _assert_remote_create_is_safe(self, client: Cliente) -> None:
+        """Revalida la ausencia de candidatos inmediatamente antes del POST."""
+        candidates = self.transport.find_candidates(identification=normalize_identity(client.identificacion))
+        if candidates:
+            raise RemoteCandidateConflict(
+                f"Alegra devolvió {len(candidates)} candidato(s) por identificación; requiere revisión manual."
+            )
 
     def prepare_create(self, client: Cliente, system: ExternalSystem, *,
                        colombia_profile: Mapping[str, Any] | None = None) -> tuple[AlegraWriteOperation, dict[str, Any]]:
@@ -436,6 +470,28 @@ class AlegraContactWriteService:
                        colombia_profile: Mapping[str, Any] | None = None) -> AlegraWriteOperation:
         if not self.transport:
             self.transport = AlegraWriteClient()
+        # Consulta remota antes de cambiar el estado de la operación. Si falla
+        # o encuentra candidatos, la operación permanece pendiente y no hay
+        # intento contabilizado ni POST que pueda duplicar el contacto.
+        candidate_operation = AlegraWriteOperation.objects.select_related("client", "system").get(pk=operation_id)
+        if candidate_operation.state == AlegraWriteOperation.STATE_SYNCED:
+            return candidate_operation
+        if candidate_operation.state in {
+            AlegraWriteOperation.STATE_SENT,
+            AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+        }:
+            raise WriteConflict("La operación ya está en curso o requiere conciliación manual.")
+        content_type = ContentType.objects.get_for_model(Cliente)
+        if ExternalObjectMap.objects.filter(
+            system=candidate_operation.system, resource_type="contacts",
+            content_type=content_type, object_id=candidate_operation.client_id,
+            status=ExternalObjectMap.STATUS_ACTIVE,
+        ).exists():
+            raise WriteConflict("El cliente ya tiene un mapeo externo activo; se bloquea el POST.")
+        try:
+            self._assert_remote_create_is_safe(candidate_operation.client)
+        except RemoteCandidateConflict as exc:
+            return self._mark_remote_candidate(operation_id, str(exc))
         with transaction.atomic():
             operation = AlegraWriteOperation.objects.select_for_update().select_related("client", "system").get(pk=operation_id)
             if operation.state == AlegraWriteOperation.STATE_SYNCED:
@@ -445,6 +501,12 @@ class AlegraContactWriteService:
                 AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
             }:
                 raise WriteConflict("La operación ya está en curso o requiere conciliación manual.")
+            if ExternalObjectMap.objects.filter(
+                system=operation.system, resource_type="contacts",
+                content_type=content_type, object_id=operation.client_id,
+                status=ExternalObjectMap.STATUS_ACTIVE,
+            ).exists():
+                raise WriteConflict("El cliente ya tiene un mapeo externo activo; se bloquea el POST.")
             operation.attempts += 1
             operation.last_attempt_at = timezone.now()
             operation.state = AlegraWriteOperation.STATE_SENT
@@ -488,6 +550,16 @@ class AlegraContactWriteService:
 
     def _mark_uncertain(self, operation_id: int, message: str) -> AlegraWriteOperation:
         return self._mark(operation_id, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION, message, "uncertain")
+
+    @staticmethod
+    def _mark_remote_candidate(operation_id: int, message: str) -> AlegraWriteOperation:
+        operation = AlegraWriteOperation.objects.get(pk=operation_id)
+        operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+        operation.reconciliation_reason = str(message)[:500]
+        operation.error_code = "remote_candidate"
+        operation.error_message = str(message)[:500]
+        operation.save(update_fields=["state", "reconciliation_reason", "error_code", "error_message", "updated_at"])
+        return operation
 
     def _mark_failed(self, operation_id: int, message: str) -> AlegraWriteOperation:
         return self._mark(operation_id, AlegraWriteOperation.STATE_FAILED, message, "failed")

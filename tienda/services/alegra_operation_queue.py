@@ -18,11 +18,27 @@ from tienda.services.alegra_write import (
     AlegraError,
     AlegraContactWriteService,
     AlegraWriteClient,
+    RemoteCandidateConflict,
     WriteConflict,
     authorize_external_write,
     build_contact_payload,
 )
 from tienda.services.alegra_bidirectional_clients import BidirectionalClientSync
+from tienda.services.alegra_contact_import import normalize_identity
+
+
+def _assert_remote_create_is_safe(client: Cliente, *, timeout=None, transport=None) -> None:
+    """Bloquea altas si Alegra no puede confirmar que no existe un candidato.
+
+    La consulta usa únicamente la identificación normalizada por Alegra. No se
+    utiliza el nombre como criterio suficiente para autorizar una creación.
+    """
+    transport = transport or AlegraWriteClient(timeout=timeout)
+    candidates = transport.find_candidates(identification=normalize_identity(client.identificacion))
+    if candidates:
+        raise RemoteCandidateConflict(
+            f"Alegra devolvió {len(candidates)} candidato(s) por identificación; requiere revisión manual."
+        )
 
 
 def alegra_system() -> ExternalSystem:
@@ -38,8 +54,8 @@ def alegra_system() -> ExternalSystem:
     return system
 
 
-def enqueue_create(client: Cliente, *, actor=None) -> AlegraWriteOperation | None:
-    """Registra una alta local pendiente, sin consultar ni escribir Alegra."""
+def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteOperation | None:
+    """Registra una alta pendiente solo después de una comprobación GET segura."""
     content_type = ContentType.objects.get_for_model(Cliente)
     if ExternalObjectMap.objects.filter(
         system=alegra_system(), resource_type="contacts", content_type=content_type,
@@ -48,6 +64,23 @@ def enqueue_create(client: Cliente, *, actor=None) -> AlegraWriteOperation | Non
         return None
     try:
         payload = build_contact_payload(client)
+        _assert_remote_create_is_safe(client, timeout=timeout)
+    except WriteConflict as exc:
+        SyncAuditLog.objects.create(
+            system=alegra_system(), operation="enqueue_contact_create", resource="contacts",
+            actor=actor, result=SyncAuditLog.RESULT_PARTIAL,
+            detail="Alta bloqueada: candidato externo requiere revisión manual.",
+            metadata={"client_id": client.pk, "queued": False, "state": "blocked_remote_candidate"},
+        )
+        return None
+    except (AlegraError, TimeoutError, OSError) as exc:
+        SyncAuditLog.objects.create(
+            system=alegra_system(), operation="enqueue_contact_create", resource="contacts",
+            actor=actor, result=SyncAuditLog.RESULT_PARTIAL,
+            detail="Alta bloqueada: no fue posible verificar candidatos externos.",
+            metadata={"client_id": client.pk, "queued": False, "state": "blocked_remote_check"},
+        )
+        return None
     except ValidationError as exc:
         SyncAuditLog.objects.create(
             system=alegra_system(), operation="enqueue_contact_create", resource="contacts",
@@ -155,7 +188,7 @@ def linked_client_update_candidates(*, limit=100, timeout=None, actor=None, pers
     return {"prepared": prepared, "blocked": blocked}
 
 
-def enqueue_missing_creates(*, limit=100, actor=None):
+def enqueue_missing_creates(*, limit=100, actor=None, timeout=None):
     """Encola altas locales elegibles; nunca realiza HTTP."""
     system = alegra_system()
     ct = ContentType.objects.get_for_model(Cliente)
@@ -165,7 +198,7 @@ def enqueue_missing_creates(*, limit=100, actor=None):
     ).values_list("object_id", flat=True))
     queued = []
     for client in Cliente.objects.exclude(pk__in=mapped_ids).order_by("pk")[: max(int(limit), 1)]:
-        operation = enqueue_create(client, actor=actor)
+        operation = enqueue_create(client, actor=actor, timeout=timeout)
         if operation:
             queued.append(operation.pk)
     return queued
@@ -191,10 +224,23 @@ def process_pending_operations(*, limit=50, timeout=None, execute=False, actor=N
             client_id=operation.client_id, operation=method,
             environment="production", confirmed=True,
         )
-        if operation.operation == AlegraWriteOperation.OP_CREATE:
-            result = service.execute_create(operation.pk, authorization=authorization)
-        else:
-            result = service.execute_update(operation.pk, authorization=authorization)
+        try:
+            if operation.operation == AlegraWriteOperation.OP_CREATE:
+                result = service.execute_create(operation.pk, authorization=authorization)
+            else:
+                result = service.execute_update(operation.pk, authorization=authorization)
+        except (AlegraError, TimeoutError, OSError) as exc:
+            # Un fallo de GET previo no cambia el estado ni los intentos: es
+            # transitorio y no hubo POST/PUT. El lote puede continuar.
+            SyncAuditLog.objects.create(
+                system=operation.system, operation="process_outbound_contact", resource="contacts",
+                external_id=operation.external_id, actor=actor,
+                result=SyncAuditLog.RESULT_PARTIAL,
+                detail="Operación bloqueada por fallo de verificación remota; no se escribió en Alegra.",
+                metadata={"operation_id": operation.pk, "state": "blocked_remote_check"},
+            )
+            results.append({"id": operation.pk, "state": "blocked_remote_check", "attempts": operation.attempts})
+            continue
         results.append({"id": operation.pk, "state": result.state, "attempts": result.attempts})
         SyncAuditLog.objects.create(
             system=operation.system, operation="process_outbound_contact", resource="contacts",
