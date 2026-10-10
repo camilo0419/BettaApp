@@ -180,6 +180,17 @@ class AlegraWriteAdapterTests(TestCase):
             service.execute_create(operation.pk, authorization=self.authorization, colombia_profile=self.profile)
         self.assertEqual(len(transport.create_calls), 1)
 
+    def test_sent_create_blocks_second_worker_without_second_post(self):
+        transport = FakeTransport()
+        service = AlegraContactWriteService(transport=transport)
+        operation, _ = service.prepare_create(self.client, self.system, colombia_profile=self.profile)
+        operation.state = AlegraWriteOperation.STATE_SENT
+        operation.attempts = 1
+        operation.save(update_fields=["state", "attempts"])
+        with self.assertRaises(WriteConflict):
+            service.execute_create(operation.pk, authorization=self.authorization, colombia_profile=self.profile)
+        self.assertEqual(len(transport.create_calls), 0)
+
     def test_success_without_external_id_requires_reconciliation(self):
         service = AlegraContactWriteService(transport=FakeTransport(create_result={}))
         operation, _ = service.prepare_create(self.client, self.system, colombia_profile=self.profile)

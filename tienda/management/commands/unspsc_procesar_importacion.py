@@ -62,6 +62,10 @@ class Command(BaseCommand):
             return
         output = StringIO()
         try:
+            previous_preview = job.preview if isinstance(job.preview, dict) else {}
+            expected_fingerprint = str(previous_preview.get("fingerprint") or "")
+            if options["apply"] and not expected_fingerprint:
+                raise CommandError("El trabajo no tiene una huella de validación; requiere una nueva vista previa.")
             command_options = {
                 "file": job.file.path,
                 "catalog_version": job.catalog_version,
@@ -69,11 +73,24 @@ class Command(BaseCommand):
                 "batch_size": 1000,
                 "apply": bool(options["apply"]),
                 "confirm": "IMPORTAR CATÁLOGO UNSPSC" if options["apply"] else "",
+                "expected_fingerprint": expected_fingerprint if options["apply"] else "",
             }
             call_command("unspsc_importar", stdout=output, **command_options)
             text = output.getvalue()
             match = re.search(r"filas_fuente=(\d+).*códigos_únicos=(\d+).*repeticiones_jerarquía=(\d+).*inválidos=(\d+).*niveles=(\{.*?\})", text)
             preview = {"output": text[-2000:]}
+            fingerprint_match = re.search(r"fingerprint=([a-f0-9]{64})", text)
+            if fingerprint_match:
+                preview["fingerprint"] = fingerprint_match.group(1)
+            changes_match = re.search(
+                r"nuevos=(\d+); actualizaciones=(\d+); sin_cambios=(\d+)", text
+            )
+            if changes_match:
+                preview.update({
+                    "new_codes": int(changes_match.group(1)),
+                    "updated_codes": int(changes_match.group(2)),
+                    "unchanged_codes": int(changes_match.group(3)),
+                })
             if match:
                 preview["levels"] = match.group(5)
                 values = {"source_rows": int(match.group(1)), "unique_codes": int(match.group(2)), "duplicate_rows": int(match.group(3)), "invalid_rows": int(match.group(4)), "preview": preview}

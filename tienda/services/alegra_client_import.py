@@ -15,6 +15,7 @@ from tienda.services.alegra_bidirectional_clients import BidirectionalClientSync
 from tienda.services.alegra_contact_import import normalize_identity
 from tienda.services.alegra_normalization import extract_identification_context
 from tienda.services.alegra_preimport_clients import ACTION_CREATE_LOCAL, ACTION_LINK_EXISTING, build_preimport_plan
+from tienda.services.alegra_inbound_sync import InboundClientSyncService
 
 
 def _text(value, length):
@@ -47,6 +48,8 @@ def _client_values(row):
     if identification_type not in {choice[0] for choice in Cliente.TIPO_IDENTIFICACION_CHOICES}:
         identification_type = ""
     is_company = bool(types & {"company", "empresa"}) or identification_type == Cliente.ID_NIT
+    if str(identity.get("kind") or "").strip() == "LEGAL_ENTITY":
+        is_company = True
     name = _text(row.get("name"), 180)
     return {
         "tipo_cliente": Cliente.TIPO_EMPRESA if is_company else Cliente.TIPO_PERSONA,
@@ -55,6 +58,7 @@ def _client_values(row):
         "identificacion": raw_identification,
         "tipo_identificacion": identification_type,
         "digito_verificacion": explicit_dv or inferred_dv,
+        "regimen_tributario": _text(identity.get("regime"), 40),
         "email": _text(row.get("email"), 254),
         "telefono": _text(row.get("phonePrimary"), 40),
         "telefono_secundario": _text(row.get("phoneSecondary"), 40),
@@ -75,7 +79,7 @@ def _external_id(row):
 _INITIAL_IMPORT_FIELDS = (
     "tipo_cliente", "nombre", "razon_social", "identificacion", "tipo_identificacion",
     "digito_verificacion", "email", "telefono", "telefono_secundario", "celular",
-    "direccion", "ciudad", "departamento", "pais", "codigo_postal", "activo",
+    "direccion", "ciudad", "departamento", "pais", "codigo_postal", "regimen_tributario", "activo",
 )
 
 
@@ -92,6 +96,20 @@ def _save_shared_values(client, values):
         client.full_clean()
         client.save(update_fields=[*changed, "fecha_actualizacion"])
     return changed
+
+
+def _create_mapping_with_safe_baseline(*, system, external_id, client, row, content_type, metadata):
+    """Crea el vínculo y agrega baseline solo si la comparación completa es SAFE."""
+    mapping = ExternalObjectMap.objects.create(
+        system=system, resource_type="contacts", external_id=external_id,
+        content_type=content_type, object_id=client.pk,
+        status=ExternalObjectMap.STATUS_ACTIVE, last_synced_at=timezone.now(),
+        metadata=dict(metadata),
+    )
+    candidate = InboundClientSyncService(None).baseline_candidate(client, mapping, row)
+    if candidate.get("state") == "SAFE":
+        InboundClientSyncService.set_baseline(mapping, candidate)
+    return mapping, candidate
 
 
 def apply_initial_import_plan(rows, plans, *, system, actor=None):
@@ -144,10 +162,9 @@ def apply_initial_import_plan(rows, plans, *, system, actor=None):
                         errors.append(f"{external_id}: el cliente ya tiene otro mapeo activo.")
                         continue
                     changed = _save_shared_values(client, values)
-                    ExternalObjectMap.objects.create(
-                        system=system, resource_type="contacts", external_id=external_id,
-                        content_type=ContentType.objects.get_for_model(Cliente), object_id=client.pk,
-                        status=ExternalObjectMap.STATUS_ACTIVE, last_synced_at=timezone.now(),
+                    _create_mapping_with_safe_baseline(
+                        system=system, external_id=external_id, client=client, row=row,
+                        content_type=ContentType.objects.get_for_model(Cliente),
                         metadata={"source": "alegra_initial_import", "phase": "initial", "fields": changed},
                     )
                     result["UPDATED"] += 1
@@ -155,10 +172,9 @@ def apply_initial_import_plan(rows, plans, *, system, actor=None):
                 client = Cliente(**values)
                 client.full_clean()
                 client.save(force_insert=True)
-                ExternalObjectMap.objects.create(
-                    system=system, resource_type="contacts", external_id=external_id,
-                    content_type=ContentType.objects.get_for_model(Cliente), object_id=client.pk,
-                    status=ExternalObjectMap.STATUS_ACTIVE, last_synced_at=timezone.now(),
+                _create_mapping_with_safe_baseline(
+                    system=system, external_id=external_id, client=client, row=row,
+                    content_type=ContentType.objects.get_for_model(Cliente),
                     metadata={"source": "alegra_initial_import", "phase": "initial"},
                 )
                 created_ids.append(client.pk)
@@ -214,14 +230,9 @@ def apply_create_plan(rows: Iterable[Mapping[str, Any]], *, system, actor=None):
                 client = Cliente(**values)
                 client.full_clean()
                 client.save(force_insert=True)
-                ExternalObjectMap.objects.create(
-                    system=system,
-                    resource_type="contacts",
-                    external_id=external_id,
+                _create_mapping_with_safe_baseline(
+                    system=system, external_id=external_id, client=client, row=row,
                     content_type=content_type,
-                    object_id=client.pk,
-                    status=ExternalObjectMap.STATUS_ACTIVE,
-                    last_synced_at=timezone.now(),
                     metadata={"source": "alegra_initial_import", "phase": "7.3"},
                 )
                 created_ids.append(client.pk)

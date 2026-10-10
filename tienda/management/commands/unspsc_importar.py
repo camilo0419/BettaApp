@@ -1,6 +1,7 @@
 """Valida e importa el catálogo UNSPSC oficial por lotes."""
 
 import csv
+import hashlib
 import io
 import re
 import shutil
@@ -49,6 +50,41 @@ def _is_active(value):
     return str(value or "").strip().casefold() not in {"0", "no", "false", "inactivo", "deshabilitado", "disabled"}
 
 
+def _header_spec(headers):
+    """Detecta una estructura UNSPSC sin exigir que el encabezado sea la fila 1."""
+    normalized = {_norm(header): header for header in headers if str(header or "").strip()}
+    hierarchy = {
+        level: (normalized.get(_norm(code)), normalized.get(_norm(title)))
+        for level, (code, title) in LEVEL_FIELDS.items()
+    }
+    if hierarchy["segment"][0] and hierarchy["segment"][1] and hierarchy["product"][0] and hierarchy["product"][1]:
+        return {"kind": "hierarchy", "fields": hierarchy}
+    code_header = next((header for key, header in normalized.items() if key in {"codigo", "code", "codigounspsc", "unspsc"}), None)
+    description_header = next((header for key, header in normalized.items() if key in {"descripcion", "description", "nombre", "producto"}), None)
+    active_header = next((header for key, header in normalized.items() if key in {"vigente", "activo", "active", "estado", "status"}), None)
+    if code_header and description_header:
+        return {"kind": "flat", "code": code_header, "description": description_header, "active": active_header}
+    return None
+
+
+def _record_from_row(row, spec, catalog_version, source, source_row):
+    def value(header):
+        return row.get(header) if header else None
+
+    if spec["kind"] == "hierarchy":
+        for level, (code_header, title_header) in spec["fields"].items():
+            code = _code(value(code_header))
+            title = str(value(title_header) or "").strip()
+            if code and title:
+                yield {"code": code, "description": title[:255], "level": level, "active": True, "catalog_version": catalog_version, "source": source, "source_row": source_row}
+        return
+    code = _code(value(spec["code"]))
+    description = str(value(spec["description"]) or "").strip()
+    if code and description:
+        level = "segment" if code.endswith("000000") else "family" if code.endswith("0000") else "class" if code.endswith("00") else "product"
+        yield {"code": code, "description": description[:255], "level": level, "active": _is_active(value(spec["active"])) if spec["active"] else True, "catalog_version": catalog_version, "source": source, "source_row": source_row}
+
+
 def _source_file(path):
     path = Path(path).resolve()
     if not path.exists() or not path.is_file():
@@ -77,6 +113,14 @@ def _source_file(path):
         return target
 
 
+def _file_sha256(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(COPY_CHUNK_BYTES), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _iter_csv(path, catalog_version, source):
     raw_handle = path.open("rb")
     try:
@@ -94,29 +138,21 @@ def _iter_csv(path, catalog_version, source):
                 delimiter = csv.Sniffer().sniff(sample, delimiters=";,\t").delimiter
             except csv.Error:
                 delimiter = ";"
-            reader = csv.DictReader(handle, delimiter=delimiter)
-            headers = reader.fieldnames or []
-            normalized = {_norm(header): header for header in headers}
-            if _norm("Producto") in normalized and _norm("Segmento") in normalized:
-                for source_row, row in enumerate(reader, start=2):
-                    for level, (code_field, title_field) in LEVEL_FIELDS.items():
-                        code = _code(row.get(code_field))
-                        title = str(row.get(title_field) or "").strip()
-                        if code and title:
-                            yield {"code": code, "description": title[:255], "level": level, "active": True, "catalog_version": catalog_version, "source": source, "source_row": source_row}
-                return
-            code_header = next((header for key, header in normalized.items() if key in {"codigo", "code", "codigounspsc", "unspsc"}), None)
-            description_header = next((header for key, header in normalized.items() if key in {"descripcion", "description", "nombre", "producto"}), None)
-            active_header = next((header for key, header in normalized.items() if key in {"vigente", "activo", "active", "estado", "status"}), None)
-            if not code_header or not description_header:
-                raise CommandError("No se identificaron columnas de código y descripción UNSPSC.")
-            for source_row, row in enumerate(reader, start=2):
-                code = _code(row.get(code_header))
-                description = str(row.get(description_header) or "").strip()
-                if not code or not description:
-                    continue
-                level = "segment" if code.endswith("000000") else "family" if code.endswith("0000") else "class" if code.endswith("00") else "product"
-                yield {"code": code, "description": description[:255], "level": level, "active": _is_active(row.get(active_header)) if active_header else True, "catalog_version": catalog_version, "source": source, "source_row": source_row}
+            reader = csv.reader(handle, delimiter=delimiter)
+            spec = None
+            headers = None
+            for source_row, values in enumerate(reader, start=1):
+                candidate = _header_spec(values)
+                if candidate:
+                    headers, spec = values, candidate
+                    break
+                if source_row >= 50:
+                    break
+            if not spec:
+                raise CommandError("No se identificaron columnas UNSPSC válidas en las primeras 50 filas.")
+            for source_row, values in enumerate(reader, start=source_row + 1):
+                row = dict(zip(headers, values))
+                yield from _record_from_row(row, spec, catalog_version, source, source_row)
     finally:
         if not raw_handle.closed:
             raw_handle.close()
@@ -134,25 +170,30 @@ def _iter_rows(path, catalog_version, source):
             raise CommandError("El runtime no tiene openpyxl para leer el XLSX oficial.") from exc
         workbook = load_workbook(source_path, read_only=True, data_only=True)
         try:
-            sheet = workbook.active
-            values = sheet.iter_rows(values_only=True)
-            headers = next(values, None)
-            if not headers:
-                return
-            headers = [str(value or "").strip() for value in headers]
-            normalized = {_norm(header): header for header in headers}
-            code_header = next((header for key, header in normalized.items() if key in {"codigo", "code", "codigounspsc", "unspsc"}), None)
-            description_header = next((header for key, header in normalized.items() if key in {"descripcion", "description", "nombre", "producto"}), None)
-            if not code_header or not description_header:
-                raise CommandError("No se identificaron columnas de código y descripción UNSPSC.")
-            for source_row, values_row in enumerate(values, start=2):
-                row = dict(zip(headers, values_row))
-                code = _code(row.get(code_header))
-                description = str(row.get(description_header) or "").strip()
-                if not code or not description:
+            found = False
+            for sheet in workbook.worksheets:
+                values = sheet.iter_rows(values_only=True)
+                buffered = []
+                spec = None
+                headers = None
+                for source_row, values_row in enumerate(values, start=1):
+                    buffered.append(values_row)
+                    candidate_headers = [str(value or "").strip() for value in values_row]
+                    spec = _header_spec(candidate_headers)
+                    if spec:
+                        headers = candidate_headers
+                        found = True
+                        break
+                    if source_row >= 50:
+                        break
+                if not spec:
                     continue
-                level = "segment" if code.endswith("000000") else "family" if code.endswith("0000") else "class" if code.endswith("00") else "product"
-                yield {"code": code, "description": description[:255], "level": level, "active": True, "catalog_version": catalog_version, "source": source, "source_row": source_row}
+                for source_row, values_row in enumerate(values, start=source_row + 1):
+                    row = dict(zip(headers, values_row))
+                    yield from _record_from_row(row, spec, catalog_version, source, source_row)
+                break
+            if not found:
+                raise CommandError("No se identificaron columnas UNSPSC válidas en las primeras 50 filas de las hojas.")
         finally:
             workbook.close()
     finally:
@@ -180,11 +221,16 @@ class Command(BaseCommand):
         parser.add_argument("--batch-size", type=int, default=1000)
         parser.add_argument("--apply", action="store_true")
         parser.add_argument("--confirm", default="")
+        parser.add_argument("--expected-fingerprint", default="", help="Huella validada previamente; bloquea archivos modificados.")
 
     def handle(self, *args, **options):
         batch_size = max(1, min(options["batch_size"], 5000))
         source = options["source_url"]
-        seen = set()
+        fingerprint = _file_sha256(options["file"])
+        expected = str(options.get("expected_fingerprint") or "").strip()
+        if expected and expected != fingerprint:
+            raise CommandError("El archivo cambió después de la vista previa; se requiere una nueva validación.")
+        seen = {}
         duplicates = invalid = rows = source_rows = 0
         last_source_row = None
         by_level = {key: 0 for key in LEVEL_FIELDS}
@@ -201,16 +247,36 @@ class Command(BaseCommand):
             if len(code) != 8 or not code.isdigit():
                 invalid += 1
                 continue
-            seen.add(code)
+            seen[code] = record
             by_level[record["level"]] += 1
         elapsed = round(time.monotonic() - started, 2)
+        if not seen:
+            raise CommandError("El archivo no contiene códigos UNSPSC válidos para importar.")
+        existing = {
+            item.code: item
+            for item in UNSPSCCode.objects.filter(
+                catalog_version=options["catalog_version"], code__in=list(seen)
+            )
+        }
+        created = sum(1 for code in seen if code not in existing)
+        updated = sum(
+            1 for code, record in seen.items()
+            if code in existing and any(
+                getattr(existing[code], field) != record[field]
+                for field in ("description", "level", "active", "source")
+            )
+        )
+        unchanged = len(seen) - created - updated
+        self.stdout.write(
+            f"Resumen cambios: nuevos={created}; actualizaciones={updated}; "
+            f"sin_cambios={unchanged}; fingerprint={fingerprint}."
+        )
         self.stdout.write(f"DRY-RUN UNSPSC: filas_fuente={source_rows}; filas_jerarquia={rows}; códigos_únicos={len(seen)}; repeticiones_jerarquía={duplicates}; inválidos={invalid}; niveles={by_level}; segundos={elapsed}.")
         if not options["apply"]:
             self.stdout.write("No se modificó la base. Usa --apply con confirmación explícita para cargar el catálogo.")
             return
         if options["confirm"] != CONFIRMATION:
             raise CommandError(f'--apply requiere --confirm "{CONFIRMATION}".')
-        seen_apply = set()
         batch = []
         applied_batches = 0
 
@@ -224,24 +290,26 @@ class Command(BaseCommand):
                         catalog_version=record["catalog_version"], code=record["code"],
                         defaults={"description": record["description"], "level": record["level"], "active": record["active"], "source": record["source"]},
                     )
-                for record in records:
-                    parent_code = _parent_code(record["code"])
-                    parent = UNSPSCCode.objects.filter(catalog_version=record["catalog_version"], code=parent_code).first() if parent_code else None
-                    UNSPSCCode.objects.filter(catalog_version=record["catalog_version"], code=record["code"]).update(parent=parent)
             applied_batches += 1
 
-        for record in _iter_rows(options["file"], options["catalog_version"], source):
-            if record["code"] in seen_apply:
-                continue
-            seen_apply.add(record["code"])
+        for record in seen.values():
             batch.append(record)
             if len(batch) >= batch_size:
                 flush(batch)
                 batch = []
         flush(batch)
+        with transaction.atomic():
+            for record in seen.values():
+                parent_code = _parent_code(record["code"])
+                parent = UNSPSCCode.objects.filter(
+                    catalog_version=record["catalog_version"], code=parent_code
+                ).first() if parent_code else None
+                UNSPSCCode.objects.filter(
+                    catalog_version=record["catalog_version"], code=record["code"]
+                ).update(parent=parent)
         SyncAuditLog.objects.create(
             operation="import_unspsc_catalog", resource="unspsc", result=SyncAuditLog.RESULT_SUCCESS,
             detail=f"Catálogo UNSPSC {options['catalog_version']}: {len(seen)} códigos actualizados.",
-            metadata={"version": options["catalog_version"], "count": len(seen), "duplicates": duplicates, "invalid": invalid, "source": source},
+            metadata={"version": options["catalog_version"], "count": len(seen), "duplicates": duplicates, "invalid": invalid, "source": source, "fingerprint": fingerprint, "created": created, "updated": updated, "unchanged": unchanged},
         )
-        self.stdout.write(f"Importados/actualizados={len(seen_apply)}; lotes={applied_batches}.")
+        self.stdout.write(f"Importados/actualizados={len(seen)}; lotes={applied_batches}.")

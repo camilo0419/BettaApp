@@ -440,8 +440,11 @@ class AlegraContactWriteService:
             operation = AlegraWriteOperation.objects.select_for_update().select_related("client", "system").get(pk=operation_id)
             if operation.state == AlegraWriteOperation.STATE_SYNCED:
                 return operation
-            if operation.state == AlegraWriteOperation.STATE_NEEDS_RECONCILIATION:
-                raise WriteConflict("La operación requiere conciliación manual.")
+            if operation.state in {
+                AlegraWriteOperation.STATE_SENT,
+                AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+            }:
+                raise WriteConflict("La operación ya está en curso o requiere conciliación manual.")
             operation.attempts += 1
             operation.last_attempt_at = timezone.now()
             operation.state = AlegraWriteOperation.STATE_SENT
@@ -505,8 +508,11 @@ class AlegraContactWriteService:
             operation = AlegraWriteOperation.objects.select_for_update().select_related("system").get(pk=operation_id)
             if operation.state == AlegraWriteOperation.STATE_SYNCED:
                 return operation
-            if operation.state == AlegraWriteOperation.STATE_NEEDS_RECONCILIATION:
-                raise WriteConflict("La actualización requiere conciliación manual.")
+            if operation.state in {
+                AlegraWriteOperation.STATE_SENT,
+                AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+            }:
+                raise WriteConflict("La actualización ya está en curso o requiere conciliación manual.")
             client = Cliente.objects.get(pk=operation.client_id)
             metadata = operation.result_metadata or {}
             payload = self._build_update_payload(

@@ -3817,10 +3817,33 @@ def unspsc_importacion_confirmar(request, job_id):
     if job.status != UNSPSCImportJob.STATUS_READY:
         messages.error(request, "El trabajo no tiene una vista previa lista para confirmar.")
     else:
+        preview = dict(job.preview) if isinstance(job.preview, dict) else {}
+        preview["confirmed_by"] = request.user.get_username()
+        preview["confirmed_at"] = timezone.now().isoformat()
         job.status = UNSPSCImportJob.STATUS_APPLY_REQUESTED
-        job.save(update_fields=["status"])
+        job.preview = preview
+        job.save(update_fields=["status", "preview"])
         messages.success(request, "Aplicación solicitada. El comando programado la procesará fuera de la petición web.")
     return redirect("panel_unspsc_catalogo")
+
+
+@panel_staff_required
+@require_GET
+def unspsc_importacion_estado(request):
+    jobs = UNSPSCImportJob.objects.select_related("created_by").all()[:10]
+    return JsonResponse({
+        "jobs": [
+            {
+                "id": job.pk,
+                "status": job.get_status_display(),
+                "status_code": job.status,
+                "version": job.catalog_version,
+                "unique_codes": job.unique_codes,
+                "error": job.error_message,
+            }
+            for job in jobs
+        ]
+    })
 
 
 @panel_staff_required

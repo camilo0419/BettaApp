@@ -66,6 +66,22 @@ class UNSPSCTests(TestCase):
         response = self.client.get(reverse("panel_unspsc_catalogo"))
         self.assertEqual(response.status_code, 302)
 
+    def test_catalog_job_confirmation_records_user_and_state_endpoint(self):
+        job = UNSPSCImportJob.objects.create(
+            file=SimpleUploadedFile("catalogo.csv", b"Codigo,Descripcion\n01000000,Agricultura\n"),
+            catalog_version="ui-test",
+            status=UNSPSCImportJob.STATUS_READY,
+            preview={"fingerprint": "a" * 64},
+        )
+        response = self.client.post(reverse("panel_unspsc_importacion_confirmar", args=[job.pk]))
+        self.assertEqual(response.status_code, 302)
+        job.refresh_from_db()
+        self.assertEqual(job.status, UNSPSCImportJob.STATUS_APPLY_REQUESTED)
+        self.assertEqual(job.preview["confirmed_by"], "unspsc-staff")
+        state = self.client.get(reverse("panel_unspsc_importacion_estado"))
+        self.assertEqual(state.status_code, 200)
+        self.assertEqual(state.json()["jobs"][0]["status_code"], UNSPSCImportJob.STATUS_APPLY_REQUESTED)
+
     def test_explicit_remove_does_not_touch_other_product_data(self):
         category = Categoria.objects.create(nombre="UNSPSC QA 2")
         product = Producto.objects.create(nombre="Producto QA 2", categoria=category, tipo_calculo=Producto.CALCULO_UNIDAD, unspsc=self.item)
@@ -84,6 +100,61 @@ class UNSPSCTests(TestCase):
             call_command("unspsc_importar", file=filename, catalog_version="2026-test", source_url="https://official.test/catalog.csv", apply=True, confirm="IMPORTAR CATÁLOGO UNSPSC")
             self.assertEqual(UNSPSCCode.objects.filter(catalog_version="2026-test").count(), 2)
             self.assertIsNotNone(UNSPSCCode.objects.get(catalog_version="2026-test", code="01010101"))
+        finally:
+            os.unlink(filename)
+
+    def test_import_accepts_shifted_csv_headers_and_reports_changes(self):
+        from tempfile import NamedTemporaryFile
+        with NamedTemporaryFile("w", encoding="utf-8", suffix=".csv", delete=False) as handle:
+            handle.write("Título del archivo\nOtra fila informativa\nCódigo;Descripción;Estado\n01000000;Agricultura;Activo\n")
+            filename = handle.name
+        try:
+            call_command("unspsc_importar", file=filename, catalog_version="shifted-test")
+            self.assertEqual(UNSPSCCode.objects.filter(catalog_version="shifted-test").count(), 0)
+        finally:
+            os.unlink(filename)
+
+    def test_xlsx_uses_compatible_sheet_after_intro_sheet(self):
+        from openpyxl import Workbook
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as handle:
+            filename = handle.name
+        try:
+            workbook = Workbook()
+            workbook.active.title = "Resumen"
+            workbook.active.append(["Hoja informativa"])
+            sheet = workbook.create_sheet("Catalogo")
+            sheet.append(["Título oficial"])
+            sheet.append(["Código", "Descripción"])
+            sheet.append(["01000000", "Agricultura"])
+            workbook.save(filename)
+            call_command("unspsc_importar", file=filename, catalog_version="xlsx-test", apply=True, confirm="IMPORTAR CATÁLOGO UNSPSC")
+            self.assertTrue(UNSPSCCode.objects.filter(catalog_version="xlsx-test", code="01000000").exists())
+        finally:
+            os.unlink(filename)
+
+    def test_parent_is_resolved_when_parent_appears_after_child(self):
+        from tempfile import NamedTemporaryFile
+        with NamedTemporaryFile("w", encoding="utf-8", suffix=".csv", delete=False) as handle:
+            handle.write("Codigo,Descripcion\n01010101,Semillas\n01010100,Clase agrícola\n01010000,Agricultura familiar\n01000000,Agricultura\n")
+            filename = handle.name
+        try:
+            call_command("unspsc_importar", file=filename, catalog_version="parent-order-test", apply=True, confirm="IMPORTAR CATÁLOGO UNSPSC")
+            child = UNSPSCCode.objects.get(catalog_version="parent-order-test", code="01010101")
+            self.assertEqual(child.parent.code, "01010100")
+            self.assertEqual(child.parent.parent.code, "01010000")
+            self.assertEqual(child.parent.parent.parent.code, "01000000")
+        finally:
+            os.unlink(filename)
+
+    def test_preview_detects_existing_changes_without_writing(self):
+        from tempfile import NamedTemporaryFile
+        UNSPSCCode.objects.create(code="01000000", description="Anterior", level="segment", catalog_version="preview-test")
+        with NamedTemporaryFile("w", encoding="utf-8", suffix=".csv", delete=False) as handle:
+            handle.write("Codigo,Descripcion\n01000000,Nueva descripción\n")
+            filename = handle.name
+        try:
+            call_command("unspsc_importar", file=filename, catalog_version="preview-test")
+            self.assertEqual(UNSPSCCode.objects.get(catalog_version="preview-test", code="01000000").description, "Anterior")
         finally:
             os.unlink(filename)
 

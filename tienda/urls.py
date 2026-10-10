@@ -116,6 +116,7 @@ urlpatterns = [
     path("panel/productos/<int:producto_id>/unspsc/quitar/", views.producto_unspsc_quitar, name="panel_producto_unspsc_quitar"),
     path("panel/productos/unspsc/catalogo/", views.unspsc_catalogo, name="panel_unspsc_catalogo"),
     path("panel/productos/unspsc/catalogo/<int:job_id>/confirmar/", views.unspsc_importacion_confirmar, name="panel_unspsc_importacion_confirmar"),
+    path("panel/productos/unspsc/catalogo/estado/", views.unspsc_importacion_estado, name="panel_unspsc_importacion_estado"),
     path("panel/productos/<int:producto_id>/toggle/", views.producto_toggle, name="panel_producto_toggle"),
     path("panel/productos/<int:producto_id>/campos/", views.producto_campos, name="panel_producto_campos"),
     path("panel/productos/<int:producto_id>/campos/nuevo/", views.campo_crear, name="panel_campo_crear"),

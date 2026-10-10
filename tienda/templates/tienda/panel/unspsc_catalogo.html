@@ -13,7 +13,7 @@
 <div class="split-grid">
   <section class="panel-card">
     <h2>Actualizar catálogo</h2>
-    <p class="muted">Carga únicamente un archivo oficial CSV, XLSX o ZIP. El comando programado validará el contenido y mostrará una vista previa antes de aplicar.</p>
+    <p class="muted">Carga únicamente un archivo oficial CSV, XLSX o ZIP. Obtén el catálogo desde una fuente oficial o confiable, preferiblemente Colombia Compra Eficiente cuando corresponda. La URL es informativa: no se descargan archivos automáticamente.</p>
     <form method="post" enctype="multipart/form-data" class="dynamic-form">
       {% csrf_token %}
       {{ form.as_p }}
@@ -28,7 +28,21 @@
 <section class="panel-card table-responsive">
   <h2>Historial de importaciones</h2>
   <table class="table"><thead><tr><th>Fecha</th><th>Versión</th><th>Estado</th><th>Códigos</th><th>Errores</th><th>Acción</th></tr></thead><tbody>
-  {% for job in jobs %}<tr><td>{{ job.created_at|date:'d/m/Y H:i' }}</td><td>{{ job.catalog_version }}</td><td>{{ job.get_status_display }}</td><td>{{ job.unique_codes }}</td><td>{{ job.error_message|default:'-' }}</td><td>{% if job.status == 'ready' %}<form method="post" action="{% url 'panel_unspsc_importacion_confirmar' job.id %}">{% csrf_token %}<button class="link-button">Confirmar aplicación</button></form>{% elif job.status == 'pending' %}Pendiente de cron{% else %}-{% endif %}</td></tr>{% empty %}<tr><td colspan="6">No hay importaciones registradas.</td></tr>{% endfor %}
+  {% for job in jobs %}<tr><td>{{ job.created_at|date:'d/m/Y H:i' }}</td><td>{{ job.catalog_version }}</td><td data-unspsc-status="{{ job.id }}">{{ job.get_status_display }}</td><td>{{ job.unique_codes }}</td><td>{{ job.error_message|default:'-' }}</td><td>{% if job.status == 'ready' %}<form method="post" action="{% url 'panel_unspsc_importacion_confirmar' job.id %}">{% csrf_token %}<button class="link-button">Confirmar aplicación</button></form>{% elif job.status == 'pending' %}Pendiente de validación automática{% elif job.status == 'processing' %}Procesando…{% elif job.status == 'apply_requested' %}Pendiente de aplicación automática{% else %}-{% endif %}</td></tr>{% empty %}<tr><td colspan="6">No hay importaciones registradas.</td></tr>{% endfor %}
   </tbody></table>
 </section>
+<script>
+  (() => {
+    const endpoint = "{% url 'panel_unspsc_importacion_estado' %}";
+    const refresh = () => fetch(endpoint, {headers: {"X-Requested-With": "XMLHttpRequest"}})
+      .then(response => response.ok ? response.json() : null)
+      .then(data => (data || {}).jobs || [])
+      .then(jobs => jobs.forEach(job => {
+        const cell = document.querySelector(`[data-unspsc-status="${job.id}"]`);
+        if (cell) cell.textContent = job.status;
+      }))
+      .catch(() => {});
+    window.setInterval(refresh, 15000);
+  })();
+</script>
 {% endblock %}

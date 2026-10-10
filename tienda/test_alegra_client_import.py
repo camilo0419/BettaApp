@@ -91,6 +91,26 @@ class ClientImportApplyTests(TestCase):
         self.assertEqual(second["counts"]["NO_ACTION"], 1)
         self.assertEqual(Cliente.objects.count(), 1)
 
+    def test_initial_import_sets_baseline_only_for_fully_confirmed_contact(self):
+        row = customer("C-BASELINE", "900123456")
+        row.update({
+            "kindOfPerson": "LEGAL_ENTITY",
+            "regime": "COMMON_REGIME",
+            "identificationObject": {"type": "NIT", "number": "900123456"},
+        })
+        result = apply_create_plan([row], system=self.system)
+        self.assertEqual(result["counts"]["CREATE_LOCAL"], 1)
+        mapping = ExternalObjectMap.objects.get(external_id="C-BASELINE")
+        self.assertIn("last_confirmed", mapping.metadata)
+        self.assertEqual(Cliente.objects.get(pk=mapping.object_id).regimen_tributario, "COMMON_REGIME")
+
+    def test_initial_import_does_not_fabricate_baseline_when_protected_data_missing(self):
+        row = customer("C-NO-BASELINE", "900123457")
+        result = apply_create_plan([row], system=self.system)
+        self.assertEqual(result["counts"]["CREATE_LOCAL"], 1)
+        mapping = ExternalObjectMap.objects.get(external_id="C-NO-BASELINE")
+        self.assertNotIn("last_confirmed", mapping.metadata)
+
     def test_ambiguous_match_is_blocked_without_update(self):
         first = Cliente.objects.create(nombre="Primero", identificacion="900-123-456")
         second = Cliente.objects.create(nombre="Segundo", identificacion="900123456")

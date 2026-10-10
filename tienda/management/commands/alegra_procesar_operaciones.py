@@ -10,6 +10,10 @@ from tienda.services.alegra_operation_queue import (
     linked_client_update_candidates,
     process_pending_operations,
 )
+from tienda.services.database_lock import DatabaseLockUnavailable, advisory_lock
+
+
+PROCESS_LOCK = "bettaapp:alegra:outbound:contacts"
 
 
 class Command(BaseCommand):
@@ -22,11 +26,20 @@ class Command(BaseCommand):
         parser.add_argument("--confirm", default="")
 
     def handle(self, *args, **options):
+        try:
+            with advisory_lock(PROCESS_LOCK):
+                return self._handle_locked(options)
+        except DatabaseLockUnavailable as exc:
+            raise CommandError(str(exc)) from exc
+
+    def _handle_locked(self, options):
         if options["execute"]:
             if options["confirm"] != "AUTORIZAR AUTOMATIZACION ALEGRA":
                 raise CommandError("--execute requiere confirmación explícita.")
             if os.environ.get("ALEGRA_AUTOMATION_WRITES_ENABLED", "").casefold() != "true":
                 raise CommandError("La automatización de escrituras permanece deshabilitada.")
+            if os.environ.get("ALEGRA_EXTERNAL_WRITES_ENABLED", "").casefold() != "true":
+                raise CommandError("Las escrituras externas permanecen deshabilitadas.")
         created = AlegraWriteOperation.objects.filter(state=AlegraWriteOperation.STATE_PENDING).count()
         queued = enqueue_missing_creates(limit=options["limit"]) if options["execute"] else []
         created = AlegraWriteOperation.objects.filter(state=AlegraWriteOperation.STATE_PENDING).count()
