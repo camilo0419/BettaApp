@@ -20,7 +20,7 @@
       {% for field in form %}
         <div class="field {% if field.name == 'detalle' %}full{% endif %}">
           {{ field.label_tag }}
-          {{ field }}
+          {% if field.name == 'producto' %}{% include 'tienda/panel/_internal_picker.html' with field=field empty_label='Seleccionar producto' picker_id='cotizacion-producto' %}{% else %}{{ field }}{% endif %}
           {{ field.errors }}
         </div>
       {% endfor %}

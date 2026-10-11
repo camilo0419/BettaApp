@@ -24,11 +24,11 @@
         <h2>Informacion general</h2>
       </div>
       <div class="form-grid two">
-        <div class="field">{{ form.cliente.label_tag }}{{ form.cliente }}{{ form.cliente.errors }}</div>
-        <div class="field">{{ form.contacto.label_tag }}{{ form.contacto }}{{ form.contacto.errors }}</div>
-        <div class="field">{{ form.punto_venta.label_tag }}{{ form.punto_venta }}{{ form.punto_venta.errors }}</div>
-        <div class="field">{{ form.proyecto.label_tag }}{{ form.proyecto }}{{ form.proyecto.errors }}</div>
-        <div class="field">{{ form.solicitud.label_tag }}{{ form.solicitud }}{{ form.solicitud.errors }}</div>
+        <div class="field">{{ form.cliente.label_tag }}{% include 'tienda/panel/_internal_picker.html' with field=form.cliente empty_label='Seleccionar cliente' picker_id='cotizacion-cliente' %}{{ form.cliente.errors }}</div>
+        <div class="field">{{ form.contacto.label_tag }}{% include 'tienda/panel/_internal_picker.html' with field=form.contacto empty_label='Sin contactos disponibles' picker_id='cotizacion-contacto' %}{{ form.contacto.errors }}</div>
+        <div class="field">{{ form.punto_venta.label_tag }}{% include 'tienda/panel/_internal_picker.html' with field=form.punto_venta empty_label='Sin puntos de venta disponibles' picker_id='cotizacion-punto-venta' %}{{ form.punto_venta.errors }}</div>
+        <div class="field">{{ form.proyecto.label_tag }}{% include 'tienda/panel/_internal_picker.html' with field=form.proyecto empty_label='Sin proyectos disponibles' picker_id='cotizacion-proyecto' %}{{ form.proyecto.errors }}</div>
+        <div class="field">{{ form.solicitud.label_tag }}{% include 'tienda/panel/_internal_picker.html' with field=form.solicitud empty_label='Sin solicitudes disponibles' picker_id='cotizacion-solicitud' %}{{ form.solicitud.errors }}</div>
         <div class="field full">{{ form.titulo.label_tag }}{{ form.titulo }}{{ form.titulo.errors }}</div>
         <div class="field full">{{ form.descripcion.label_tag }}{{ form.descripcion }}{{ form.descripcion.errors }}</div>
         <div class="field">{{ form.fecha_emision.label_tag }}{{ form.fecha_emision }}{{ form.fecha_emision.errors }}</div>

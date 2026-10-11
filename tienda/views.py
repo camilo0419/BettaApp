@@ -2063,6 +2063,37 @@ def venta_detalle(request, venta_id):
     return render(request, "tienda/panel/venta_detalle.html", {"venta": venta, "item_form": VentaItemForm(venta=venta), "estados": Venta.ESTADOS, "invoice_preparation": getattr(venta, "alegra_preparation", None)})
 
 
+def _invalidate_invoice_preparation(venta):
+    preparation = getattr(venta, "alegra_preparation", None)
+    if not preparation:
+        return
+    errors = list(preparation.validation_errors or [])
+    message = "La venta cambió después de preparar la factura; requiere una nueva preparación."
+    if message not in errors:
+        errors.append(message)
+    preparation.status = AlegraInvoicePreparation.STATUS_BLOCKED
+    preparation.validation_errors = errors
+    preparation.save(update_fields=["status", "validation_errors", "prepared_at"])
+
+
+@panel_staff_required
+def venta_editar(request, venta_id):
+    venta = get_object_or_404(Venta, pk=venta_id)
+    if venta.estado != Venta.ESTADO_BORRADOR:
+        messages.error(request, "Solo las ventas en borrador pueden editarse.")
+        return redirect("panel_venta_detalle", venta_id=venta.id)
+    form = VentaForm(request.POST or None, instance=venta)
+    if request.method == "POST" and form.is_valid():
+        with transaction.atomic():
+            venta = form.save(commit=False)
+            venta.actualizado_por = request.user
+            venta.save()
+            _invalidate_invoice_preparation(venta)
+        messages.success(request, "Venta actualizada como borrador.")
+        return redirect("panel_venta_detalle", venta_id=venta.id)
+    return render(request, "tienda/panel/venta_form.html", {"form": form, "titulo": "Editar venta"})
+
+
 @panel_staff_required
 def venta_factura_preparar(request, venta_id):
     venta = get_object_or_404(Venta.objects.select_related("cliente"), pk=venta_id)
@@ -2083,27 +2114,76 @@ def venta_factura_preparar(request, venta_id):
 @panel_staff_required
 def venta_item_crear(request, venta_id):
     venta = get_object_or_404(Venta, pk=venta_id)
+    if venta.estado != Venta.ESTADO_BORRADOR:
+        messages.error(request, "Solo las ventas en borrador pueden modificarse.")
+        return redirect("panel_venta_detalle", venta_id=venta.id)
     form = VentaItemForm(request.POST or None, venta=venta)
     if request.method == "POST" and form.is_valid():
-        form.save()
-        venta.actualizado_por = request.user
-        venta.save(update_fields=["actualizado_por", "actualizado"])
+        with transaction.atomic():
+            form.save()
+            venta.actualizado_por = request.user
+            venta.save(update_fields=["actualizado_por", "actualizado"])
+            venta.recalcular_totales()
+            _invalidate_invoice_preparation(venta)
         messages.success(request, "Ítem agregado a la venta.")
         return redirect("panel_venta_detalle", venta_id=venta.id)
     return render(request, "tienda/panel/venta_item_form.html", {"form": form, "venta": venta, "titulo": "Agregar ítem de venta"})
 
 
 @panel_staff_required
+def venta_item_editar(request, item_id):
+    item = get_object_or_404(VentaItem.objects.select_related("venta"), pk=item_id)
+    venta = item.venta
+    if venta.estado != Venta.ESTADO_BORRADOR:
+        messages.error(request, "Solo las ventas en borrador pueden modificarse.")
+        return redirect("panel_venta_detalle", venta_id=venta.id)
+    form = VentaItemForm(request.POST or None, instance=item, venta=venta)
+    if request.method == "POST" and form.is_valid():
+        with transaction.atomic():
+            form.save()
+            venta.actualizado_por = request.user
+            venta.save(update_fields=["actualizado_por", "actualizado"])
+            venta.recalcular_totales()
+            _invalidate_invoice_preparation(venta)
+        messages.success(request, "Ítem actualizado.")
+        return redirect("panel_venta_detalle", venta_id=venta.id)
+    return render(request, "tienda/panel/venta_item_form.html", {"form": form, "venta": venta, "titulo": "Editar ítem de venta"})
+
+
+@panel_staff_required
+@require_POST
+def venta_item_eliminar(request, item_id):
+    item = get_object_or_404(VentaItem.objects.select_related("venta"), pk=item_id)
+    venta = item.venta
+    if venta.estado != Venta.ESTADO_BORRADOR:
+        messages.error(request, "Solo las ventas en borrador pueden modificarse.")
+        return redirect("panel_venta_detalle", venta_id=venta.id)
+    with transaction.atomic():
+        item.activo = False
+        item.save(update_fields=["activo"])
+        venta.actualizado_por = request.user
+        venta.save(update_fields=["actualizado_por", "actualizado"])
+        venta.recalcular_totales()
+        _invalidate_invoice_preparation(venta)
+    messages.success(request, "Ítem eliminado de la venta.")
+    return redirect("panel_venta_detalle", venta_id=venta.id)
+
+
+@panel_staff_required
 @require_POST
 def venta_confirmar(request, venta_id):
-    venta = get_object_or_404(Venta, pk=venta_id)
-    if venta.estado == Venta.ESTADO_CANCELADA or not venta.items.filter(activo=True).exists():
-        messages.error(request, "La venta cancelada o sin ítems activos no puede confirmarse.")
-    else:
-        venta.estado = Venta.ESTADO_CONFIRMADA
-        venta.actualizado_por = request.user
-        venta.save(update_fields=["estado", "actualizado_por", "actualizado"])
-        messages.success(request, f"Venta {venta.numero} confirmada. Esto no implica facturación ni pago.")
+    with transaction.atomic():
+        venta = get_object_or_404(Venta.objects.select_for_update(), pk=venta_id)
+        if venta.estado != Venta.ESTADO_BORRADOR:
+            messages.error(request, "Solo una venta en borrador puede confirmarse.")
+        elif not venta.items.filter(activo=True).exists():
+            messages.error(request, "La venta sin ítems activos no puede confirmarse.")
+        else:
+            venta.recalcular_totales()
+            venta.estado = Venta.ESTADO_CONFIRMADA
+            venta.actualizado_por = request.user
+            venta.save(update_fields=["estado", "actualizado_por", "actualizado"])
+            messages.success(request, f"Venta {venta.numero} confirmada. Esto no implica facturación ni pago.")
     return redirect("panel_venta_detalle", venta_id=venta.id)
 
 

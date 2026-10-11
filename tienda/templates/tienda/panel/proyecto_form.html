@@ -24,8 +24,8 @@
         <h2>Cliente y contacto</h2>
       </div>
       <div class="form-grid two">
-        <div class="field">{{ form.cliente.label_tag }}{{ form.cliente }}{{ form.cliente.errors }}</div>
-        <div class="field">{{ form.contacto.label_tag }}{{ form.contacto }}{{ form.contacto.errors }}</div>
+        <div class="field">{{ form.cliente.label_tag }}{% include 'tienda/panel/_internal_picker.html' with field=form.cliente empty_label='Seleccionar cliente' picker_id='proyecto-cliente' %}{{ form.cliente.errors }}</div>
+        <div class="field">{{ form.contacto.label_tag }}{% include 'tienda/panel/_internal_picker.html' with field=form.contacto empty_label='Sin contactos disponibles' picker_id='proyecto-contacto' %}{{ form.contacto.errors }}</div>
         <div class="field full">{{ form.puntos_venta.label_tag }}{{ form.puntos_venta }}{{ form.puntos_venta.errors }}<small class="muted">Opcional. Puedes seleccionar varias sedes del cliente.</small></div>
       </div>
     </section>

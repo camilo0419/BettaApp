@@ -42,6 +42,61 @@ class SalesTests(TestCase):
         sale.refresh_from_db()
         self.assertEqual(sale.total, Decimal("200.00"))
 
+    def test_draft_sale_item_edit_delete_recalculates_and_invalidates_preparation(self):
+        sale = Venta.objects.create(cliente=self.client_obj, estado=Venta.ESTADO_BORRADOR)
+        item = VentaItem.objects.create(venta=sale, producto=self.product, descripcion="Original", cantidad=2, precio_unitario=Decimal("100"))
+        preparation = AlegraInvoicePreparation.objects.create(
+            venta=sale,
+            mode=AlegraInvoicePreparation.MODE_DETAILED,
+            status=AlegraInvoicePreparation.STATUS_READY,
+            payload={"items": []},
+            sale_snapshot_hash="snapshot",
+        )
+        client = Client()
+        client.force_login(self.user)
+        response = client.post(
+            reverse("panel_venta_item_editar", kwargs={"item_id": item.pk}),
+            {"producto": self.product.pk, "descripcion": "Actualizado", "cantidad": "3", "unidad": "und", "precio_unitario": "150", "descuento": "10", "impuesto": "19", "orden": "0", "activo": "on"},
+        )
+        self.assertEqual(response.status_code, 302)
+        item.refresh_from_db()
+        sale.refresh_from_db()
+        self.assertEqual(item.descripcion, "Actualizado")
+        self.assertEqual(item.subtotal, Decimal("450.00"))
+        self.assertEqual(item.total, Decimal("459.00"))
+        self.assertEqual(sale.total, Decimal("459.00"))
+        preparation.refresh_from_db()
+        self.assertEqual(preparation.status, AlegraInvoicePreparation.STATUS_BLOCKED)
+
+        response = client.post(reverse("panel_venta_item_eliminar", kwargs={"item_id": item.pk}))
+        self.assertEqual(response.status_code, 302)
+        item.refresh_from_db()
+        sale.refresh_from_db()
+        self.assertFalse(item.activo)
+        self.assertEqual(sale.total, Decimal("0.00"))
+
+    def test_confirm_requires_draft_with_valid_items_and_blocks_other_states(self):
+        empty = Venta.objects.create(cliente=self.client_obj, estado=Venta.ESTADO_BORRADOR)
+        confirmed = Venta.objects.create(cliente=self.client_obj, estado=Venta.ESTADO_CONFIRMADA)
+        confirmed_item = VentaItem.objects.create(venta=confirmed, producto=self.product, descripcion="Confirmado", cantidad=1, precio_unitario=100)
+        client = Client()
+        client.force_login(self.user)
+
+        response = client.post(reverse("panel_venta_confirmar", kwargs={"venta_id": empty.pk}))
+        self.assertEqual(response.status_code, 302)
+        empty.refresh_from_db()
+        self.assertEqual(empty.estado, Venta.ESTADO_BORRADOR)
+
+        response = client.post(reverse("panel_venta_item_editar", kwargs={"item_id": confirmed_item.pk}), {"descripcion": "No debe cambiar"})
+        self.assertEqual(response.status_code, 302)
+        confirmed_item.refresh_from_db()
+        self.assertEqual(confirmed_item.descripcion, "Confirmado")
+
+        VentaItem.objects.create(venta=empty, producto=self.product, descripcion="Válido", cantidad=1, precio_unitario=100)
+        client.post(reverse("panel_venta_confirmar", kwargs={"venta_id": empty.pk}))
+        empty.refresh_from_db()
+        self.assertEqual(empty.estado, Venta.ESTADO_CONFIRMADA)
+
     def test_quote_conversion_is_idempotent_and_copies_items(self):
         quote = Cotizacion.objects.create(cliente=self.client_obj, titulo="Cotización aprobada", estado=Cotizacion.ESTADO_APROBADA, creada_por=self.user)
         CotizacionItem.objects.create(cotizacion=quote, producto=self.product, descripcion="Ítem aceptado", cantidad=2, valor_unitario=Decimal("100"))
@@ -124,6 +179,18 @@ class SalesTests(TestCase):
         detail = client.get(reverse("panel_cotizacion_detalle", kwargs={"cotizacion_id": quote.pk}))
         self.assertContains(listing, reverse("panel_cotizacion_convertir", kwargs={"cotizacion_id": quote.pk}))
         self.assertContains(detail, reverse("panel_cotizacion_convertir", kwargs={"cotizacion_id": quote.pk}))
+
+    def test_quote_forms_use_compact_internal_pickers_without_permanent_search_inputs(self):
+        quote = Cotizacion.objects.create(cliente=self.client_obj, titulo="Cotización selectores")
+        client = Client()
+        client.force_login(self.user)
+        create_response = client.get(reverse("panel_cotizacion_crear"))
+        edit_response = client.get(reverse("panel_cotizacion_editar", kwargs={"cotizacion_id": quote.pk}))
+        for response in (create_response, edit_response):
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.content.decode().count("data-internal-picker"), 5)
+            self.assertNotContains(response, "select-search-input")
+            self.assertContains(response, "data-picker-search")
 
     def test_project_starts_reviewable_draft_with_client_and_project_prefilled(self):
         project = Proyecto.objects.create(nombre="Proyecto venta", cliente=self.client_obj)

@@ -71,6 +71,13 @@ def mark_searchable_select(field, **attrs):
         field.widget.attrs[key] = value
 
 
+def use_internal_picker(field, **attrs):
+    """Configura un select para el buscador embebido del desplegable."""
+    field.widget.attrs.pop("data-searchable-select", None)
+    for key, value in attrs.items():
+        field.widget.attrs[key] = value
+
+
 def selected_form_id(form, field_name):
     if form.is_bound:
         value = form.data.get(form.add_prefix(field_name)) or form.data.get(field_name)
@@ -790,8 +797,8 @@ class CotizacionForm(forms.ModelForm):
         use_related_data_select(self.fields["proyecto"])
         use_related_data_select(self.fields["solicitud"])
         use_related_data_select(self.fields["punto_venta"])
-        mark_searchable_select(self.fields["cliente"])
-        mark_searchable_select(
+        use_internal_picker(self.fields["cliente"])
+        use_internal_picker(
             self.fields["contacto"],
             **{
                 "data-filter-client-source": "id_cliente",
@@ -800,7 +807,7 @@ class CotizacionForm(forms.ModelForm):
                 "data-prefer-principal": "true",
             },
         )
-        mark_searchable_select(
+        use_internal_picker(
             self.fields["proyecto"],
             **{
                 "data-filter-client-source": "id_cliente",
@@ -808,7 +815,7 @@ class CotizacionForm(forms.ModelForm):
                 "data-empty-label": "Sin proyectos disponibles",
             },
         )
-        mark_searchable_select(
+        use_internal_picker(
             self.fields["solicitud"],
             **{
                 "data-filter-client-source": "id_cliente",
@@ -817,7 +824,7 @@ class CotizacionForm(forms.ModelForm):
                 "data-empty-label": "Sin solicitudes disponibles",
             },
         )
-        mark_searchable_select(self.fields["punto_venta"], **{"data-filter-client-source": "id_cliente", "data-always-searchable": "true", "data-empty-label": "Sin puntos de venta disponibles"})
+        use_internal_picker(self.fields["punto_venta"], **{"data-filter-client-source": "id_cliente", "data-empty-label": "Sin puntos de venta disponibles"})
 
     def clean(self):
         cleaned_data = super().clean()
@@ -856,7 +863,10 @@ class CotizacionItemForm(forms.ModelForm):
     def __init__(self, *args, cotizacion=None, **kwargs):
         self.cotizacion = cotizacion
         super().__init__(*args, **kwargs)
-        self.fields["producto"].queryset = Producto.objects.filter(activo=True).select_related("categoria")
+        productos = Producto.objects.filter(activo=True)
+        if self.instance.pk and self.instance.producto_id:
+            productos = Producto.objects.filter(models.Q(activo=True) | models.Q(pk=self.instance.producto_id))
+        self.fields["producto"].queryset = productos.select_related("categoria")
         self.fields["producto"].required = False
         if cotizacion is not None and not self.instance.pk:
             self.instance.cotizacion = cotizacion
@@ -940,7 +950,7 @@ class VentaItemForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["producto"].queryset = Producto.objects.filter(activo=True).select_related("categoria")
         self.fields["producto"].required = False
-        mark_searchable_select(self.fields["producto"])
+        use_internal_picker(self.fields["producto"])
 
     def save(self, commit=True):
         item = super().save(commit=False)
@@ -1065,9 +1075,9 @@ class ProyectoForm(forms.ModelForm):
             self.fields["puntos_venta"].queryset = ClientePuntoVenta.objects.filter(models.Q(pk__in=puntos_venta_ids) | models.Q(cliente_id=cliente_id), activo=True).distinct()
         use_related_data_select(self.fields["puntos_venta"])
         use_related_data_select(self.fields["contacto"])
-        mark_searchable_select(self.fields["cliente"])
+        use_internal_picker(self.fields["cliente"])
         mark_searchable_select(self.fields["puntos_venta"], **{"data-filter-client-source": "id_cliente", "data-always-searchable": "true", "data-empty-label": "Sin puntos de venta disponibles"})
-        mark_searchable_select(
+        use_internal_picker(
             self.fields["contacto"],
             **{
                 "data-filter-client-source": "id_cliente",
