@@ -337,7 +337,7 @@ class AlegraWriteAdapterTests(TestCase):
         ExternalObjectMap.objects.create(system=self.system, resource_type="contacts", external_id="A-1", content_type=ct, object_id=self.client.pk)
         self.client.email = "new@example.test"
         self.client.save(update_fields=["email"])
-        for index, status in enumerate((400, 401, 403, 409, 500), start=1):
+        for index, status in enumerate((400, 401, 403, 409, 429, 500), start=1):
             with self.subTest(status=status):
                 transport = FakeTransport(update_error=AlegraWriteHTTPError(status, f"HTTP {status}"))
                 self.client.email = f"new{index}@example.test"
@@ -355,9 +355,16 @@ class AlegraWriteAdapterTests(TestCase):
                     baseline={"nombre": "Cliente Local SAS", "email": "old@example.test"},
                 )
                 result = service.execute_update(operation.pk, authorization=self.authorization)
-                self.assertEqual(result.state, AlegraWriteOperation.STATE_FAILED)
+                expected_state = (
+                    AlegraWriteOperation.STATE_PENDING if status == 429
+                    else AlegraWriteOperation.STATE_NEEDS_RECONCILIATION if status == 500
+                    else AlegraWriteOperation.STATE_FAILED
+                )
+                self.assertEqual(result.state, expected_state)
                 self.assertEqual(result.attempts, 1)
                 self.assertEqual(len(transport.update_calls), 1)
+                if status == 429:
+                    self.assertIn("retry_at", result.result_metadata)
 
     def test_update_timeout_requires_reconciliation(self):
         ct = ContentType.objects.get_for_model(Cliente)

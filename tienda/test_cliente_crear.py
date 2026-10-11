@@ -44,7 +44,7 @@ class ClienteCrearViewTests(TestCase):
         transport.assert_not_called()
         queue_transport.return_value.find_candidates.assert_called_once()
 
-    def test_post_valido_con_candidato_remoto_no_encola_alta(self):
+    def test_post_valido_con_candidato_remoto_persiste_revision(self):
         data = {
             "tipo_cliente": Cliente.TIPO_PERSONA,
             "nombre": "Cliente Duplicado QA",
@@ -62,7 +62,8 @@ class ClienteCrearViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Cliente.objects.count(), 1)
         from tienda.models import AlegraWriteOperation
-        self.assertFalse(AlegraWriteOperation.objects.exists())
+        operation = AlegraWriteOperation.objects.get()
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
 
     def test_nombres_separados_construyen_nombre_local(self):
         data = {

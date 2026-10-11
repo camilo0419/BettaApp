@@ -13,6 +13,7 @@ import json
 import os
 import uuid
 import re
+from datetime import timedelta
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
@@ -28,6 +29,7 @@ from .alegra_bidirectional_clients import BidirectionalClientSync
 from .alegra_client import AlegraConfigurationError, AlegraError, AlegraReadOnlyClient, extract_rows
 from .alegra_contact_import import normalize_identity
 from .alegra_normalization import extract_identification_context
+from .database_lock import DatabaseLockUnavailable, advisory_lock
 
 
 class ExternalWriteDisabled(AlegraError):
@@ -522,35 +524,70 @@ class AlegraContactWriteService:
             external_id = str(response.get("id") or "").strip()
             if not external_id:
                 raise AlegraWriteResponseError("Respuesta sin ID externo.")
-            with transaction.atomic():
-                operation = AlegraWriteOperation.objects.select_for_update().get(pk=operation_id)
-                existing = ExternalObjectMap.objects.filter(system=system, resource_type="contacts", external_id=external_id, status=ExternalObjectMap.STATUS_ACTIVE).first()
-                if existing and (existing.object_id != client.pk or existing.content_type_id != ContentType.objects.get_for_model(Cliente).pk):
-                    operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
-                    operation.reconciliation_reason = "El ID externo ya pertenece a otro objeto local."
-                    operation.save(update_fields=["state", "reconciliation_reason", "updated_at"])
+            with advisory_lock(f"bettaapp:alegra:map:contacts:local:{client.pk}"):
+                with transaction.atomic():
+                    operation = AlegraWriteOperation.objects.select_for_update().get(pk=operation_id)
+                    content_type = ContentType.objects.get_for_model(Cliente)
+                    existing = ExternalObjectMap.objects.filter(system=system, resource_type="contacts", external_id=external_id, status=ExternalObjectMap.STATUS_ACTIVE).first()
+                    existing_local = ExternalObjectMap.objects.filter(
+                        system=system, resource_type="contacts", content_type=content_type,
+                        object_id=client.pk, status=ExternalObjectMap.STATUS_ACTIVE,
+                    ).exclude(external_id=external_id).first()
+                    if existing and (existing.object_id != client.pk or existing.content_type_id != content_type.pk):
+                        operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+                        operation.reconciliation_reason = "El ID externo ya pertenece a otro objeto local."
+                        operation.save(update_fields=["state", "reconciliation_reason", "updated_at"])
+                        return operation
+                    if existing_local:
+                        operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+                        operation.reconciliation_reason = "El cliente ya tiene otro mapeo externo activo."
+                        operation.save(update_fields=["state", "reconciliation_reason", "updated_at"])
+                        return operation
+                    if not existing:
+                        ExternalObjectMap.objects.create(
+                            system=system, resource_type="contacts", external_id=external_id,
+                            content_type=content_type, object_id=client.pk,
+                            status=ExternalObjectMap.STATUS_ACTIVE, last_synced_at=timezone.now(),
+                            metadata={"source": "alegra_write", "last_synced_fields": BidirectionalClientSync().build_betta_payload(client)},
+                        )
+                    operation.external_id = external_id
+                    operation.state = AlegraWriteOperation.STATE_SYNCED
+                    operation.result_metadata = {"response_id_present": True}
+                    operation.save(update_fields=["external_id", "state", "result_metadata", "updated_at"])
                     return operation
-                if not existing:
-                    ExternalObjectMap.objects.create(
-                        system=system, resource_type="contacts", external_id=external_id,
-                        content_type=ContentType.objects.get_for_model(Cliente), object_id=client.pk,
-                        status=ExternalObjectMap.STATUS_ACTIVE, last_synced_at=timezone.now(),
-                        metadata={"source": "alegra_write", "last_synced_fields": BidirectionalClientSync().build_betta_payload(client)},
-                    )
-                operation.external_id = external_id
-                operation.state = AlegraWriteOperation.STATE_SYNCED
-                operation.result_metadata = {"response_id_present": True}
-                operation.save(update_fields=["external_id", "state", "result_metadata", "updated_at"])
-                return operation
         except AlegraWriteUncertain as exc:
             return self._mark_uncertain(operation_id, str(exc))
         except AlegraWriteResponseError as exc:
             return self._mark_uncertain(operation_id, str(exc))
+        except DatabaseLockUnavailable as exc:
+            return self._mark_uncertain(operation_id, f"No fue posible asegurar el vínculo local: {exc}")
+        except AlegraWriteHTTPError as exc:
+            if exc.status == 429:
+                return self._mark_retryable(operation_id, str(exc), "429")
+            if exc.status in {500, 502, 503}:
+                return self._mark_uncertain(operation_id, str(exc))
+            return self._mark_failed(operation_id, str(exc))
         except (AlegraError, ValidationError, IntegrityError) as exc:
             return self._mark_failed(operation_id, str(exc))
 
     def _mark_uncertain(self, operation_id: int, message: str) -> AlegraWriteOperation:
         return self._mark(operation_id, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION, message, "uncertain")
+
+    def _mark_retryable(self, operation_id: int, message: str, code: str) -> AlegraWriteOperation:
+        operation = AlegraWriteOperation.objects.get(pk=operation_id)
+        metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
+        retry_count = int(metadata.get("retry_count", 0)) + 1
+        delay = min(3600, 60 * (2 ** min(retry_count - 1, 5)))
+        operation.result_metadata = {
+            **metadata,
+            "retry_count": retry_count,
+            "retry_at": (timezone.now() + timedelta(seconds=delay)).isoformat(),
+        }
+        operation.state = AlegraWriteOperation.STATE_PENDING
+        operation.error_code = str(code)[:40]
+        operation.error_message = str(message)[:500]
+        operation.save(update_fields=["state", "result_metadata", "error_code", "error_message", "updated_at"])
+        return operation
 
     @staticmethod
     def _mark_remote_candidate(operation_id: int, message: str) -> AlegraWriteOperation:
@@ -627,5 +664,11 @@ class AlegraContactWriteService:
             return operation
         except AlegraWriteUncertain as exc:
             return self._mark_uncertain(operation_id, str(exc))
+        except AlegraWriteHTTPError as exc:
+            if exc.status == 429:
+                return self._mark_retryable(operation_id, str(exc), "429")
+            if exc.status in {500, 502, 503}:
+                return self._mark_uncertain(operation_id, str(exc))
+            return self._mark_failed(operation_id, str(exc))
         except (AlegraError, ValidationError, IntegrityError) as exc:
             return self._mark_failed(operation_id, str(exc))

@@ -63,19 +63,26 @@ class AutomationTests(TestCase):
             primer_apellido="Prueba", identificacion="123456790", tipo_identificacion=Cliente.ID_CC,
             regimen_tributario="COMMON_REGIME",
         )
-        self.assertIsNone(enqueue_create(client))
-        self.assertEqual(AlegraWriteOperation.objects.filter(client=client).count(), 0)
+        operation = enqueue_create(client)
+        self.assertIsNotNone(operation)
+        operation.refresh_from_db()
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(AlegraWriteOperation.objects.filter(client=client).count(), 1)
 
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
-    def test_remote_check_failure_does_not_queue_create(self, transport_class):
+    def test_remote_check_failure_persists_create_with_backoff(self, transport_class):
         transport_class.return_value.find_candidates.side_effect = TimeoutError("timeout")
         client = Cliente.objects.create(
             tipo_cliente=Cliente.TIPO_PERSONA, nombre="Persona", primer_nombre="Ana",
             primer_apellido="Prueba", identificacion="123456791", tipo_identificacion=Cliente.ID_CC,
             regimen_tributario="COMMON_REGIME",
         )
-        self.assertIsNone(enqueue_create(client))
-        self.assertEqual(AlegraWriteOperation.objects.filter(client=client).count(), 0)
+        operation = enqueue_create(client)
+        self.assertIsNotNone(operation)
+        operation.refresh_from_db()
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
+        self.assertEqual(operation.error_code, "remote_check")
+        self.assertIn("retry_at", operation.result_metadata)
 
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
     def test_historical_pending_clients_are_excluded_but_new_clients_are_eligible(self, transport_class):
@@ -121,3 +128,21 @@ class AutomationTests(TestCase):
         )
         self.assertIsNone(enqueue_update_if_changed(client))
         self.assertEqual(AlegraWriteOperation.objects.filter(client=client).count(), 0)
+
+    @patch("tienda.management.commands.alegra_diagnosticar_clientes_historicos.AlegraWriteClient")
+    def test_historical_diagnostic_reports_aggregate_without_personal_data(self, transport_class):
+        alegra_system()
+        Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Nombre reservado", primer_nombre="Ana",
+            primer_apellido="Prueba", identificacion="12.345", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME", alegra_sync_policy=Cliente.ALEGRA_SYNC_HISTORICAL_PENDING,
+        )
+        transport_class.return_value.find_candidates.return_value = [{
+            "id": "A-1", "identificationObject": {"type": "CC", "number": "12345"},
+        }]
+        output = StringIO()
+        call_command("alegra_diagnosticar_clientes_historicos", "--all", stdout=output)
+        text = output.getvalue()
+        self.assertIn("inequivoca_identificacion_y_documento: 1", text)
+        self.assertNotIn("Nombre reservado", text)
+        self.assertNotIn("12.345", text)

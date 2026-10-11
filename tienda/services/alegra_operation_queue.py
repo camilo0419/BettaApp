@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 import os
+from datetime import datetime, timedelta
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap, ExternalSystem, SyncAuditLog
 from tienda.services.alegra_write import (
@@ -55,7 +57,11 @@ def alegra_system() -> ExternalSystem:
 
 
 def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteOperation | None:
-    """Registra una alta pendiente solo después de una comprobación GET segura."""
+    """Persiste la intención antes del GET preventivo.
+
+    La comprobación remota sigue siendo obligatoria para autorizar el POST,
+    pero un fallo transitorio no puede perder la intención de sincronización.
+    """
     if client.alegra_sync_policy != Cliente.ALEGRA_SYNC_AUTO:
         SyncAuditLog.objects.create(
             system=alegra_system(), operation="enqueue_contact_create", resource="contacts",
@@ -72,6 +78,22 @@ def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteO
         return None
     try:
         payload = build_contact_payload(client)
+    except ValidationError as exc:
+        SyncAuditLog.objects.create(
+            system=alegra_system(), operation="enqueue_contact_create", resource="contacts",
+            actor=actor, result=SyncAuditLog.RESULT_ERROR, detail=str(exc)[:500],
+            metadata={"client_id": client.pk, "queued": False},
+        )
+        return None
+
+    key = BidirectionalClientSync.idempotency_key("betta_to_alegra_create", str(client.pk), payload)
+    operation, _ = AlegraWriteOperation.objects.get_or_create(
+        system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
+        idempotency_key=key, defaults={"state": AlegraWriteOperation.STATE_PENDING},
+    )
+    if operation.state != AlegraWriteOperation.STATE_PENDING:
+        return operation
+    try:
         _assert_remote_create_is_safe(client, timeout=timeout)
     except WriteConflict as exc:
         SyncAuditLog.objects.create(
@@ -80,27 +102,31 @@ def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteO
             detail="Alta bloqueada: candidato externo requiere revisión manual.",
             metadata={"client_id": client.pk, "queued": False, "state": "blocked_remote_candidate"},
         )
-        return None
+        operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+        operation.reconciliation_reason = str(exc)[:500]
+        operation.error_code = "remote_candidate"
+        operation.error_message = str(exc)[:500]
+        operation.save(update_fields=["state", "reconciliation_reason", "error_code", "error_message", "updated_at"])
+        return operation
     except (AlegraError, TimeoutError, OSError) as exc:
+        retry_count = int((operation.result_metadata or {}).get("retry_count", 0)) + 1
+        delay = min(3600, 60 * (2 ** min(retry_count - 1, 5)))
+        operation.result_metadata = {
+            **(operation.result_metadata or {}),
+            "retry_count": retry_count,
+            "retry_at": (timezone.now() + timedelta(seconds=delay)).isoformat(),
+            "last_transient_error": exc.__class__.__name__,
+        }
+        operation.error_code = "remote_check"
+        operation.error_message = "No fue posible verificar candidatos externos; se reintentará de forma controlada."
+        operation.save(update_fields=["result_metadata", "error_code", "error_message", "updated_at"])
         SyncAuditLog.objects.create(
             system=alegra_system(), operation="enqueue_contact_create", resource="contacts",
             actor=actor, result=SyncAuditLog.RESULT_PARTIAL,
             detail="Alta bloqueada: no fue posible verificar candidatos externos.",
             metadata={"client_id": client.pk, "queued": False, "state": "blocked_remote_check"},
         )
-        return None
-    except ValidationError as exc:
-        SyncAuditLog.objects.create(
-            system=alegra_system(), operation="enqueue_contact_create", resource="contacts",
-            actor=actor, result=SyncAuditLog.RESULT_ERROR, detail=str(exc)[:500],
-            metadata={"client_id": client.pk, "queued": False},
-        )
-        return None
-    key = BidirectionalClientSync.idempotency_key("betta_to_alegra_create", str(client.pk), payload)
-    operation, _ = AlegraWriteOperation.objects.get_or_create(
-        system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
-        idempotency_key=key, defaults={"state": AlegraWriteOperation.STATE_PENDING},
-    )
+        return operation
     return operation
 
 
@@ -216,10 +242,23 @@ def enqueue_missing_creates(*, limit=100, actor=None, timeout=None):
 
 def process_pending_operations(*, limit=50, timeout=None, execute=False, actor=None):
     """Procesa exclusivamente pendientes seguros; nunca reintenta inciertos."""
-    operations = list(AlegraWriteOperation.objects.filter(
+    candidates = AlegraWriteOperation.objects.filter(
         state=AlegraWriteOperation.STATE_PENDING,
         operation__in=[AlegraWriteOperation.OP_CREATE, AlegraWriteOperation.OP_UPDATE],
-    ).select_related("client").order_by("created_at", "pk")[: max(int(limit), 1)])
+    ).select_related("client").order_by("created_at", "pk")
+    operations = []
+    now = timezone.now()
+    for candidate in candidates:
+        retry_at = (candidate.result_metadata or {}).get("retry_at")
+        if retry_at:
+            try:
+                if datetime.fromisoformat(str(retry_at)) > now:
+                    continue
+            except (TypeError, ValueError):
+                pass
+        operations.append(candidate)
+        if len(operations) >= max(int(limit), 1):
+            break
     if not execute:
         return {"mode": "dry_run", "pending": len(operations), "results": []}
     if os.environ.get("ALEGRA_AUTOMATION_WRITES_ENABLED", "").casefold() != "true":
@@ -240,16 +279,25 @@ def process_pending_operations(*, limit=50, timeout=None, execute=False, actor=N
             else:
                 result = service.execute_update(operation.pk, authorization=authorization)
         except (AlegraError, TimeoutError, OSError) as exc:
-            # Un fallo de GET previo no cambia el estado ni los intentos: es
-            # transitorio y no hubo POST/PUT. El lote puede continuar.
+            retry_count = int((operation.result_metadata or {}).get("retry_count", 0)) + 1
+            delay = min(3600, 60 * (2 ** min(retry_count - 1, 5)))
+            operation.result_metadata = {
+                **(operation.result_metadata or {}),
+                "retry_count": retry_count,
+                "retry_at": (timezone.now() + timedelta(seconds=delay)).isoformat(),
+                "last_transient_error": exc.__class__.__name__,
+            }
+            operation.error_code = "remote_check"
+            operation.error_message = "No fue posible verificar Alegra; se reintentará con backoff."
+            operation.save(update_fields=["result_metadata", "error_code", "error_message", "updated_at"])
             SyncAuditLog.objects.create(
                 system=operation.system, operation="process_outbound_contact", resource="contacts",
                 external_id=operation.external_id, actor=actor,
                 result=SyncAuditLog.RESULT_PARTIAL,
-                detail="Operación bloqueada por fallo de verificación remota; no se escribió en Alegra.",
-                metadata={"operation_id": operation.pk, "state": "blocked_remote_check"},
+                detail="Operación temporalmente bloqueada por fallo remoto; no se escribió en Alegra.",
+                metadata={"operation_id": operation.pk, "state": "pending_retry", "retry_count": retry_count},
             )
-            results.append({"id": operation.pk, "state": "blocked_remote_check", "attempts": operation.attempts})
+            results.append({"id": operation.pk, "state": "pending_retry", "attempts": operation.attempts})
             continue
         results.append({"id": operation.pk, "state": result.state, "attempts": result.attempts})
         SyncAuditLog.objects.create(
