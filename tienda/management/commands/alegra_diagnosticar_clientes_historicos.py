@@ -15,6 +15,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--all", action="store_true", help="Incluye todos los clientes históricos.")
+        parser.add_argument("--client-id", type=int, default=None, help="Diagnostica un único ID local histórico.")
         parser.add_argument("--limit", type=int, default=50)
         parser.add_argument("--timeout", type=float, default=None)
 
@@ -25,7 +26,9 @@ class Command(BaseCommand):
         queryset = Cliente.objects.filter(
             alegra_sync_policy=Cliente.ALEGRA_SYNC_HISTORICAL_PENDING,
         ).order_by("pk")
-        if not options["all"]:
+        if options["client_id"] is not None:
+            queryset = queryset.filter(pk=options["client_id"])
+        elif not options["all"]:
             queryset = queryset[: max(int(options["limit"]), 1)]
 
         client = AlegraWriteClient(timeout=options["timeout"])
@@ -37,7 +40,10 @@ class Command(BaseCommand):
             try:
                 candidates = client.find_candidates(identification=normalize_identity(local.identificacion))
             except Exception as exc:
-                counts[f"error_{exc.__class__.__name__}"] += 1
+                reason = f"error_{exc.__class__.__name__}"
+                counts[reason] += 1
+                if options["client_id"] is not None:
+                    self.stdout.write(f"ID local={local.pk}; clasificacion=ERROR; candidatos=0; motivo={reason}.")
                 continue
 
             local_number = normalize_identity(local.identificacion)
@@ -54,16 +60,23 @@ class Command(BaseCommand):
                     exact_document.append(row)
 
             if len(exact_document) == 1:
-                counts["inequivoca_identificacion_y_documento"] += 1
+                classification = "inequivoca_identificacion_y_documento"
             elif len(exact_document) > 1:
-                counts["ambigua_multiples_identificacion_y_documento"] += 1
+                classification = "ambigua_multiples_identificacion_y_documento"
             elif exact_number:
-                counts["diferencia_tipo_documento"] += 1
+                classification = "diferencia_tipo_documento"
             else:
-                counts["sin_coincidencia"] += 1
+                classification = "sin_coincidencia"
+            counts[classification] += 1
+            if options["client_id"] is not None:
+                self.stdout.write(
+                    f"ID local={local.pk}; clasificacion={classification}; "
+                    f"candidatos={len(candidates)}; motivo={classification}."
+                )
 
-        self.stdout.write(f"Modo=dry-run; procesados={processed}; sin escrituras externas.")
-        self.stdout.write("Desglose agregado (sin datos personales):")
-        for reason, amount in sorted(counts.items()):
-            self.stdout.write(f"- {reason}: {amount}")
+        if options["client_id"] is None:
+            self.stdout.write(f"Modo=dry-run; procesados={processed}; sin escrituras externas.")
+            self.stdout.write("Desglose agregado (sin datos personales):")
+            for reason, amount in sorted(counts.items()):
+                self.stdout.write(f"- {reason}: {amount}")
 

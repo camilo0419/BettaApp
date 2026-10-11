@@ -1,8 +1,10 @@
 from io import StringIO
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import TestCase
+from django.utils import timezone
 
 from tienda.models import Categoria, Producto, AlegraItemStaging, AlegraWriteOperation, Cliente, ExternalObjectMap
 from tienda.services.alegra_bidirectional_clients import SafeAlegraWriteAdapter, PENDING
@@ -146,3 +148,60 @@ class AutomationTests(TestCase):
         self.assertIn("inequivoca_identificacion_y_documento: 1", text)
         self.assertNotIn("Nombre reservado", text)
         self.assertNotIn("12.345", text)
+
+    @patch("tienda.management.commands.alegra_diagnosticar_clientes_historicos.AlegraWriteClient")
+    def test_historical_diagnostic_supports_single_local_id(self, transport_class):
+        alegra_system()
+        client = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="No debe mostrarse", primer_nombre="Ana",
+            primer_apellido="Prueba", identificacion="777", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME", alegra_sync_policy=Cliente.ALEGRA_SYNC_HISTORICAL_PENDING,
+        )
+        transport_class.return_value.find_candidates.return_value = []
+        output = StringIO()
+        call_command("alegra_diagnosticar_clientes_historicos", "--client-id", client.pk, stdout=output)
+        text = output.getvalue()
+        self.assertIn(f"ID local={client.pk}", text)
+        self.assertIn("clasificacion=sin_coincidencia", text)
+        self.assertIn("candidatos=0", text)
+        self.assertNotIn("No debe mostrarse", text)
+
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_enqueue_missing_skips_future_backoff_and_reaches_next_client(self, transport_class):
+        transport_class.return_value.find_candidates.return_value = []
+        first = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Primero", primer_nombre="Ana",
+            primer_apellido="Uno", identificacion="101", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME",
+        )
+        second = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Segundo", primer_nombre="Ana",
+            primer_apellido="Dos", identificacion="102", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME",
+        )
+        first_operation = enqueue_create(first)
+        first_operation.result_metadata = {"retry_at": (timezone.now() + timedelta(hours=1)).isoformat()}
+        first_operation.save(update_fields=["result_metadata"])
+        transport_class.return_value.find_candidates.reset_mock()
+        queued = enqueue_missing_creates(limit=1)
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(AlegraWriteOperation.objects.get(pk=queued[0]).client_id, second.pk)
+        transport_class.return_value.find_candidates.assert_called_once()
+
+    def test_process_dry_run_respects_future_and_expired_backoff(self):
+        for index, retry_at in enumerate((
+            timezone.now() + timedelta(hours=1),
+            timezone.now() - timedelta(minutes=1),
+        ), start=1):
+            client = Cliente.objects.create(
+                tipo_cliente=Cliente.TIPO_PERSONA, nombre=f"Cliente {index}", primer_nombre="Ana",
+                primer_apellido=f"Prueba{index}", identificacion=f"20{index}",
+                tipo_identificacion=Cliente.ID_CC, regimen_tributario="COMMON_REGIME",
+            )
+            AlegraWriteOperation.objects.create(
+                system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
+                idempotency_key=f"backoff-{index}", state=AlegraWriteOperation.STATE_PENDING,
+                result_metadata={"retry_at": retry_at.isoformat()},
+            )
+        result = process_pending_operations(limit=10, execute=False)
+        self.assertEqual(result["pending"], 1)

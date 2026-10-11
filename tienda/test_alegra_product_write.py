@@ -188,6 +188,18 @@ class ProductWriteTests(TestCase):
         client.assert_not_called()
         self.assertEqual(result["pending"], 0)
 
+    @patch("tienda.services.alegra_product_write._active_mappings")
+    def test_duplicate_active_product_maps_block_outbound_operation(self, active_mappings):
+        product = self.product()
+        mapping = ExternalObjectMap(
+            system=self.system, resource_type="items", external_id="A-ITEM-1",
+            content_type=ContentType.objects.get_for_model(Producto), object_id=product.pk,
+        )
+        active_mappings.return_value = [mapping, mapping]
+        operation = enqueue_product_sync(product)
+        self.assertEqual(operation.state, AlegraProductWriteOperation.STATE_BLOCKED)
+        self.assertIn("múltiples vínculos", operation.error_message)
+
     def test_operation_id_limits_dry_run_to_one_pending_operation(self):
         first = enqueue_product_sync(self.product(nombre="Producto uno"))
         second = enqueue_product_sync(self.product(nombre="Producto dos"))

@@ -7,7 +7,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from tienda.forms import AlegraInvoicePreparationForm, VentaItemForm
-from tienda.models import AlegraInvoicePreparation, AlegraInvoiceStaging, Categoria, Cliente, Cotizacion, CotizacionItem, ExternalObjectMap, Producto, Proyecto, SyncAuditLog, Venta, VentaItem
+from tienda.models import AlegraInvoicePreparation, AlegraInvoiceStaging, Categoria, Cliente, Cotizacion, CotizacionItem, ExternalObjectMap, ExternalSystem, Producto, Proyecto, SyncAuditLog, Venta, VentaItem
 from tienda.services.alegra_client import AlegraResponse
 from tienda.services.alegra_invoice_import import AlegraInvoiceImporter
 from tienda.services.alegra_invoice_prepare import prepare_invoice
@@ -370,3 +370,19 @@ class SalesTests(TestCase):
         form = AlegraInvoicePreparationForm(data={"mode": AlegraInvoicePreparation.MODE_CONSOLIDATED_SERVICE})
         self.assertFalse(form.is_valid())
         self.assertIn("description", form.errors)
+
+    @patch("tienda.services.alegra_invoice_prepare._active_maps")
+    def test_invoice_blocks_multiple_active_client_maps(self, active_maps):
+        system, _ = ExternalSystem.objects.get_or_create(code="alegra", defaults={"name": "Alegra"})
+        client_map = ExternalObjectMap.objects.create(
+            system=system, resource_type="contacts", external_id="101",
+            content_type=ContentType.objects.get_for_model(self.client_obj), object_id=self.client_obj.pk,
+        )
+        sale = Venta.objects.create(cliente=self.client_obj, estado=Venta.ESTADO_CONFIRMADA)
+        active_maps.side_effect = lambda resource, obj: [client_map, client_map] if resource == "contacts" else []
+        preparation = prepare_invoice(
+            sale, mode=AlegraInvoicePreparation.MODE_CONSOLIDATED_SERVICE,
+            description="Servicio",
+        )
+        self.assertEqual(preparation.status, AlegraInvoicePreparation.STATUS_BLOCKED)
+        self.assertIn("múltiples vínculos", preparation.validation_errors[0])

@@ -1,6 +1,7 @@
 """Inspecciona la cola saliente; la ejecución externa está bloqueada por defecto."""
 
 import os
+from collections import Counter
 
 from django.core.management.base import BaseCommand, CommandError
 
@@ -54,6 +55,16 @@ class Command(BaseCommand):
             self.stdout.write(f"Preparación de actualizaciones bloqueada: {exc.__class__.__name__}.")
             return
         self.stdout.write(f"Actualizaciones preparadas: {len(result['prepared'])}; bloqueadas: {len(result['blocked'])}.")
+        reasons = Counter(item.get("reason", "other") for item in result.get("diagnostics", []))
+        self.stdout.write(
+            "Diagnóstico: "
+            f"sin_cambios={reasons.get('no_changes', 0)}; "
+            f"falta_baseline={reasons.get('missing_baseline', 0)}; "
+            f"conflictos={reasons.get('conflict', 0)}; "
+            f"errores_consulta={sum(value for key, value in reasons.items() if key.startswith('query_error:'))}; "
+            f"vinculos_invalidos={reasons.get('invalid_mapping', 0) + reasons.get('duplicate_active_maps', 0)}; "
+            f"otros={sum(value for key, value in reasons.items() if key not in {'no_changes', 'missing_baseline', 'conflict', 'invalid_mapping', 'duplicate_active_maps'} and not key.startswith('query_error:'))}."
+        )
         if options["execute"]:
             processed = process_pending_operations(
                 limit=options["limit"], timeout=options["timeout"], execute=True,

@@ -17,12 +17,18 @@ def _money(value):
     return str(Decimal(value or 0).quantize(Decimal("0.01")))
 
 
-def _map_for(resource_type, obj):
+def _active_maps(resource_type, obj):
     ct = ContentType.objects.get_for_model(obj.__class__)
-    return ExternalObjectMap.objects.filter(
+    return list(ExternalObjectMap.objects.filter(
         system__code="alegra", resource_type=resource_type,
         content_type=ct, object_id=obj.pk, status=ExternalObjectMap.STATUS_ACTIVE,
-    ).first()
+    ).order_by("pk"))
+
+
+def _map_for(resource_type, obj):
+    """Return a map only when the local identity is unambiguous."""
+    maps = _active_maps(resource_type, obj)
+    return maps[0] if len(maps) == 1 else None
 
 
 def _configured_service_external_id():
@@ -55,10 +61,15 @@ def prepare_invoice(venta, *, mode, reference="", description="", actor=None, se
         raise ValidationError("Solo se pueden preparar facturas de ventas confirmadas.")
     if venta.facturas_alegra.exists():
         raise ValidationError("La venta ya tiene una factura Alegra vinculada.")
-    client_map = _map_for("contacts", venta.cliente)
+    client_maps = _active_maps("contacts", venta.cliente)
+    client_map = client_maps[0] if len(client_maps) == 1 else None
     errors, warnings, lines = [], [], []
-    if not client_map:
+    if not client_maps:
         errors.append("El cliente no tiene un vínculo externo activo.")
+    elif len(client_maps) > 1:
+        errors.append("El cliente tiene múltiples vínculos externos activos; requiere conciliación.")
+    elif not str(client_map.external_id).isdigit():
+        errors.append("El vínculo externo activo del cliente no tiene un ID válido.")
     items = list(venta.items.filter(activo=True).select_related("producto"))
     if not items:
         errors.append("La venta no tiene ítems activos.")
@@ -66,9 +77,13 @@ def prepare_invoice(venta, *, mode, reference="", description="", actor=None, se
     description = str(description or "").strip()
     if mode == AlegraInvoicePreparation.MODE_DETAILED:
         for item in items:
-            mapping = _map_for("items", item.producto) if item.producto else None
-            if not mapping:
+            item_maps = _active_maps("items", item.producto) if item.producto else []
+            mapping = item_maps[0] if len(item_maps) == 1 else None
+            if not item_maps:
                 errors.append(f"El producto de la línea {item.pk} no tiene vínculo Alegra.")
+                continue
+            if len(item_maps) > 1:
+                errors.append(f"El producto de la línea {item.pk} tiene múltiples vínculos Alegra activos; requiere conciliación.")
                 continue
             if not str(mapping.external_id).isdigit():
                 errors.append(f"El ID externo del producto de la línea {item.pk} no es numérico.")

@@ -190,22 +190,48 @@ def linked_client_update_candidates(*, limit=100, timeout=None, actor=None, pers
     ).select_related("content_type")[: max(int(limit), 1)])
     service = AlegraContactWriteService(transport=AlegraWriteClient(timeout=timeout))
     prepared, blocked = [], []
+    diagnostics = []
     for mapping in mappings:
         client = mapping.local_object
+        if not mapping.external_id or not mapping.object_id:
+            item = {"external_id": mapping.external_id, "reason": "invalid_mapping"}
+            blocked.append(item)
+            diagnostics.append(item)
+            continue
+        duplicate_maps = ExternalObjectMap.objects.filter(
+            system=system, resource_type="contacts", content_type=content_type,
+            object_id=mapping.object_id, status=ExternalObjectMap.STATUS_ACTIVE,
+        ).count()
+        if duplicate_maps != 1:
+            item = {"external_id": mapping.external_id, "reason": "duplicate_active_maps"}
+            blocked.append(item)
+            diagnostics.append(item)
+            continue
         metadata = mapping.metadata if isinstance(mapping.metadata, dict) else {}
         baseline = metadata.get("last_confirmed") or metadata.get("last_synced_fields")
-        if not client or not isinstance(baseline, dict):
-            blocked.append({"external_id": mapping.external_id, "reason": "missing_baseline"})
+        if not client:
+            item = {"external_id": mapping.external_id, "reason": "invalid_mapping"}
+            blocked.append(item)
+            diagnostics.append(item)
+            continue
+        if not isinstance(baseline, dict):
+            item = {"external_id": mapping.external_id, "reason": "missing_baseline"}
+            blocked.append(item)
+            diagnostics.append(item)
             continue
         try:
             remote = service.transport.get_contact(mapping.external_id)
             comparison = service._build_update_context(remote)  # valida contexto colombiano
             compare = BidirectionalClientSync().compare_linked_client(client, remote, baseline)
             if compare["conflict_fields"]:
-                blocked.append({"external_id": mapping.external_id, "reason": "conflict"})
+                item = {"external_id": mapping.external_id, "reason": "conflict"}
+                blocked.append(item)
+                diagnostics.append(item)
                 continue
             if not compare["local_fields"]:
-                blocked.append({"external_id": mapping.external_id, "reason": "no_changes"})
+                item = {"external_id": mapping.external_id, "reason": "no_changes"}
+                blocked.append(item)
+                diagnostics.append(item)
                 continue
             if persist:
                 operation, _ = service.prepare_update(
@@ -216,27 +242,45 @@ def linked_client_update_candidates(*, limit=100, timeout=None, actor=None, pers
             else:
                 prepared.append(f"preview:{mapping.external_id}")
         except (ValidationError, WriteConflict) as exc:
-            blocked.append({"external_id": mapping.external_id, "reason": str(exc)[:180]})
+            item = {"external_id": mapping.external_id, "reason": str(exc)[:180]}
+            blocked.append(item)
+            diagnostics.append(item)
         except Exception as exc:
-            blocked.append({"external_id": mapping.external_id, "reason": f"GET/prepare failed: {exc.__class__.__name__}"})
-    return {"prepared": prepared, "blocked": blocked}
+            item = {"external_id": mapping.external_id, "reason": f"query_error:{exc.__class__.__name__}"}
+            blocked.append(item)
+            diagnostics.append(item)
+    return {"prepared": prepared, "blocked": blocked, "diagnostics": diagnostics}
 
 
 def enqueue_missing_creates(*, limit=100, actor=None, timeout=None):
-    """Encola solo altas locales marcadas para sincronización automática."""
+    """Encola altas automáticas sin adelantar GET de operaciones pendientes.
+
+    La selección no se corta por el primer cliente bloqueado: se recorren los
+    elegibles hasta encontrar ``limit`` intenciones nuevas.
+    """
     system = alegra_system()
     ct = ContentType.objects.get_for_model(Cliente)
     mapped_ids = set(ExternalObjectMap.objects.filter(
         system=system, resource_type="contacts", content_type=ct,
         status=ExternalObjectMap.STATUS_ACTIVE, object_id__isnull=False,
     ).values_list("object_id", flat=True))
+    pending_create_ids = set(AlegraWriteOperation.objects.filter(
+        client_id__isnull=False,
+        operation=AlegraWriteOperation.OP_CREATE,
+        state__in=[AlegraWriteOperation.STATE_PENDING, AlegraWriteOperation.STATE_SENT,
+                   AlegraWriteOperation.STATE_NEEDS_RECONCILIATION],
+    ).values_list("client_id", flat=True))
     queued = []
     for client in Cliente.objects.filter(
         alegra_sync_policy=Cliente.ALEGRA_SYNC_AUTO,
-    ).exclude(pk__in=mapped_ids).order_by("pk")[: max(int(limit), 1)]:
+    ).exclude(pk__in=mapped_ids).order_by("pk"):
+        if client.pk in pending_create_ids:
+            continue
         operation = enqueue_create(client, actor=actor, timeout=timeout)
-        if operation:
+        if operation and operation.state == AlegraWriteOperation.STATE_PENDING:
             queued.append(operation.pk)
+        if len(queued) >= max(int(limit), 1):
+            break
     return queued
 
 
