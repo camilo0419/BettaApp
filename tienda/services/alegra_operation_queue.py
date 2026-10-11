@@ -27,6 +27,7 @@ from tienda.services.alegra_write import (
 )
 from tienda.services.alegra_bidirectional_clients import BidirectionalClientSync
 from tienda.services.alegra_contact_import import normalize_identity
+from tienda.services.alegra_inbound_sync import InboundClientSyncService
 
 
 def _assert_remote_create_is_safe(client: Cliente, *, timeout=None, transport=None) -> None:
@@ -145,13 +146,13 @@ def enqueue_update_if_changed(client: Cliente, *, actor=None, timeout=None) -> A
     if not mapping:
         return None
     metadata = mapping.metadata if isinstance(mapping.metadata, dict) else {}
-    baseline = metadata.get("last_confirmed") or metadata.get("last_synced_fields")
-    if not isinstance(baseline, dict) or not baseline:
+    baseline_state, baseline = InboundClientSyncService.baseline_info(metadata)
+    if baseline_state != "confirmed":
         SyncAuditLog.objects.create(
             system=mapping.system, operation="enqueue_contact_update", resource="contacts",
             external_id=mapping.external_id, actor=actor, result=SyncAuditLog.RESULT_PARTIAL,
-            detail="Actualización local conservada; falta baseline para preparar PUT.",
-            metadata={"client_id": client.pk, "state": "blocked_missing_baseline"},
+            detail="Actualización local conservada; baseline ausente o incompleto para preparar PUT.",
+            metadata={"client_id": client.pk, "state": f"blocked_{baseline_state}_baseline"},
         )
         return None
     try:
@@ -179,76 +180,74 @@ def enqueue_update_if_changed(client: Cliente, *, actor=None, timeout=None) -> A
 
 
 def linked_client_update_candidates(*, limit=100, timeout=None, actor=None, persist=False):
-    """Detecta cambios locales y prepara operaciones PUT sin ejecutarlas."""
+    """Detecta cambios locales y prepara operaciones PUT sin ejecutarlas.
+
+    ``limit`` es el máximo de candidatos preparados, no el número de mapas
+    inspeccionados. Los mapas se recorren una sola vez mediante cursor estable
+    por ``ExternalObjectMap.id`` para que un bloqueo no oculte los siguientes.
+    """
     from tienda.services.alegra_write import AlegraContactWriteService, AlegraWriteClient
 
     system = alegra_system()
     content_type = ContentType.objects.get_for_model(Cliente)
-    mappings = list(ExternalObjectMap.objects.filter(
+    mapping_queryset = ExternalObjectMap.objects.filter(
         system=system, resource_type="contacts", content_type=content_type,
         status=ExternalObjectMap.STATUS_ACTIVE,
-    ).select_related("content_type")[: max(int(limit), 1)])
+    ).select_related("content_type").order_by("id")
+    target = max(int(limit), 1)
     service = AlegraContactWriteService(transport=AlegraWriteClient(timeout=timeout))
     prepared, blocked = [], []
     diagnostics = []
-    for mapping in mappings:
-        client = mapping.local_object
-        if not mapping.external_id or not mapping.object_id:
-            item = {"external_id": mapping.external_id, "reason": "invalid_mapping"}
-            blocked.append(item)
-            diagnostics.append(item)
-            continue
-        duplicate_maps = ExternalObjectMap.objects.filter(
-            system=system, resource_type="contacts", content_type=content_type,
-            object_id=mapping.object_id, status=ExternalObjectMap.STATUS_ACTIVE,
-        ).count()
-        if duplicate_maps != 1:
-            item = {"external_id": mapping.external_id, "reason": "duplicate_active_maps"}
-            blocked.append(item)
-            diagnostics.append(item)
-            continue
-        metadata = mapping.metadata if isinstance(mapping.metadata, dict) else {}
-        baseline = metadata.get("last_confirmed") or metadata.get("last_synced_fields")
-        if not client:
-            item = {"external_id": mapping.external_id, "reason": "invalid_mapping"}
-            blocked.append(item)
-            diagnostics.append(item)
-            continue
-        if not isinstance(baseline, dict):
-            item = {"external_id": mapping.external_id, "reason": "missing_baseline"}
-            blocked.append(item)
-            diagnostics.append(item)
-            continue
-        try:
-            remote = service.transport.get_contact(mapping.external_id)
-            comparison = service._build_update_context(remote)  # valida contexto colombiano
-            compare = BidirectionalClientSync().compare_linked_client(client, remote, baseline)
-            if compare["conflict_fields"]:
-                item = {"external_id": mapping.external_id, "reason": "conflict"}
-                blocked.append(item)
-                diagnostics.append(item)
-                continue
-            if not compare["local_fields"]:
-                item = {"external_id": mapping.external_id, "reason": "no_changes"}
-                blocked.append(item)
-                diagnostics.append(item)
-                continue
-            if persist:
-                operation, _ = service.prepare_update(
-                    client, system, external_id=mapping.external_id,
-                    remote_row=remote, baseline=baseline,
-                )
-                prepared.append(operation.pk)
-            else:
-                prepared.append(f"preview:{mapping.external_id}")
-        except (ValidationError, WriteConflict) as exc:
-            item = {"external_id": mapping.external_id, "reason": str(exc)[:180]}
-            blocked.append(item)
-            diagnostics.append(item)
-        except Exception as exc:
-            item = {"external_id": mapping.external_id, "reason": f"query_error:{exc.__class__.__name__}"}
-            blocked.append(item)
-            diagnostics.append(item)
+    last_id = 0
+    while len(prepared) < target:
+        mappings = list(mapping_queryset.filter(pk__gt=last_id)[:target])
+        if not mappings:
+            break
+        for mapping in mappings:
+            last_id = mapping.pk
+            client = mapping.local_object
+            if not mapping.external_id or not mapping.object_id:
+                item = {"external_id": mapping.external_id, "reason": "invalid_mapping"}
+                blocked.append(item); diagnostics.append(item); continue
+            duplicate_maps = ExternalObjectMap.objects.filter(
+                system=system, resource_type="contacts", content_type=content_type,
+                object_id=mapping.object_id, status=ExternalObjectMap.STATUS_ACTIVE,
+            ).count()
+            if duplicate_maps != 1:
+                item = {"external_id": mapping.external_id, "reason": "duplicate_active_maps"}
+                blocked.append(item); diagnostics.append(item); continue
+            metadata = mapping.metadata if isinstance(mapping.metadata, dict) else {}
+            baseline_state, baseline = InboundClientSyncService.baseline_info(metadata)
+            if not client:
+                item = {"external_id": mapping.external_id, "reason": "invalid_mapping"}
+                blocked.append(item); diagnostics.append(item); continue
+            if baseline_state != "confirmed":
+                item = {"external_id": mapping.external_id, "reason": f"{baseline_state}_baseline"}
+                blocked.append(item); diagnostics.append(item); continue
+            try:
+                remote = service.transport.get_contact(mapping.external_id)
+                service._build_update_context(remote)  # valida contexto colombiano
+                compare = BidirectionalClientSync().compare_linked_client(client, remote, baseline)
+                if compare["conflict_fields"]:
+                    item = {"external_id": mapping.external_id, "reason": "conflict"}
+                    blocked.append(item); diagnostics.append(item); continue
+                if not compare["local_fields"]:
+                    item = {"external_id": mapping.external_id, "reason": "no_changes"}
+                    blocked.append(item); diagnostics.append(item); continue
+                if persist:
+                    operation, _ = service.prepare_update(
+                        client, system, external_id=mapping.external_id,
+                        remote_row=remote, baseline=baseline,
+                    )
+                    prepared.append(operation.pk)
+                else:
+                    prepared.append(f"preview:{mapping.external_id}")
+            except (ValidationError, WriteConflict) as exc:
+                item = {"external_id": mapping.external_id, "reason": str(exc)[:180]}
+                blocked.append(item); diagnostics.append(item)
+            except Exception as exc:
+                item = {"external_id": mapping.external_id, "reason": f"query_error:{exc.__class__.__name__}"}
+                blocked.append(item); diagnostics.append(item)
     return {"prepared": prepared, "blocked": blocked, "diagnostics": diagnostics}
 
 

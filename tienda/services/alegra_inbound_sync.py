@@ -157,6 +157,32 @@ class InboundClientSyncService:
         mapping.save(update_fields=["metadata", "last_synced_at", "updated_at"])
 
     @staticmethod
+    def baseline_info(metadata: Mapping[str, Any] | None) -> tuple[str, dict[str, Any]]:
+        """Clasifica la metadata de baseline sin invalidar altas ya confirmadas.
+
+        Los mapas creados por ``alegra_write`` solo conservan el payload enviado
+        (``last_synced_fields``); ese formato es válido para el flujo saliente.
+        Los baselines confirmados por conciliación deben conservar además la
+        fotografía protegida y su fuente explícita.
+        """
+        if not isinstance(metadata, Mapping):
+            return "missing", {}
+        baseline = metadata.get("last_confirmed") or metadata.get("last_synced_fields")
+        if baseline is None:
+            return "missing", {}
+        if not isinstance(baseline, Mapping) or not baseline:
+            return "incomplete", {}
+        source = str(metadata.get("baseline_source") or metadata.get("source") or "").strip()
+        if source == "alegra_get_reconciliation":
+            protected = metadata.get("baseline_protected")
+            required = {"tipo_identificacion", "identificacion", "digito_verificacion", "kindOfPerson", "regime"}
+            if not isinstance(protected, Mapping) or not required.issubset(protected.keys()):
+                return "incomplete", dict(baseline)
+        elif source not in {"alegra_write", ""} and not metadata.get("last_confirmed"):
+            return "incomplete", dict(baseline)
+        return "confirmed", dict(baseline)
+
+    @staticmethod
     def _stable_hash(value: Any) -> str:
         encoded = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
@@ -201,9 +227,13 @@ class InboundClientSyncService:
         external_id = str(remote_row.get("id") or "").strip()
         if external_id != str(mapping.external_id):
             raise InboundSyncConflict("El GET no corresponde al ID externo vinculado.")
-        baseline = self._baseline(mapping)
-        if not baseline:
-            raise InboundSyncConflict("No existe baseline confirmado para revisar cambios.")
+        baseline_state, baseline = self.baseline_info(mapping.metadata)
+        if baseline_state != "confirmed":
+            raise InboundSyncConflict(
+                "No existe baseline confirmado para revisar cambios."
+                if baseline_state == "missing"
+                else "El baseline está incompleto y requiere conciliación manual."
+            )
         comparison = self.sync.compare_linked_client(client, remote_row, baseline)
         protected = self._protected_differences(client, remote_row)
         identity = extract_identification_context(remote_row)

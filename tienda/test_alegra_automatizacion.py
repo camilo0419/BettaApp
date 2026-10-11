@@ -9,7 +9,7 @@ from django.utils import timezone
 from tienda.models import Categoria, Producto, AlegraItemStaging, AlegraWriteOperation, Cliente, ExternalObjectMap
 from tienda.services.alegra_bidirectional_clients import SafeAlegraWriteAdapter, PENDING
 from tienda.services.alegra_import import AlegraItemImporter
-from tienda.services.alegra_operation_queue import enqueue_create, enqueue_missing_creates, enqueue_update_if_changed, process_pending_operations
+from tienda.services.alegra_operation_queue import enqueue_create, enqueue_missing_creates, enqueue_update_if_changed, process_pending_operations, linked_client_update_candidates
 from tienda.services.alegra_operation_queue import alegra_system
 
 
@@ -28,6 +28,21 @@ class ItemsClient:
 
 
 class AutomationTests(TestCase):
+    def _contact_map(self, client, external_id, metadata):
+        from django.contrib.contenttypes.models import ContentType
+        return ExternalObjectMap.objects.create(
+            system=alegra_system(), resource_type="contacts", external_id=external_id,
+            content_type=ContentType.objects.get_for_model(Cliente), object_id=client.pk,
+            status=ExternalObjectMap.STATUS_ACTIVE, metadata=metadata,
+        )
+
+    def _linked_client(self, name, identification):
+        return Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre=name, primer_nombre="Ana",
+            primer_apellido=name, identificacion=identification, tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME", email=f"{identification}@example.test",
+        )
+
     def test_product_dry_run_only_updates_staging(self):
         categoria = Categoria.objects.create(nombre="Catálogo prueba")
         Producto.objects.create(nombre="Local existente", categoria=categoria, precio_base_m2="1")
@@ -205,3 +220,48 @@ class AutomationTests(TestCase):
             )
         result = process_pending_operations(limit=10, execute=False)
         self.assertEqual(result["pending"], 1)
+
+    @patch("tienda.services.alegra_write.AlegraWriteClient")
+    def test_linked_updates_continue_after_missing_baseline(self, transport_class):
+        first = self._linked_client("Primero", "301")
+        second = self._linked_client("Segundo", "302")
+        self._contact_map(first, "C-1", {"source": "alegra_initial_import"})
+        self._contact_map(second, "C-2", {
+            "source": "alegra_write",
+            "last_synced_fields": {"nombre": "Segundo", "identificacion": "302", "tipo_identificacion": "cc", "email": "old@example.test"},
+        })
+        second.email = "new@example.test"
+        second.save(update_fields=["email"])
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-2", "name": "Segundo", "identificationObject": {"type": "CC", "number": "302"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME", "email": "old@example.test",
+            "type": ["client"], "status": "active",
+        }
+        result = linked_client_update_candidates(limit=1)
+        self.assertEqual(result["prepared"], ["preview:C-2"])
+        self.assertIn({"external_id": "C-1", "reason": "missing_baseline"}, result["diagnostics"])
+        transport_class.return_value.get_contact.assert_called_once_with("C-2")
+
+    def test_baseline_info_distinguishes_missing_partial_and_confirmed(self):
+        from tienda.services.alegra_inbound_sync import InboundClientSyncService
+        self.assertEqual(InboundClientSyncService.baseline_info({})[0], "missing")
+        self.assertEqual(InboundClientSyncService.baseline_info({"last_synced_fields": {}})[0], "incomplete")
+        self.assertEqual(InboundClientSyncService.baseline_info({
+            "source": "alegra_write", "last_synced_fields": {"nombre": "Cliente"},
+        })[0], "confirmed")
+        self.assertEqual(InboundClientSyncService.baseline_info({
+            "baseline_source": "alegra_get_reconciliation",
+            "last_confirmed": {"nombre": "Cliente"},
+            "baseline_protected": {"regime": "COMMON_REGIME"},
+        })[0], "incomplete")
+
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_linked_updates_use_stable_cursor_across_multiple_missing_baselines(self, transport_class):
+        clients = [self._linked_client(f"Cliente {index}", f"40{index}") for index in range(3)]
+        for index, client in enumerate(clients, start=1):
+            self._contact_map(client, f"C-{index}", {"source": "alegra_initial_import"})
+        transport_class.return_value.get_contact.assert_not_called()
+        result = linked_client_update_candidates(limit=1)
+        self.assertEqual(result["prepared"], [])
+        self.assertEqual(len([item for item in result["diagnostics"] if item["reason"] == "missing_baseline"]), 3)
+        transport_class.return_value.get_contact.assert_not_called()

@@ -84,7 +84,8 @@ class Command(BaseCommand):
         counts = {"ALREADY_BASELINE": 0, "SAFE": 0, "REVIEW": 0, "MISSING_REMOTE": 0}
         for mapping in mappings:
             metadata = mapping.metadata if isinstance(mapping.metadata, dict) else {}
-            if metadata.get("last_synced_fields") or metadata.get("last_confirmed"):
+            baseline_state, _baseline = service.baseline_info(metadata)
+            if baseline_state == "confirmed":
                 counts["ALREADY_BASELINE"] += 1
                 continue
             remote = rows.get(str(mapping.external_id))
@@ -118,7 +119,8 @@ class Command(BaseCommand):
                     locked_mapping = ExternalObjectMap.objects.select_for_update().get(pk=mapping.pk)
                     locked_client = Cliente.objects.select_for_update().get(pk=client.pk)
                     metadata = locked_mapping.metadata if isinstance(locked_mapping.metadata, dict) else {}
-                    if metadata.get("last_synced_fields") or metadata.get("last_confirmed"):
+                    baseline_state, _baseline = service.baseline_info(metadata)
+                    if baseline_state == "confirmed":
                         continue
                     current = service.baseline_candidate(locked_client, locked_mapping, latest_remote)
                     if current.get("state") != "SAFE":
