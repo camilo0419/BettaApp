@@ -574,6 +574,81 @@ class ClienteFormSemanticsTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("razon_social", form.errors)
 
+    def punto_formset_data(self, nombres):
+        data = {
+            "puntos-TOTAL_FORMS": str(len(nombres)),
+            "puntos-INITIAL_FORMS": "0",
+            "puntos-MIN_NUM_FORMS": "0",
+            "puntos-MAX_NUM_FORMS": "1000",
+        }
+        for index, nombre in enumerate(nombres):
+            data[f"puntos-{index}-nombre"] = nombre
+            data[f"puntos-{index}-activo"] = "on"
+        return data
+
+    def test_crear_cliente_sin_puntos_de_venta(self):
+        response = self.client.post(
+            reverse("panel_cliente_crear"),
+            {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente sin sede"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        cliente = Cliente.objects.get()
+        self.assertFalse(ClientePuntoVenta.objects.filter(cliente=cliente).exists())
+
+    def test_crear_cliente_con_varios_puntos_en_transaccion(self):
+        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente con sedes"}
+        data.update(self.punto_formset_data(["Sede Norte", "Sede Sur"]))
+
+        response = self.client.post(reverse("panel_cliente_crear"), data)
+
+        self.assertEqual(response.status_code, 302)
+        cliente = Cliente.objects.get()
+        self.assertCountEqual(
+            ClientePuntoVenta.objects.filter(cliente=cliente).values_list("nombre", flat=True),
+            ["Sede Norte", "Sede Sur"],
+        )
+
+    def test_puntos_duplicados_no_crean_cliente_ni_registros_parciales(self):
+        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente inválido"}
+        data.update(self.punto_formset_data(["Sede", "sede"]))
+
+        response = self.client.post(reverse("panel_cliente_crear"), data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "No puede repetirse el nombre del punto de venta.")
+        self.assertFalse(Cliente.objects.filter(nombre="Cliente inválido").exists())
+        self.assertEqual(ClientePuntoVenta.objects.count(), 0)
+
+    def test_editar_cliente_agrega_punto_sin_reemplazar_los_existentes(self):
+        cliente = Cliente.objects.create(nombre="Cliente editable")
+        existente = ClientePuntoVenta.objects.create(cliente=cliente, nombre="Sede original")
+        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente editable"}
+        data.update(self.punto_formset_data(["Sede nueva"]))
+
+        response = self.client.post(reverse("panel_cliente_editar", args=[cliente.id]), data)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(ClientePuntoVenta.objects.filter(pk=existente.pk, nombre="Sede original").exists())
+        self.assertTrue(ClientePuntoVenta.objects.filter(cliente=cliente, nombre="Sede nueva").exists())
+
+    def test_formularios_muestran_seccion_y_acciones_de_puntos(self):
+        cliente = Cliente.objects.create(nombre="Cliente visible")
+        punto = ClientePuntoVenta.objects.create(cliente=cliente, nombre="Sede visible")
+
+        crear = self.client.get(reverse("panel_cliente_crear"))
+        editar = self.client.get(reverse("panel_cliente_editar", args=[cliente.id]))
+        detalle = self.client.get(reverse("panel_cliente_detalle", args=[cliente.id]))
+
+        self.assertContains(crear, "Puntos de venta")
+        self.assertContains(crear, "id_puntos-TOTAL_FORMS")
+        self.assertContains(editar, "Sede visible")
+        self.assertContains(editar, reverse("panel_cliente_punto_venta_editar", args=[cliente.id, punto.id]))
+        self.assertContains(detalle, "Puntos de venta")
+        self.assertContains(detalle, "Sede visible")
+        self.assertContains(detalle, 'class="cliente-detalle"')
+        self.assertContains(detalle, 'data-scroll-hint="true"')
+
 
 class ClientePuntoVentaTests(TestCase):
     def setUp(self):
@@ -686,6 +761,97 @@ class ClientePuntoVentaTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Puntos de venta")
         self.assertContains(response, "no tiene puntos de venta registrados")
+
+
+class ProyectoPuntosVentaFormTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(username="staff-proyecto-puntos", password="Test123!", is_staff=True)
+        self.client.force_login(self.staff)
+        self.cliente = Cliente.objects.create(nombre="Cliente proyecto")
+        self.otro_cliente = Cliente.objects.create(nombre="Otro cliente proyecto")
+        self.punto_activo = ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Sede activa")
+        self.punto_activo_dos = ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Sede secundaria")
+        self.punto_inactivo = ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Sede historica", activo=False)
+
+    def datos_proyecto(self, **extra):
+        data = {
+            "cliente": str(self.cliente.id),
+            "nombre": "Proyecto con sedes",
+            "estado": Proyecto.ESTADO_BORRADOR,
+            "prioridad": Proyecto.PRIORIDAD_NORMAL,
+            "activo": "on",
+        }
+        data.update(extra)
+        return data
+
+    def test_crear_proyecto_sin_puntos(self):
+        response = self.client.post(reverse("panel_proyecto_crear"), self.datos_proyecto())
+
+        self.assertEqual(response.status_code, 302)
+        proyecto = Proyecto.objects.get()
+        self.assertFalse(proyecto.puntos_venta.exists())
+
+    def test_crear_proyecto_con_varios_puntos(self):
+        response = self.client.post(
+            reverse("panel_proyecto_crear"),
+            self.datos_proyecto(puntos_venta=[str(self.punto_activo.id), str(self.punto_activo_dos.id)]),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        proyecto = Proyecto.objects.get()
+        self.assertCountEqual(
+            proyecto.puntos_venta.values_list("id", flat=True),
+            [self.punto_activo.id, self.punto_activo_dos.id],
+        )
+
+    def test_selector_muestra_solo_activos_al_crear_y_conserva_historico_al_editar(self):
+        form = ProyectoForm(initial={"cliente": self.cliente.id})
+        self.assertEqual(list(form.fields["puntos_venta"].queryset.values_list("nombre", flat=True)), ["Sede activa", "Sede secundaria"])
+        crear = self.client.get(reverse("panel_proyecto_crear") + f"?cliente={self.cliente.id}")
+        self.assertEqual(list(crear.context["form"].fields["puntos_venta"].queryset.values_list("nombre", flat=True)), ["Sede activa", "Sede secundaria"])
+        self.assertContains(crear, "proyecto-puntos-venta")
+        self.assertContains(crear, "Sede activa")
+        self.assertNotContains(crear, "Sede historica")
+        self.assertContains(crear, 'data-picker-selected-tags')
+        self.assertNotContains(crear, "Datos historicos opcionales")
+
+        proyecto = Proyecto.objects.create(nombre="Proyecto historico", cliente=self.cliente)
+        proyecto.puntos_venta.add(self.punto_inactivo)
+        editar = self.client.get(reverse("panel_proyecto_editar", args=[proyecto.id]))
+        self.assertContains(editar, "Sede historica")
+        self.assertNotContains(editar, "Datos historicos opcionales")
+
+    def test_editar_preserva_datos_historicos_y_selecciones(self):
+        proyecto = Proyecto.objects.create(
+            nombre="Proyecto historico",
+            cliente=self.cliente,
+            cliente_nombre="Nombre legado",
+            cliente_contacto="Contacto legado",
+            cliente_telefono="3000000000",
+            cliente_email="legado@example.com",
+        )
+        proyecto.puntos_venta.add(self.punto_activo)
+
+        response = self.client.post(
+            reverse("panel_proyecto_editar", args=[proyecto.id]),
+            self.datos_proyecto(nombre="Proyecto actualizado", puntos_venta=[str(self.punto_activo.id)]),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        proyecto.refresh_from_db()
+        self.assertEqual(proyecto.cliente_nombre, "Nombre legado")
+        self.assertEqual(proyecto.cliente_contacto, "Contacto legado")
+        self.assertEqual(proyecto.cliente_telefono, "3000000000")
+        self.assertEqual(proyecto.cliente_email, "legado@example.com")
+        self.assertEqual(list(proyecto.puntos_venta.values_list("id", flat=True)), [self.punto_activo.id])
+
+    def test_no_acepta_punto_de_otro_cliente_al_cambiar_cliente(self):
+        form = ProyectoForm(
+            data=self.datos_proyecto(cliente=str(self.otro_cliente.id), puntos_venta=[str(self.punto_activo.id)])
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("puntos_venta", form.errors)
 
 
 @override_settings(STORAGES=TEST_STORAGES)

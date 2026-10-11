@@ -3,6 +3,7 @@
   <button type="button" class="category-picker-trigger" data-picker-trigger aria-haspopup="listbox" aria-expanded="false" aria-controls="{{ picker_id }}-options">
     <span data-picker-value>{{ empty_label|default:'Seleccionar opción' }}</span><span class="category-picker-chevron" aria-hidden="true">▾</span>
   </button>
+  <div class="category-picker-selected-tags" data-picker-selected-tags></div>
   <div class="category-picker-dropdown" data-picker-dropdown hidden>
     <input type="search" class="category-picker-search" data-picker-search placeholder="Buscar opciones..." autocomplete="off" aria-label="Buscar opciones">
     <div class="category-picker-options" id="{{ picker_id }}-options" data-picker-options role="listbox"></div>

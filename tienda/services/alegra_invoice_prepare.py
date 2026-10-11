@@ -10,7 +10,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from tienda.models import AlegraInvoicePreparation, ExternalObjectMap, Venta
+from tienda.models import AlegraInvoicePreparation, ExternalObjectMap, ExternalSystem, Venta
 
 
 def _money(value):
@@ -23,6 +23,16 @@ def _map_for(resource_type, obj):
         system__code="alegra", resource_type=resource_type,
         content_type=ct, object_id=obj.pk, status=ExternalObjectMap.STATUS_ACTIVE,
     ).first()
+
+
+def _configured_service_external_id():
+    """Return the explicitly configured Alegra service item, never an arbitrary item."""
+    system = ExternalSystem.objects.filter(
+        code="alegra", status=ExternalSystem.STATUS_ACTIVE
+    ).first()
+    config = system.config if system and isinstance(system.config, dict) else {}
+    value = str(config.get("invoice_service_item_external_id") or "").strip()
+    return value if value.isdigit() else ""
 
 
 def _snapshot_hash(venta):
@@ -52,6 +62,8 @@ def prepare_invoice(venta, *, mode, reference="", description="", actor=None, se
     items = list(venta.items.filter(activo=True).select_related("producto"))
     if not items:
         errors.append("La venta no tiene ítems activos.")
+    reference = str(reference or "").strip() or str(venta.numero or "")
+    description = str(description or "").strip()
     if mode == AlegraInvoicePreparation.MODE_DETAILED:
         for item in items:
             mapping = _map_for("items", item.producto) if item.producto else None
@@ -73,15 +85,25 @@ def prepare_invoice(venta, *, mode, reference="", description="", actor=None, se
                           "discount": str(discount.quantize(Decimal("0.01"))),
                           "tax_amount_local": _money(item.impuesto)})
     elif mode == AlegraInvoicePreparation.MODE_CONSOLIDATED_SERVICE:
-        if not service_external_id or not str(service_external_id).isdigit():
-            errors.append("Debe configurarse un ID externo numérico para el ítem SERVICIO.")
+        configured_service_id = _configured_service_external_id()
+        # The optional argument preserves compatibility with previously stored or
+        # programmatic preparations; the user-facing flow never supplies it.
+        service_external_id = configured_service_id or (
+            str(service_external_id).strip() if str(service_external_id or "").isdigit() else ""
+        )
+        if not service_external_id:
+            errors.append("No hay un ítem SERVICIO de Alegra configurado para facturación consolidada.")
+        if not description:
+            errors.append("El concepto o descripción es obligatorio para la modalidad consolidada.")
         if any(item.impuesto for item in items):
             errors.append("No se puede consolidar con impuestos sin equivalencia fiscal confirmada.")
         if any(item.descuento for item in items):
             errors.append("No se puede consolidar con descuentos cuya base fiscal no pueda conservarse.")
+        if venta.total <= 0:
+            errors.append("La venta debe tener un total mayor que cero para consolidarse.")
         if service_external_id and str(service_external_id).isdigit():
-            lines = [{"id": int(service_external_id), "description": description or "Servicio",
-                      "reference": reference, "quantity": "1", "price": _money(venta.subtotal)}]
+            lines = [{"id": int(service_external_id), "description": description,
+                      "reference": reference, "quantity": "1", "price": _money(venta.total)}]
         warnings.append("La modalidad consolidada usa un único ítem SERVICIO y no modifica la venta local.")
     else:
         errors.append("Modalidad de facturación no reconocida.")

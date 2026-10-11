@@ -122,7 +122,9 @@ document.addEventListener("DOMContentLoaded", function () {
     const dropdown = picker.querySelector("[data-picker-dropdown]");
     const search = picker.querySelector("[data-picker-search]");
     const options = picker.querySelector("[data-picker-options]");
+    const selectedTags = picker.querySelector("[data-picker-selected-tags]");
     if (!select || !trigger || !value || !dropdown || !search || !options) return;
+    const multiple = select.multiple;
 
     function normalize(text) { return text.trim().toLocaleLowerCase().replace(/\s+/g, " "); }
     function closePicker() {
@@ -140,13 +142,22 @@ document.addEventListener("DOMContentLoaded", function () {
         item.type = "button";
         item.className = "category-picker-option";
         item.setAttribute("role", "option");
-        item.setAttribute("aria-selected", option.value === select.value ? "true" : "false");
+        item.setAttribute("aria-selected", option.selected ? "true" : "false");
         item.textContent = option.value ? label : (picker.getAttribute("data-empty-label") || "Seleccionar opción");
         item.addEventListener("click", function () {
-          select.value = option.value;
+          if (multiple) {
+            option.selected = !option.selected;
+          } else {
+            select.value = option.value;
+          }
           select.dispatchEvent(new Event("change", {bubbles: true}));
-          closePicker();
-          trigger.focus();
+          if (!multiple) {
+            closePicker();
+            trigger.focus();
+          } else {
+            renderOptions();
+            search.focus();
+          }
         });
         options.appendChild(item);
         matches += 1;
@@ -158,9 +169,37 @@ document.addEventListener("DOMContentLoaded", function () {
         options.appendChild(empty);
       }
     }
+    function renderSelectedTags() {
+      if (!selectedTags) return;
+      selectedTags.replaceChildren();
+      if (!multiple) return;
+      Array.from(select.selectedOptions).forEach(function (option) {
+        const tag = document.createElement("button");
+        tag.type = "button";
+        tag.className = "category-picker-selected-tag";
+        tag.textContent = option.textContent.trim() + " ×";
+        tag.setAttribute("aria-label", "Quitar " + option.textContent.trim());
+        tag.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          option.selected = false;
+          select.dispatchEvent(new Event("change", {bubbles: true}));
+          trigger.focus();
+        });
+        selectedTags.appendChild(tag);
+      });
+    }
     function syncPicker() {
-      const selected = select.options[select.selectedIndex];
-      value.textContent = selected && selected.value ? selected.textContent.trim() : (picker.getAttribute("data-empty-label") || "Seleccionar opción");
+      if (multiple) {
+        const selected = Array.from(select.selectedOptions).filter(function (option) { return option.value; });
+        value.textContent = selected.length
+          ? selected.map(function (option) { return option.textContent.trim(); }).join(", ")
+          : (picker.getAttribute("data-empty-label") || "Seleccionar opción");
+      } else {
+        const selected = select.options[select.selectedIndex];
+        value.textContent = selected && selected.value ? selected.textContent.trim() : (picker.getAttribute("data-empty-label") || "Seleccionar opción");
+      }
+      renderSelectedTags();
       renderOptions();
     }
     trigger.addEventListener("click", function () {
@@ -237,7 +276,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function renderRelatedOptions(select, items, previousValue) {
     select.innerHTML = "";
-    setPlaceholder(select, "---------");
+    if (!select.multiple) {
+      setPlaceholder(select, "---------");
+    }
 
     items.forEach(function (item) {
       const option = document.createElement("option");
@@ -252,12 +293,15 @@ document.addEventListener("DOMContentLoaded", function () {
       if (item.is_principal) {
         option.setAttribute("data-principal", "true");
       }
+      if (select.multiple && Array.isArray(previousValue) && previousValue.includes(String(item.id))) {
+        option.selected = true;
+      }
       select.appendChild(option);
     });
 
-    if (previousValue && Array.from(select.options).some(function (option) { return option.value === previousValue; })) {
+    if (!select.multiple && previousValue && Array.from(select.options).some(function (option) { return option.value === previousValue; })) {
       select.value = previousValue;
-    } else if (!previousValue && select.getAttribute("data-prefer-principal") === "true") {
+    } else if (!select.multiple && !previousValue && select.getAttribute("data-prefer-principal") === "true") {
       const principal = Array.from(select.options).find(function (option) {
         return option.getAttribute("data-principal") === "true";
       });
@@ -266,7 +310,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
-    if (!items.length) {
+    if (!items.length && select.options[0]) {
       select.options[0].textContent = select.getAttribute("data-empty-label") || "Sin opciones disponibles";
     }
 
@@ -276,18 +320,24 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function loadRelatedOptions(select, keepValue) {
     const endpoint = relatedEndpoint(select);
-    const previousValue = keepValue ? select.value : "";
+    const previousValue = keepValue
+      ? (select.multiple ? Array.from(select.selectedOptions).map(function (option) { return option.value; }) : select.value)
+      : (select.multiple ? [] : "");
 
     if (!endpoint) {
       select.innerHTML = "";
-      setPlaceholder(select, "Selecciona un cliente primero");
+      if (!select.multiple) {
+        setPlaceholder(select, "Selecciona un cliente primero");
+      }
       resetSearch(select);
       select.dispatchEvent(new Event("change", { bubbles: true }));
       return;
     }
 
     select.innerHTML = "";
-    setPlaceholder(select, "Cargando...");
+    if (!select.multiple) {
+      setPlaceholder(select, "Cargando...");
+    }
     resetSearch(select);
 
     fetch(endpoint, { credentials: "same-origin" })
@@ -302,7 +352,9 @@ document.addEventListener("DOMContentLoaded", function () {
       })
       .catch(function () {
         select.innerHTML = "";
-        setPlaceholder(select, "No se pudieron cargar las opciones");
+        if (!select.multiple) {
+          setPlaceholder(select, "No se pudieron cargar las opciones");
+        }
         resetSearch(select);
       });
   }
@@ -326,7 +378,8 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     }
 
-    if ((clientSource && clientSource.value) || (projectSource && projectSource.value)) {
+    const hasServerOptions = select.multiple && Array.from(select.options).some(function (option) { return option.value; });
+    if (((clientSource && clientSource.value) || (projectSource && projectSource.value)) && !hasServerOptions) {
       loadRelatedOptions(select, true);
     }
   });

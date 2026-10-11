@@ -15,7 +15,7 @@
 </div>
 
 <div class="panel-card">
-  <form method="post" class="dynamic-form admin-form structured-form">
+  <form method="post" class="dynamic-form admin-form structured-form proyecto-form">
     {% csrf_token %}
     {{ form.non_field_errors }}
 
@@ -26,7 +26,7 @@
       <div class="form-grid two">
         <div class="field">{{ form.cliente.label_tag }}{% include 'tienda/panel/_internal_picker.html' with field=form.cliente empty_label='Seleccionar cliente' picker_id='proyecto-cliente' %}{{ form.cliente.errors }}</div>
         <div class="field">{{ form.contacto.label_tag }}{% include 'tienda/panel/_internal_picker.html' with field=form.contacto empty_label='Sin contactos disponibles' picker_id='proyecto-contacto' %}{{ form.contacto.errors }}</div>
-        <div class="field full">{{ form.puntos_venta.label_tag }}{{ form.puntos_venta }}{{ form.puntos_venta.errors }}<small class="muted">Opcional. Puedes seleccionar varias sedes del cliente.</small></div>
+        <div class="field full">{{ form.puntos_venta.label_tag }}{% include 'tienda/panel/_internal_picker.html' with field=form.puntos_venta empty_label='Sin puntos de venta disponibles' picker_id='proyecto-puntos-venta' %}{{ form.puntos_venta.errors }}<small class="muted">Opcional. Puedes seleccionar varias sedes del cliente.</small></div>
       </div>
     </section>
 
@@ -47,16 +47,6 @@
         <div class="field checkbox-field">{{ form.activo }}{{ form.activo.label_tag }}{{ form.activo.errors }}</div>
       </div>
     </section>
-
-    <details class="form-secondary-section">
-      <summary>Datos historicos opcionales</summary>
-      <div class="form-grid two">
-        <div class="field">{{ form.cliente_nombre.label_tag }}{{ form.cliente_nombre }}{{ form.cliente_nombre.errors }}</div>
-        <div class="field">{{ form.cliente_contacto.label_tag }}{{ form.cliente_contacto }}{{ form.cliente_contacto.errors }}</div>
-        <div class="field">{{ form.cliente_telefono.label_tag }}{{ form.cliente_telefono }}{{ form.cliente_telefono.errors }}</div>
-        <div class="field">{{ form.cliente_email.label_tag }}{{ form.cliente_email }}{{ form.cliente_email.errors }}</div>
-      </div>
-    </details>
 
     <div class="form-actions">
       <button class="btn btn-primary">Guardar proyecto</button>

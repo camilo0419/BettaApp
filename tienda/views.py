@@ -39,6 +39,7 @@ from .forms import (
     ClientePasswordResetForm,
     ClientePerfilForm,
     ClientePuntoVentaForm,
+    ClientePuntoVentaInlineFormSet,
     ClienteRegistroForm,
     ClienteUsuarioPortalForm,
     CotizacionEstadoForm,
@@ -2098,7 +2099,8 @@ def venta_editar(request, venta_id):
 def venta_factura_preparar(request, venta_id):
     venta = get_object_or_404(Venta.objects.select_related("cliente"), pk=venta_id)
     existing = getattr(venta, "alegra_preparation", None)
-    initial = {"mode": existing.mode, "service_external_id": existing.payload.get("service_external_id", ""), "reference": existing.payload.get("reference", ""), "description": existing.payload.get("description", "")} if existing else {}
+    initial = ({"mode": existing.mode, "reference": existing.payload.get("reference", ""), "description": existing.payload.get("description", "")}
+               if existing else {"mode": AlegraInvoicePreparation.MODE_DETAILED, "reference": venta.numero})
     form = AlegraInvoicePreparationForm(request.POST or None, initial=initial)
     preparation = existing
     if request.method == "POST" and form.is_valid():
@@ -2481,33 +2483,53 @@ def clientes_lista(request):
 @panel_staff_required
 def cliente_crear(request):
     form = ClienteForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
-        cliente = form.save(commit=False)
-        cliente.creado_por = request.user
-        cliente.save()
-        # La disponibilidad de Alegra no bloquea el alta local. La cola solo
-        # registra una operación durable; nunca realiza HTTP desde el formulario.
-        enqueue_create(cliente, actor=request.user)
+    cliente = Cliente()
+    punto_data = request.POST if "puntos-TOTAL_FORMS" in request.POST else None
+    punto_formset = ClientePuntoVentaInlineFormSet(punto_data, instance=cliente, prefix="puntos", form_kwargs={"cliente": cliente})
+    puntos_validos = punto_formset.is_valid() if punto_data is not None else True
+    if request.method == "POST" and form.is_valid() and puntos_validos:
+        with transaction.atomic():
+            cliente = form.save(commit=False)
+            cliente.creado_por = request.user
+            cliente.save()
+            if punto_data is not None:
+                punto_formset.instance = cliente
+                punto_formset.save()
+            # La disponibilidad de Alegra no bloquea el alta local. La cola solo
+            # registra una operación durable; nunca realiza HTTP desde el formulario.
+            enqueue_create(cliente, actor=request.user)
         messages.success(request, "Cliente creado.")
         return redirect("panel_cliente_detalle", cliente_id=cliente.id)
     if request.method == "POST":
         messages.error(request, "No se creó el cliente. Revisa los errores marcados en el formulario.")
-    return render(request, "tienda/panel/cliente_form.html", {"form": form, "titulo": "Crear cliente"})
+    return render(request, "tienda/panel/cliente_form.html", {"form": form, "punto_formset": punto_formset, "puntos_venta": [], "titulo": "Crear cliente"})
 
 
 @panel_staff_required
 def cliente_editar(request, cliente_id):
     cliente = get_object_or_404(Cliente, pk=cliente_id)
     form = ClienteForm(request.POST or None, instance=cliente)
-    if request.method == "POST" and form.is_valid():
-        form.save()
-        # El guardado local no depende de Alegra. Si existe un vínculo y un
-        # baseline válido, se prepara una única operación idempotente; nunca
-        # se ejecuta una escritura externa desde el formulario.
-        enqueue_update_if_changed(cliente, actor=request.user)
+    punto_data = request.POST if "puntos-TOTAL_FORMS" in request.POST else None
+    punto_formset = ClientePuntoVentaInlineFormSet(
+        punto_data,
+        instance=cliente,
+        queryset=ClientePuntoVenta.objects.none(),
+        prefix="puntos",
+        form_kwargs={"cliente": cliente},
+    )
+    puntos_validos = punto_formset.is_valid() if punto_data is not None else True
+    if request.method == "POST" and form.is_valid() and puntos_validos:
+        with transaction.atomic():
+            form.save()
+            if punto_data is not None:
+                punto_formset.save()
+            # El guardado local no depende de Alegra. Si existe un vínculo y un
+            # baseline válido, se prepara una única operación idempotente; nunca
+            # se ejecuta una escritura externa desde el formulario.
+            enqueue_update_if_changed(cliente, actor=request.user)
         messages.success(request, "Cliente actualizado.")
         return redirect("panel_cliente_detalle", cliente_id=cliente.id)
-    return render(request, "tienda/panel/cliente_form.html", {"form": form, "cliente": cliente, "titulo": "Editar cliente"})
+    return render(request, "tienda/panel/cliente_form.html", {"form": form, "punto_formset": punto_formset, "puntos_venta": cliente.puntos_venta.all(), "cliente": cliente, "titulo": "Editar cliente"})
 
 
 @panel_staff_required
@@ -2911,6 +2933,7 @@ def proyecto_crear(request):
         proyecto = form.save(commit=False)
         proyecto.creado_por = request.user
         proyecto.save()
+        form.save_m2m()
         messages.success(request, "Proyecto creado.")
         return redirect("panel_proyecto_detalle", proyecto_id=proyecto.id)
     return render(request, "tienda/panel/proyecto_form.html", {"form": form, "titulo": "Crear proyecto"})

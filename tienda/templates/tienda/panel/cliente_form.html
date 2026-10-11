@@ -37,6 +37,53 @@
         </div>
       {% endfor %}
     </div>
+    <section class="form-section-block client-points-section">
+      <div class="form-section-head">
+        <div><h2>Puntos de venta</h2><p class="muted">Opcional. Puedes agregar sedes ahora; también puedes administrarlas desde el detalle del cliente.</p></div>
+      </div>
+      {% if cliente and puntos_venta %}
+        <div class="client-existing-points">
+          {% for punto in puntos_venta %}
+            <div class="client-point-summary">
+              <div><strong>{{ punto.nombre }}</strong><span>{% if punto.activo %}Activo{% else %}Inactivo{% endif %}{% if punto.es_principal %} · Principal{% endif %}</span></div>
+              <a class="link-button" href="{% url 'panel_cliente_punto_venta_editar' cliente.id punto.id %}">Editar</a>
+            </div>
+          {% endfor %}
+        </div>
+        <p class="muted">Los cambios de los puntos existentes se guardan desde su acción Editar para conservar sus relaciones históricas.</p>
+      {% endif %}
+      {{ punto_formset.management_form }}
+      {% if punto_formset.non_form_errors %}
+        <div class="message error" role="alert">{{ punto_formset.non_form_errors }}</div>
+      {% endif %}
+      <div class="client-point-rows" data-client-point-rows>
+        {% for punto_form in punto_formset %}
+          <div class="client-point-row" data-client-point-row>
+            {{ punto_form.id }}
+            {% for field in punto_form.visible_fields %}
+              <div class="field{% if field.name == 'observaciones' %} full{% endif %}">
+                {{ field.label_tag }}{{ field }}{% if field.errors %}<div class="field-errors" role="alert">{{ field.errors }}</div>{% endif %}
+              </div>
+            {% endfor %}
+            <button type="button" class="link-button client-point-remove" data-client-point-remove>Quitar fila</button>
+          </div>
+        {% endfor %}
+      </div>
+      <template data-client-point-empty>
+        <div class="client-point-row" data-client-point-row>
+          {% with punto_form=punto_formset.empty_form %}
+            {{ punto_form.id }}
+            {% for field in punto_form.visible_fields %}
+              <div class="field{% if field.name == 'observaciones' %} full{% endif %}">
+                {{ field.label_tag }}{{ field }}
+              </div>
+            {% endfor %}
+          {% endwith %}
+          <button type="button" class="link-button client-point-remove" data-client-point-remove>Quitar fila</button>
+        </div>
+      </template>
+      <button type="button" class="btn btn-outline" data-client-point-add>+ Agregar punto de venta</button>
+    </section>
     <button class="btn btn-primary btn-wide">Guardar cliente</button>
   </form>
 </div>
@@ -57,6 +104,32 @@ document.addEventListener("DOMContentLoaded", function () {
 
   tipo.addEventListener("change", actualizarAyudaCliente);
   actualizarAyudaCliente();
+
+  const rows = document.querySelector("[data-client-point-rows]");
+  const template = document.querySelector("[data-client-point-empty]");
+  const addButton = document.querySelector("[data-client-point-add]");
+  const total = document.getElementById("id_puntos-TOTAL_FORMS");
+  if (!rows || !template || !addButton || !total) return;
+  function bindRemove(row) {
+    row.querySelector("[data-client-point-remove]").addEventListener("click", function () {
+      row.remove();
+    });
+  }
+  rows.querySelectorAll("[data-client-point-row]").forEach(bindRemove);
+  addButton.addEventListener("click", function () {
+    const index = Number(total.value);
+    const fragment = template.content.cloneNode(true);
+    fragment.querySelectorAll("[name], [id], [for]").forEach(function (element) {
+      ["name", "id", "for"].forEach(function (attribute) {
+        const value = element.getAttribute(attribute);
+        if (value) element.setAttribute(attribute, value.replace(/__prefix__/g, index));
+      });
+    });
+    const row = fragment.querySelector("[data-client-point-row]");
+    rows.appendChild(fragment);
+    bindRemove(row);
+    total.value = String(index + 1);
+  });
 });
 </script>
 {% endblock %}

@@ -4,7 +4,8 @@
 {% block title %}{{ cliente }} | Admin productos{% endblock %}
 
 {% block content %}
-<div class="panel-head">
+<div class="cliente-detalle">
+<div class="panel-head cliente-detalle-head">
   <div>
     <span class="eyebrow">Cliente</span>
     <h1>{{ cliente }}</h1>
@@ -17,7 +18,7 @@
   </div>
 </div>
 
-<div class="kpi-grid production-kpis">
+<div class="kpi-grid production-kpis cliente-detalle-kpis">
   <div class="kpi"><span>Proyectos activos</span><strong>{{ metricas.proyectos_activos }}</strong></div>
   <div class="kpi"><span>Proyectos terminados</span><strong>{{ metricas.proyectos_terminados }}</strong></div>
   <div class="kpi"><span>Solicitudes</span><strong>{{ metricas.solicitudes }}</strong></div>
@@ -27,7 +28,7 @@
   <div class="kpi"><span>Total cotizado</span><strong>${{ metricas.total_cotizado|floatformat:0 }}</strong></div>
 </div>
 
-<div class="split-grid">
+<div class="split-grid cliente-detalle-layout">
   <div>
     <div class="panel-card">
       <h2>Datos generales</h2>
@@ -66,7 +67,7 @@
       <div class="panel-card-head">
         <h2>Proyectos</h2>
       </div>
-      <div class="table-responsive">
+      <div class="table-responsive" data-scroll-hint="true">
         <table class="table products-table">
           <thead>
             <tr>
@@ -99,7 +100,7 @@
         <h2>Cotizaciones</h2>
         <a href="{% url 'panel_cotizacion_crear' %}?cliente={{ cliente.id }}" class="link-button">Crear cotización</a>
       </div>
-      <div class="table-responsive">
+      <div class="table-responsive" data-scroll-hint="true">
         <table class="table products-table">
           <thead>
             <tr>
@@ -129,7 +130,7 @@
 
     <div class="panel-card">
       <h2>Solicitudes</h2>
-      <div class="table-responsive">
+      <div class="table-responsive" data-scroll-hint="true">
         <table class="table products-table">
           <thead>
             <tr>
@@ -159,7 +160,7 @@
 
     <div class="panel-card">
       <h2>Tareas relacionadas</h2>
-      <div class="table-responsive">
+      <div class="table-responsive" data-scroll-hint="true">
         <table class="table products-table">
           <thead>
             <tr>
@@ -323,5 +324,6 @@
       </div>
     </div>
   </div>
+</div>
 </div>
 {% endblock %}

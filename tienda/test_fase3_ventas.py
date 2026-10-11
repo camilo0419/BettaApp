@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from tienda.forms import VentaItemForm
+from tienda.forms import AlegraInvoicePreparationForm, VentaItemForm
 from tienda.models import AlegraInvoicePreparation, AlegraInvoiceStaging, Categoria, Cliente, Cotizacion, CotizacionItem, ExternalObjectMap, Producto, Proyecto, SyncAuditLog, Venta, VentaItem
 from tienda.services.alegra_client import AlegraResponse
 from tienda.services.alegra_invoice_import import AlegraInvoiceImporter
@@ -341,3 +341,32 @@ class SalesTests(TestCase):
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(AlegraInvoicePreparation.objects.filter(venta=sale).count(), 1)
         self.assertEqual(second.mode, AlegraInvoicePreparation.MODE_DETAILED)
+
+    def test_consolidated_preparation_uses_internal_service_configuration_and_sale_total(self):
+        from tienda.models import ExternalSystem
+        system, _ = ExternalSystem.objects.get_or_create(code="alegra", defaults={"name": "Alegra"})
+        system.config = {"invoice_service_item_external_id": "303"}
+        system.save(update_fields=["config", "updated_at"])
+        ExternalObjectMap.objects.create(
+            system=system, resource_type="contacts", external_id="101",
+            content_type=ContentType.objects.get_for_model(self.client_obj), object_id=self.client_obj.pk,
+        )
+        sale = Venta.objects.create(cliente=self.client_obj, estado=Venta.ESTADO_CONFIRMADA)
+        VentaItem.objects.create(venta=sale, producto=self.product, descripcion="Servicio", cantidad=1, precio_unitario=100, impuesto=0)
+        preparation = prepare_invoice(
+            sale, mode=AlegraInvoicePreparation.MODE_CONSOLIDATED_SERVICE,
+            description="Instalación personalizada",
+        )
+        self.assertEqual(preparation.status, AlegraInvoicePreparation.STATUS_READY)
+        self.assertEqual(preparation.payload["reference"], sale.numero)
+        self.assertEqual(preparation.payload["items"][0]["id"], 303)
+        self.assertEqual(preparation.payload["items"][0]["description"], "Instalación personalizada")
+        self.assertEqual(preparation.payload["items"][0]["price"], "100.00")
+
+    def test_invoice_form_hides_service_id_and_requires_consolidated_description(self):
+        form = AlegraInvoicePreparationForm(data={"mode": AlegraInvoicePreparation.MODE_DETAILED})
+        self.assertTrue(form.is_valid())
+        self.assertNotIn("service_external_id", form.fields)
+        form = AlegraInvoicePreparationForm(data={"mode": AlegraInvoicePreparation.MODE_CONSOLIDATED_SERVICE})
+        self.assertFalse(form.is_valid())
+        self.assertIn("description", form.errors)

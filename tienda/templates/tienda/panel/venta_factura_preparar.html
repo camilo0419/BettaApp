@@ -2,6 +2,20 @@
 {% block title %}Preparar factura {{ venta.numero }} | Betta{% endblock %}
 {% block content %}
 <div class="panel-head"><div><span class="eyebrow">Factura Alegra</span><h1>{{ venta.numero }}</h1><p>Preparación local; no se ejecutan escrituras externas.</p></div></div>
-<div class="panel-card"><form method="post">{% csrf_token %}{{ form.non_field_errors }}{% for field in form %}<p>{{ field.label_tag }}{{ field }}{{ field.errors }}</p>{% endfor %}<button class="btn btn-primary">Actualizar previsualización</button></form></div>
-{% if preparation %}<div class="panel-card"><h2>{{ preparation.get_mode_display }} · {{ preparation.get_status_display }}</h2><p>Cliente externo: {{ preparation.payload.client }} · Fecha: {{ preparation.payload.date }}</p>{% if preparation.validation_errors %}<h3>Validaciones</h3><ul>{% for error in preparation.validation_errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}{% if preparation.warnings %}<h3>Advertencias</h3><ul>{% for warning in preparation.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}<h3>Líneas</h3><table class="table"><thead><tr><th>ID</th><th>Descripción</th><th>Cantidad</th><th>Precio</th><th>Descuento</th><th>Impuesto local</th></tr></thead><tbody>{% for line in preparation.payload.items %}<tr><td>{{ line.id }}</td><td>{{ line.description }}</td><td>{{ line.quantity }}</td><td>{{ line.price }}</td><td>{{ line.discount|default:'-' }}</td><td>{{ line.tax_amount_local|default:'0.00' }}</td></tr>{% empty %}<tr><td colspan="6">No hay líneas válidas para enviar.</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+<div class="panel-card"><form method="post" id="invoice-preparation-form">{% csrf_token %}{{ form.non_field_errors }}
+<p>{{ form.mode.label_tag }}{{ form.mode }}{{ form.mode.errors }}</p>
+<div data-consolidated-fields{% if form.mode.value != 'consolidated_service' %} hidden{% endif %}>
+<p>{{ form.description.label_tag }}{{ form.description }}{{ form.description.errors }}<small>Concepto que se usaría en la línea consolidada.</small></p>
+<p>{{ form.reference.label_tag }}{{ form.reference }}{{ form.reference.errors }}</p>
+</div>
+<button class="btn btn-primary">Actualizar previsualización</button></form></div>
+{% if preparation %}<div class="panel-card"><h2>{{ preparation.get_mode_display }} · {{ preparation.get_status_display }}</h2><p>Preparación local de la venta {{ venta.numero }}. No se creó ni emitió una factura.</p><p>Cliente: {{ venta.cliente }} · Fecha: {{ preparation.payload.date }} · Referencia: {{ preparation.payload.reference }}</p>{% if preparation.validation_errors %}<h3>Validaciones</h3><ul>{% for error in preparation.validation_errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}{% if preparation.warnings %}<h3>Advertencias</h3><ul>{% for warning in preparation.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>{% endif %}<h3>Líneas previstas</h3><div class="table-responsive"><table class="table"><thead><tr><th>Descripción</th><th>Cantidad</th><th>Precio</th><th>Descuento</th><th>Impuesto local</th></tr></thead><tbody>{% for line in preparation.payload.items %}<tr><td>{{ line.description }}</td><td>{{ line.quantity }}</td><td>{{ line.price }}</td><td>{{ line.discount|default:'-' }}</td><td>{{ line.tax_amount_local|default:'0.00' }}</td></tr>{% empty %}<tr><td colspan="5">No hay líneas válidas para enviar.</td></tr>{% endfor %}</tbody></table></div><p><strong>Subtotal:</strong> {{ venta.subtotal }} · <strong>Descuentos:</strong> {{ venta.descuento_total }} · <strong>Impuestos:</strong> {{ venta.impuesto_total }} · <strong>Total:</strong> {{ venta.total }}</p></div>{% endif %}
+<script>
+(() => {
+  const mode = document.getElementById('id_mode');
+  const fields = document.querySelector('[data-consolidated-fields]');
+  const sync = () => { if (fields) fields.hidden = !mode || mode.value !== 'consolidated_service'; };
+  if (mode) { mode.addEventListener('change', sync); sync(); }
+})();
+</script>
 {% endblock %}

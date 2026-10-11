@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
 from django import forms
+from django.forms.models import BaseInlineFormSet, inlineformset_factory
 from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth import get_user_model
@@ -61,8 +62,28 @@ class RelatedDataSelect(forms.Select):
         return option
 
 
+class RelatedDataSelectMultiple(forms.SelectMultiple):
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex=subindex, attrs=attrs)
+        instance = getattr(value, "instance", None)
+        if instance is not None:
+            cliente_id = getattr(instance, "cliente_id", None)
+            proyecto_id = getattr(instance, "proyecto_id", None)
+            if not cliente_id:
+                proyecto = getattr(instance, "proyecto", None)
+                cliente_id = getattr(proyecto, "cliente_id", None)
+            if cliente_id:
+                option["attrs"]["data-client-id"] = str(cliente_id)
+            if proyecto_id:
+                option["attrs"]["data-project-id"] = str(proyecto_id)
+        return option
+
+
 def use_related_data_select(field):
-    field.widget = RelatedDataSelect(attrs=field.widget.attrs.copy())
+    widget_class = RelatedDataSelectMultiple if getattr(field.widget, "allow_multiple_selected", False) else RelatedDataSelect
+    widget = widget_class(attrs=field.widget.attrs.copy())
+    widget.choices = field.choices
+    field.widget = widget
 
 
 def mark_searchable_select(field, **attrs):
@@ -476,7 +497,7 @@ class ClientePuntoVentaForm(forms.ModelForm):
 
     def clean_nombre(self):
         nombre = self.cleaned_data["nombre"].strip()
-        if self.cliente is not None:
+        if self.cliente is not None and self.cliente.pk:
             puntos = ClientePuntoVenta.objects.filter(cliente=self.cliente, nombre__iexact=nombre)
             if self.instance.pk:
                 puntos = puntos.exclude(pk=self.instance.pk)
@@ -490,6 +511,35 @@ class ClientePuntoVentaForm(forms.ModelForm):
         widgets = {
             "observaciones": forms.Textarea(attrs={"rows": 3}),
         }
+
+
+class ClientePuntoVentaInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        nombres = set()
+        principales = 0
+        for form in self.forms:
+            if not getattr(form, "cleaned_data", None) or form.cleaned_data.get("DELETE"):
+                continue
+            nombre = (form.cleaned_data.get("nombre") or "").strip().casefold()
+            if nombre in nombres:
+                form.add_error("nombre", "No puede repetirse el nombre del punto de venta.")
+            elif nombre:
+                nombres.add(nombre)
+            if form.cleaned_data.get("activo") and form.cleaned_data.get("es_principal"):
+                principales += 1
+        if principales > 1:
+            raise forms.ValidationError("Solo puede haber un punto de venta principal activo por cliente.")
+
+
+ClientePuntoVentaInlineFormSet = inlineformset_factory(
+    Cliente,
+    ClientePuntoVenta,
+    form=ClientePuntoVentaForm,
+    formset=ClientePuntoVentaInlineFormSet,
+    extra=1,
+    can_delete=False,
+)
 
 
 class ClienteRegistroForm(forms.Form):
@@ -970,10 +1020,15 @@ class VentaItemForm(forms.ModelForm):
 
 
 class AlegraInvoicePreparationForm(forms.Form):
-    mode = forms.ChoiceField(label="Modalidad", choices=AlegraInvoicePreparation.MODES)
-    service_external_id = forms.CharField(label="ID externo del ítem SERVICIO", max_length=120, required=False)
+    mode = forms.ChoiceField(label="Modalidad", choices=AlegraInvoicePreparation.MODES, initial=AlegraInvoicePreparation.MODE_DETAILED)
     reference = forms.CharField(label="Referencia", max_length=240, required=False)
     description = forms.CharField(label="Descripción", max_length=500, required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("mode") == AlegraInvoicePreparation.MODE_CONSOLIDATED_SERVICE and not (cleaned.get("description") or "").strip():
+            self.add_error("description", "El concepto o descripción es obligatorio para la modalidad consolidada.")
+        return cleaned
 
 
 class CarteraGestionForm(forms.ModelForm):
@@ -1037,7 +1092,7 @@ class ProyectoForm(forms.ModelForm):
     class Meta:
         model = Proyecto
         fields = [
-            "cliente", "contacto", "puntos_venta", "nombre", "cliente_nombre", "cliente_contacto", "cliente_telefono", "cliente_email",
+            "cliente", "contacto", "puntos_venta", "nombre",
             "descripcion", "estado", "prioridad", "fecha_inicio", "fecha_compromiso",
             "fecha_cierre", "responsable", "activo", "observaciones",
         ]
@@ -1071,12 +1126,23 @@ class ProyectoForm(forms.ModelForm):
         self.fields["contacto"].queryset = include_selected(contactos, ClienteContacto, contacto_id)
         self.fields["contacto"].required = False
         self.fields["puntos_venta"].queryset = puntos_venta_de_cliente_qs(cliente_id)
-        if puntos_venta_ids:
-            self.fields["puntos_venta"].queryset = ClientePuntoVenta.objects.filter(models.Q(pk__in=puntos_venta_ids) | models.Q(cliente_id=cliente_id), activo=True).distinct()
+        puntos_queryset = puntos_venta_de_cliente_qs(cliente_id)
+        if self.instance.pk and puntos_venta_ids and cliente_id:
+            puntos_queryset = ClientePuntoVenta.objects.filter(
+                models.Q(cliente_id=cliente_id, activo=True)
+                | models.Q(pk__in=puntos_venta_ids, cliente_id=cliente_id),
+            ).distinct()
+        self.fields["puntos_venta"].queryset = puntos_queryset
         use_related_data_select(self.fields["puntos_venta"])
         use_related_data_select(self.fields["contacto"])
         use_internal_picker(self.fields["cliente"])
-        mark_searchable_select(self.fields["puntos_venta"], **{"data-filter-client-source": "id_cliente", "data-always-searchable": "true", "data-empty-label": "Sin puntos de venta disponibles"})
+        use_internal_picker(
+            self.fields["puntos_venta"],
+            **{
+                "data-filter-client-source": "id_cliente",
+                "data-empty-label": "Sin puntos de venta disponibles",
+            },
+        )
         use_internal_picker(
             self.fields["contacto"],
             **{
