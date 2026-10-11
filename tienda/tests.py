@@ -15,7 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
 
-from .forms import ClienteForm, CotizacionForm, DynamicSolicitudForm, ProyectoForm, validate_image_upload
+from .forms import ClienteForm, ClientePuntoVentaForm, CotizacionForm, DynamicSolicitudForm, ProyectoForm, validate_image_upload
 from .models import (
     Categoria,
     CampoMaestro,
@@ -512,6 +512,36 @@ class ClienteFormSemanticsTests(TestCase):
         self.assertEqual(cliente.nombre, "Ana María Rodríguez")
         self.assertContains(self.client.get(reverse("panel_cliente_detalle", args=[cliente.id])), "Ana María Rodríguez")
 
+    def test_persona_separa_nombres_sin_exigir_nombre_completo_manual(self):
+        response = self.client.post(
+            reverse("panel_cliente_crear"),
+            {
+                "tipo_cliente": Cliente.TIPO_PERSONA,
+                "primer_nombre": "Ana",
+                "segundo_nombre": "María",
+                "primer_apellido": "Rodríguez",
+                "segundo_apellido": "López",
+                "tipo_identificacion": Cliente.ID_CC,
+                "identificacion": "100200300",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        cliente = Cliente.objects.get()
+        self.assertEqual(cliente.nombre, "Ana María Rodríguez López")
+        self.assertContains(self.client.get(reverse("panel_cliente_editar", args=[cliente.id])), 'data-client-natural-field')
+        self.assertContains(self.client.get(reverse("panel_cliente_editar", args=[cliente.id])), 'data-client-company-field hidden')
+
+    def test_formulario_empresa_no_muestra_campos_personales(self):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_EMPRESA,
+            nombre="Referencia",
+            razon_social="Empresa SAS",
+        )
+        response = self.client.get(reverse("panel_cliente_editar", args=[cliente.id]))
+        self.assertContains(response, 'data-client-company-field')
+        self.assertContains(response, 'data-client-natural-field hidden')
+
     def test_empresa_usa_razon_social_como_referencia_interna_si_nombre_vacio(self):
         response = self.client.post(
             reverse("panel_cliente_crear"),
@@ -649,6 +679,29 @@ class ClienteFormSemanticsTests(TestCase):
         self.assertContains(detalle, 'class="cliente-detalle"')
         self.assertContains(detalle, 'data-scroll-hint="true"')
 
+    def test_switch_de_puntos_inicia_apagado_y_no_guarda_filas_ocultas(self):
+        response = self.client.get(reverse("panel_cliente_crear"))
+
+        self.assertContains(response, 'name="agregar_puntos_venta"')
+        self.assertContains(response, 'data-client-points-entry hidden')
+
+        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente sin activar puntos", "agregar_puntos_venta": ""}
+        data.update(self.punto_formset_data(["Fila oculta"]))
+        response = self.client.post(reverse("panel_cliente_crear"), data)
+
+        self.assertEqual(response.status_code, 302)
+        cliente = Cliente.objects.get(nombre="Cliente sin activar puntos")
+        self.assertFalse(cliente.puntos_venta.exists())
+
+    def test_switch_activo_permite_guardar_puntos_y_muestra_codigo(self):
+        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente con switch", "agregar_puntos_venta": "on"}
+        data.update(self.punto_formset_data(["Sede activa"]))
+        response = self.client.post(reverse("panel_cliente_crear"), data)
+
+        self.assertEqual(response.status_code, 302)
+        punto = ClientePuntoVenta.objects.get(cliente__nombre="Cliente con switch")
+        self.assertEqual(punto.codigo_interno, "001")
+
 
 class ClientePuntoVentaTests(TestCase):
     def setUp(self):
@@ -678,6 +731,34 @@ class ClientePuntoVentaTests(TestCase):
             ClientePuntoVenta.objects.create(cliente=self.cliente, nombre=nombre)
 
         self.assertCountEqual(self.cliente.puntos_venta.values_list("nombre", flat=True), ["Laureles", "Envigado", "Poblado"])
+
+    def test_consecutivo_independiente_por_cliente(self):
+        ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Primero")
+        ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Segundo")
+        ClientePuntoVenta.objects.create(cliente=self.otro_cliente, nombre="Primero")
+
+        self.assertEqual(list(self.cliente.puntos_venta.order_by("codigo_interno").values_list("codigo_interno", flat=True)), ["001", "002"])
+        self.assertEqual(self.otro_cliente.puntos_venta.get().codigo_interno, "001")
+
+    def test_no_reutiliza_codigo_despues_de_eliminar(self):
+        primero = ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Primero")
+        primero.delete()
+
+        siguiente = ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Segundo")
+
+        self.assertEqual(siguiente.codigo_interno, "002")
+
+    def test_conserva_codigo_historico_no_numerico(self):
+        historico = ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Histórico", codigo_interno="LEGACY-A")
+        nuevo = ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Nuevo")
+
+        self.assertEqual(historico.codigo_interno, "LEGACY-A")
+        self.assertEqual(nuevo.codigo_interno, "001")
+
+    def test_formulario_no_expone_codigo_editable(self):
+        form = ClientePuntoVentaForm(instance=ClientePuntoVenta(cliente=self.cliente, nombre="Nueva"), cliente=self.cliente)
+
+        self.assertNotIn("codigo_interno", form.fields)
 
     def test_dos_clientes_pueden_repetir_nombre_de_punto(self):
         ClientePuntoVenta.objects.create(cliente=self.cliente, nombre="Laureles")

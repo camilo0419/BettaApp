@@ -2657,7 +2657,30 @@ body {
 .client-point-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px}
 .client-point-summary div{display:flex;flex-direction:column;gap:3px;min-width:0}
 .client-point-summary span{color:var(--muted);font-size:13px}
+.client-points-toggle{display:flex;align-items:center;gap:10px;margin:18px 0 0;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#f8fbfb}
+.client-points-toggle input{width:18px;height:18px;accent-color:var(--green)}
+.client-points-toggle label{margin:0;color:var(--deep);font-weight:900;cursor:pointer}
+.client-points-entry[hidden]{display:none}
+.client-point-code{padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:#f8fbfb}
 @media(max-width:680px){.client-point-row{grid-template-columns:1fr}.client-point-row .full{grid-column:auto}.client-point-summary{align-items:flex-start;flex-direction:column}.client-point-summary .link-button{width:100%;text-align:center}}
+.cliente-form-shell{width:min(1050px,100%);margin-inline:auto;padding:clamp(18px,3vw,30px)}
+.cliente-form{min-width:0}
+.cliente-form .form-grid{min-width:0;align-items:start}
+.cliente-form .field{min-width:0}
+.cliente-form .field input,
+.cliente-form .field select,
+.cliente-form .field textarea{max-width:100%}
+.client-form-section-title{border-top:1px solid var(--line);padding-top:20px;margin-top:4px}
+.client-form-section-title h2{font-size:22px;margin:5px 0 0}
+.cliente-form .client-points-section{grid-column:1/-1}
+@media(max-width:680px){
+  .cliente-form-shell{padding:18px 16px}
+  .cliente-form .form-grid.two{grid-template-columns:1fr}
+  .cliente-form .field.full,
+  .cliente-form .client-points-section,
+  .cliente-form .client-form-section-title.full{grid-column:auto}
+  .cliente-form .btn-wide{width:100%}
+}
 .cliente-detalle{min-width:0}
 .cliente-detalle .panel-head h1{overflow-wrap:anywhere}
 .cliente-detalle .notification-item .table-actions{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px 12px}

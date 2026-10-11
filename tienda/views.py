@@ -2484,7 +2484,8 @@ def clientes_lista(request):
 def cliente_crear(request):
     form = ClienteForm(request.POST or None)
     cliente = Cliente()
-    punto_data = request.POST if "puntos-TOTAL_FORMS" in request.POST else None
+    puntos_habilitados = "agregar_puntos_venta" not in request.POST or request.POST.get("agregar_puntos_venta") == "on"
+    punto_data = request.POST if "puntos-TOTAL_FORMS" in request.POST and puntos_habilitados else None
     punto_formset = ClientePuntoVentaInlineFormSet(punto_data, instance=cliente, prefix="puntos", form_kwargs={"cliente": cliente})
     puntos_validos = punto_formset.is_valid() if punto_data is not None else True
     if request.method == "POST" and form.is_valid() and puntos_validos:
@@ -2509,7 +2510,8 @@ def cliente_crear(request):
 def cliente_editar(request, cliente_id):
     cliente = get_object_or_404(Cliente, pk=cliente_id)
     form = ClienteForm(request.POST or None, instance=cliente)
-    punto_data = request.POST if "puntos-TOTAL_FORMS" in request.POST else None
+    puntos_habilitados = "agregar_puntos_venta" not in request.POST or request.POST.get("agregar_puntos_venta") == "on"
+    punto_data = request.POST if "puntos-TOTAL_FORMS" in request.POST and puntos_habilitados else None
     punto_formset = ClientePuntoVentaInlineFormSet(
         punto_data,
         instance=cliente,

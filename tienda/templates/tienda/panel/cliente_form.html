@@ -14,8 +14,8 @@
   </div>
 </div>
 
-<div class="panel-card">
-  <form method="post" class="dynamic-form admin-form">
+<div class="panel-card cliente-form-shell">
+  <form method="post" class="dynamic-form admin-form cliente-form">
     {% csrf_token %}
     {% if form.non_field_errors %}
       <div class="message error" role="alert">{{ form.non_field_errors }}</div>
@@ -25,7 +25,15 @@
     {% endif %}
     <div class="form-grid two">
       {% for field in form %}
-        <div class="field {% if field.name == 'notas' or field.name == 'direccion' %}full{% endif %}">
+        {% if field.name == 'tipo_cliente' %}<div class="client-form-section-title full"><span class="eyebrow">Identificación</span><h2>Datos básicos</h2></div>{% endif %}
+        {% if field.name == 'regimen_tributario' %}<div class="client-form-section-title full"><span class="eyebrow">Información fiscal</span><h2>Datos tributarios</h2></div>{% endif %}
+        {% if field.name == 'email' %}<div class="client-form-section-title full"><span class="eyebrow">Comunicación</span><h2>Datos de contacto</h2></div>{% endif %}
+        {% if field.name == 'direccion' %}<div class="client-form-section-title full"><span class="eyebrow">Ubicación</span><h2>Dirección y ubicación</h2></div>{% endif %}
+        <div class="field {% if field.name == 'notas' or field.name == 'direccion' %}full{% endif %}"
+          {% if field.name == 'nombre' %}data-client-reference-field{% endif %}
+          {% if field.name == 'primer_nombre' or field.name == 'segundo_nombre' or field.name == 'primer_apellido' or field.name == 'segundo_apellido' %}data-client-natural-field{% if form.tipo_cliente.value == 'empresa' %} hidden{% endif %}{% endif %}
+          {% if field.name == 'razon_social' or field.name == 'nombre_comercial' %}data-client-company-field{% if form.tipo_cliente.value != 'empresa' %} hidden{% endif %}{% endif %}
+          {% if field.name == 'nombre' and form.tipo_cliente.value != 'empresa' %}hidden{% endif %}>
           {% if field.name == 'nombre' %}
             <label for="{{ field.id_for_label }}" data-cliente-nombre-label>{{ field.label }}</label>
           {% else %}
@@ -45,17 +53,22 @@
         <div class="client-existing-points">
           {% for punto in puntos_venta %}
             <div class="client-point-summary">
-              <div><strong>{{ punto.nombre }}</strong><span>{% if punto.activo %}Activo{% else %}Inactivo{% endif %}{% if punto.es_principal %} · Principal{% endif %}</span></div>
+              <div><strong>{{ punto.nombre }}</strong><span>Código {{ punto.codigo_interno|default:'—' }} · {% if punto.activo %}Activo{% else %}Inactivo{% endif %}{% if punto.es_principal %} · Principal{% endif %}</span></div>
               <a class="link-button" href="{% url 'panel_cliente_punto_venta_editar' cliente.id punto.id %}">Editar</a>
             </div>
           {% endfor %}
         </div>
         <p class="muted">Los cambios de los puntos existentes se guardan desde su acción Editar para conservar sus relaciones históricas.</p>
       {% endif %}
+      <div class="client-points-toggle">
+        <input type="checkbox" id="id_agregar_puntos_venta" name="agregar_puntos_venta"{% if request.POST.agregar_puntos_venta %} checked{% endif %} data-client-points-toggle>
+        <label for="id_agregar_puntos_venta">Agregar puntos de venta</label>
+      </div>
       {{ punto_formset.management_form }}
       {% if punto_formset.non_form_errors %}
         <div class="message error" role="alert">{{ punto_formset.non_form_errors }}</div>
       {% endif %}
+      <div class="client-points-entry" data-client-points-entry hidden>
       <div class="client-point-rows" data-client-point-rows>
         {% for punto_form in punto_formset %}
           <div class="client-point-row" data-client-point-row>
@@ -83,6 +96,7 @@
         </div>
       </template>
       <button type="button" class="btn btn-outline" data-client-point-add>+ Agregar punto de venta</button>
+      </div>
     </section>
     <button class="btn btn-primary btn-wide">Guardar cliente</button>
   </form>
@@ -94,12 +108,19 @@ document.addEventListener("DOMContentLoaded", function () {
   const nombreHelp = document.querySelector("[data-cliente-nombre-help]");
   if (!tipo || !nombreLabel || !nombreHelp) return;
 
+  const naturalFields = document.querySelectorAll("[data-client-natural-field]");
+  const companyFields = document.querySelectorAll("[data-client-company-field]");
+  const referenceField = document.querySelector("[data-client-reference-field]");
+
   function actualizarAyudaCliente() {
     const empresa = tipo.value === "empresa";
     nombreLabel.textContent = empresa ? "Referencia interna (opcional)" : "Nombre completo";
     nombreHelp.textContent = empresa
       ? "No repitas la razón social ni el nombre comercial. Si lo dejas vacío, se usará la razón social como referencia interna."
       : "Nombre y apellidos de la persona.";
+    naturalFields.forEach(function (field) { field.hidden = empresa; });
+    companyFields.forEach(function (field) { field.hidden = !empresa; });
+    if (referenceField) referenceField.hidden = !empresa;
   }
 
   tipo.addEventListener("change", actualizarAyudaCliente);
@@ -109,7 +130,14 @@ document.addEventListener("DOMContentLoaded", function () {
   const template = document.querySelector("[data-client-point-empty]");
   const addButton = document.querySelector("[data-client-point-add]");
   const total = document.getElementById("id_puntos-TOTAL_FORMS");
-  if (!rows || !template || !addButton || !total) return;
+  const pointsToggle = document.querySelector("[data-client-points-toggle]");
+  const pointsEntry = document.querySelector("[data-client-points-entry]");
+  if (!rows || !template || !addButton || !total || !pointsToggle || !pointsEntry) return;
+  function togglePointsEntry() {
+    pointsEntry.hidden = !pointsToggle.checked;
+  }
+  pointsToggle.addEventListener("change", togglePointsEntry);
+  togglePointsEntry();
   function bindRemove(row) {
     row.querySelector("[data-client-point-remove]").addEventListener("click", function () {
       row.remove();

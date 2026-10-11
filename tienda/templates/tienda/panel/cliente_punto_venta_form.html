@@ -13,6 +13,7 @@
 
 <div class="panel-card">
   <p class="muted">Registra una sede o punto de venta operativo de este cliente.</p>
+  {% if punto_venta %}<p class="client-point-code"><strong>Código interno:</strong> {{ punto_venta.codigo_interno|default:'—' }} <span class="muted">(asignado automáticamente)</span></p>{% endif %}
   <form method="post" class="dynamic-form admin-form">
     {% csrf_token %}
     <div class="form-grid two">{{ form.as_div }}</div>

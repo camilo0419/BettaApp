@@ -20,7 +20,7 @@ class ClienteCrearViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Cliente.objects.count(), 0)
         self.assertContains(response, "No se pudo guardar el cliente")
-        self.assertContains(response, "Este campo es obligatorio")
+        self.assertContains(response, "El nombre completo es obligatorio para una persona.")
 
     def test_post_valido_crea_un_cliente_redirige_y_no_llama_alegra(self):
         data = {

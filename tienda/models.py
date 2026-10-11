@@ -4,12 +4,13 @@ from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
 
 from .storage import PrivateMediaStorage
+from .services.database_lock import advisory_lock
 
 
 class Categoria(models.Model):
@@ -591,6 +592,7 @@ class Cliente(models.Model):
     )
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     fecha_actualizacion = models.DateTimeField(auto_now=True)
+    punto_venta_next_code = models.PositiveIntegerField(default=1)
 
     class Meta:
         ordering = ["nombre", "razon_social"]
@@ -682,6 +684,30 @@ class ClientePuntoVenta(models.Model):
 
     def save(self, *args, **kwargs):
         self.nombre = self.nombre.strip()
+        # Los códigos históricos no numéricos son datos existentes y deben
+        # conservarse; los formularios ya no permiten introducirlos en altas.
+        if self._state.adding and str(self.codigo_interno or "").strip() and not str(self.codigo_interno).strip().isdigit():
+            self.full_clean()
+            return super().save(*args, **kwargs)
+        if self._state.adding and self.cliente_id:
+            # El bloqueo es por cliente: GET_LOCK en MariaDB y un lock de
+            # proceso en SQLite. El contador persistido evita reutilizar
+            # códigos aunque se elimine un punto de venta.
+            with transaction.atomic():
+                with advisory_lock(f"bettaapp:cliente:{self.cliente_id}:punto-venta-sequence"):
+                    cliente = Cliente.objects.select_for_update().get(pk=self.cliente_id)
+                    usados = [
+                        int(codigo)
+                        for codigo in ClientePuntoVenta.objects.filter(cliente_id=self.cliente_id)
+                        .values_list("codigo_interno", flat=True)
+                        if str(codigo or "").strip().isdigit()
+                    ]
+                    siguiente = max([cliente.punto_venta_next_code or 1, *(valor + 1 for valor in usados)])
+                    self.codigo_interno = f"{siguiente:03d}"
+                    cliente.punto_venta_next_code = siguiente + 1
+                    cliente.save(update_fields=["punto_venta_next_code", "fecha_actualizacion"])
+                    self.full_clean()
+                    return super().save(*args, **kwargs)
         self.full_clean()
         super().save(*args, **kwargs)
 

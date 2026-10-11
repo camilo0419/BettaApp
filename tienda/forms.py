@@ -428,6 +428,10 @@ class ClienteForm(forms.ModelForm):
             self.fields["razon_social"].help_text = "Nombre legal registrado. Ej.: Rodriguez G Inversiones SAS"
             self.fields["nombre_comercial"].help_text = "Nombre con el que opera o es conocida la empresa."
         else:
+            # El nombre principal se deriva de los campos separados. Se conserva
+            # como respaldo para registros históricos, pero no debe ser obligatorio
+            # ni solicitarse nuevamente a una persona natural.
+            self.fields["nombre"].required = False
             self.fields["nombre"].label = "Nombre completo"
             self.fields["nombre"].help_text = "Nombre y apellidos de la persona."
         self.fields["primer_nombre"].help_text = "Requerido para sincronizar una persona natural con Alegra."
@@ -507,7 +511,7 @@ class ClientePuntoVentaForm(forms.ModelForm):
 
     class Meta:
         model = ClientePuntoVenta
-        fields = ["nombre", "codigo_interno", "direccion", "ciudad", "departamento", "contacto", "telefono", "email", "observaciones", "activo", "es_principal"]
+        fields = ["nombre", "direccion", "ciudad", "departamento", "contacto", "telefono", "email", "observaciones", "activo", "es_principal"]
         widgets = {
             "observaciones": forms.Textarea(attrs={"rows": 3}),
         }
