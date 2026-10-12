@@ -15,7 +15,7 @@
 </div>
 
 <div class="panel-card cliente-form-shell">
-  <form method="post" class="dynamic-form admin-form cliente-form">
+  <form method="post" class="dynamic-form admin-form cliente-form" data-client-sync-form>
     {% csrf_token %}
     {% if form.non_field_errors %}
       <div class="message error" role="alert">{{ form.non_field_errors }}</div>
@@ -101,6 +101,15 @@
     <button class="btn btn-primary btn-wide">Guardar cliente</button>
   </form>
 </div>
+<div class="modal-shell client-sync-modal" data-client-sync-modal hidden role="status" aria-live="polite" aria-busy="true">
+  <div class="modal-panel">
+    <span class="eyebrow">Alegra</span>
+    <h2 data-client-sync-title>Validando información</h2>
+    <p data-client-sync-message>Estamos verificando los datos del cliente antes de sincronizarlos con Alegra.</p>
+    <div class="client-sync-spinner" aria-hidden="true"></div>
+    <small class="muted">No cierres esta ventana mientras BettaApp guarda la información.</small>
+  </div>
+</div>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
   const tipo = document.getElementById("id_tipo_cliente");
@@ -158,6 +167,23 @@ document.addEventListener("DOMContentLoaded", function () {
     bindRemove(row);
     total.value = String(index + 1);
   });
+
+  const clientForm = document.querySelector("[data-client-sync-form]");
+  const syncModal = document.querySelector("[data-client-sync-modal]");
+  if (clientForm && syncModal) {
+    clientForm.addEventListener("submit", function (event) {
+      if (!clientForm.checkValidity()) return;
+      syncModal.hidden = false;
+      syncModal.classList.add("is-open");
+      clientForm.querySelectorAll("button[type=submit]").forEach(function (button) { button.disabled = true; });
+      window.setTimeout(function () {
+        const title = syncModal.querySelector("[data-client-sync-title]");
+        const message = syncModal.querySelector("[data-client-sync-message]");
+        if (title) title.textContent = "Guardando cliente";
+        if (message) message.textContent = "La información se está registrando de forma segura en BettaApp.";
+      }, 180);
+    });
+  }
 });
 </script>
 {% endblock %}

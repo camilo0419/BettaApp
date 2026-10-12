@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
-from tienda.models import AlegraWriteOperation, Cliente
+from tienda.models import AlegraWriteOperation, Cliente, ExternalSystem
 from tienda.services.alegra_write import build_contact_payload
 
 
@@ -136,6 +136,112 @@ class ClienteCrearViewTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertFalse(AlegraWriteOperation.objects.filter(client=cliente).exists())
+
+    def test_detalle_muestra_estado_persistente_de_sincronizacion(self):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_EMPRESA,
+            nombre="Estado QA",
+            razon_social="Estado QA S.A.S.",
+            identificacion="900123456",
+            tipo_identificacion=Cliente.ID_NIT,
+            regimen_tributario="COMMON_REGIME",
+        )
+        response = self.client.get(reverse("panel_cliente_detalle", args=[cliente.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Pendiente")
+        self.assertContains(response, "Aún no existe una confirmación externa.")
+
+    def test_estado_de_operacion_no_expone_datos_y_exige_cliente_correcto(self):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_EMPRESA,
+            nombre="Estado operación",
+            razon_social="Estado operación S.A.S.",
+            identificacion="900123457",
+            tipo_identificacion=Cliente.ID_NIT,
+            regimen_tributario="COMMON_REGIME",
+        )
+        other = Cliente.objects.create(nombre="Otro cliente")
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system,
+            client=cliente,
+            operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="status-operation-key",
+            state=AlegraWriteOperation.STATE_PENDING,
+        )
+        response = self.client.get(reverse("panel_cliente_alegra_operacion_estado", args=[cliente.pk, operation.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["state"], "pending")
+        self.assertNotIn("Estado operación", response.content.decode())
+        forbidden = self.client.get(reverse("panel_cliente_alegra_operacion_estado", args=[other.pk, operation.pk]))
+        self.assertEqual(forbidden.status_code, 404)
+
+    def test_crear_cliente_auto_con_datos_fiscales_incompletos_persiste_bloqueo(self):
+        data = {
+            "tipo_cliente": Cliente.TIPO_PERSONA,
+            "nombre": "Cliente incompleto",
+            "primer_nombre": "Cliente",
+            "primer_apellido": "Incompleto",
+            "tipo_identificacion": Cliente.ID_CC,
+            "identificacion": "1017166214",
+            "activo": "on",
+        }
+        response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, 302)
+        operation = AlegraWriteOperation.objects.get(client__identificacion="1017166214")
+        self.assertEqual(operation.operation, AlegraWriteOperation.OP_CREATE)
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(operation.error_code, "payload_validation")
+
+    def test_editar_cliente_auto_corrige_datos_y_prepara_alta_pendiente(self):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA,
+            nombre="Cliente incompleto",
+            primer_nombre="Cliente",
+            primer_apellido="Incompleto",
+            tipo_identificacion=Cliente.ID_CC,
+            identificacion="111111111",
+        )
+        self.client.post(
+            reverse("panel_cliente_editar", args=[cliente.pk]),
+            {
+                "tipo_cliente": Cliente.TIPO_PERSONA,
+                "nombre": "Cliente incompleto",
+                "primer_nombre": "Cliente",
+                "primer_apellido": "Incompleto",
+                "tipo_identificacion": Cliente.ID_CC,
+                "identificacion": "111111111",
+                "activo": "on",
+            },
+        )
+        self.assertEqual(
+            AlegraWriteOperation.objects.filter(client=cliente, state=AlegraWriteOperation.STATE_NEEDS_RECONCILIATION).count(),
+            1,
+        )
+
+        with patch("tienda.services.alegra_operation_queue.AlegraWriteClient") as queue_transport:
+            queue_transport.return_value.find_candidates.return_value = []
+            response = self.client.post(
+                reverse("panel_cliente_editar", args=[cliente.pk]),
+                {
+                    "tipo_cliente": Cliente.TIPO_PERSONA,
+                    "nombre": "Cliente incompleto",
+                    "primer_nombre": "Cliente",
+                    "primer_apellido": "Incompleto",
+                    "tipo_identificacion": Cliente.ID_CC,
+                    "identificacion": "111111111",
+                    "regimen_tributario": "COMMON_REGIME",
+                    "activo": "on",
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            AlegraWriteOperation.objects.filter(client=cliente, state=AlegraWriteOperation.STATE_PENDING).count(),
+            1,
+        )
 
     def test_save_directo_no_permite_nombre_generico_con_nombres_completos(self):
         cliente = Cliente(

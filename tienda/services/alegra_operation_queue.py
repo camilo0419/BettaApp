@@ -57,6 +57,59 @@ def alegra_system() -> ExternalSystem:
     return system
 
 
+def _persist_create_validation_block(client: Cliente, exc: ValidationError, *, actor=None) -> AlegraWriteOperation:
+    """Registra de forma durable una alta que aún no tiene payload válido.
+
+    El formulario debe conservar la intención de sincronización aunque falten
+    datos fiscales. La operación queda bloqueada para que el procesador nunca
+    intente enviar un payload incompleto; una edición que corrija los datos
+    producirá una nueva clave idempotente y podrá preparar una alta pendiente.
+    """
+    system = alegra_system()
+    snapshot = {
+        "tipo_cliente": client.tipo_cliente,
+        "tipo_identificacion": client.tipo_identificacion,
+        "identificacion": client.identificacion,
+        "digito_verificacion": client.digito_verificacion,
+        "regimen_tributario": client.regimen_tributario,
+        "primer_nombre": client.primer_nombre,
+        "primer_apellido": client.primer_apellido,
+        "razon_social": client.razon_social,
+    }
+    key = BidirectionalClientSync.idempotency_key(
+        "betta_to_alegra_create_validation", str(client.pk), snapshot,
+    )
+    operation, created = AlegraWriteOperation.objects.get_or_create(
+        system=system,
+        client=client,
+        operation=AlegraWriteOperation.OP_CREATE,
+        idempotency_key=key,
+        defaults={
+            "state": AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+            "error_code": "payload_validation",
+            "error_message": str(exc)[:500],
+            "reconciliation_reason": "El cliente no tiene datos obligatorios para construir el payload de Alegra.",
+            "result_metadata": {"blocked_reason": "payload_validation"},
+        },
+    )
+    if created:
+        SyncAuditLog.objects.create(
+            system=system,
+            operation="enqueue_contact_create",
+            resource="contacts",
+            actor=actor,
+            result=SyncAuditLog.RESULT_ERROR,
+            detail="Alta bloqueada por datos locales incompletos; requiere corrección.",
+            metadata={
+                "client_id": client.pk,
+                "queued": False,
+                "state": "needs_reconciliation",
+                "error_code": "payload_validation",
+            },
+        )
+    return operation
+
+
 def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteOperation | None:
     """Persiste la intención antes del GET preventivo.
 
@@ -80,12 +133,7 @@ def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteO
     try:
         payload = build_contact_payload(client)
     except ValidationError as exc:
-        SyncAuditLog.objects.create(
-            system=alegra_system(), operation="enqueue_contact_create", resource="contacts",
-            actor=actor, result=SyncAuditLog.RESULT_ERROR, detail=str(exc)[:500],
-            metadata={"client_id": client.pk, "queued": False},
-        )
-        return None
+        return _persist_create_validation_block(client, exc, actor=actor)
 
     key = BidirectionalClientSync.idempotency_key("betta_to_alegra_create", str(client.pk), payload)
     existing = AlegraWriteOperation.objects.filter(
@@ -105,7 +153,15 @@ def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteO
                 "superseded_payload": True,
             }
             existing.save(update_fields=["idempotency_key", "payload", "result_metadata", "updated_at"])
-        return existing
+        # Un bloqueo exclusivamente local por payload incompleto sí puede
+        # resolverse con una edición posterior. Los bloqueos por candidato
+        # remoto, POST incierto u otra conciliación siguen siendo terminales
+        # para evitar duplicados.
+        if not (
+            existing.state == AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+            and existing.error_code == "payload_validation"
+        ):
+            return existing
     operation, _ = AlegraWriteOperation.objects.get_or_create(
         system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
         idempotency_key=key, defaults={"state": AlegraWriteOperation.STATE_PENDING},

@@ -2489,6 +2489,7 @@ def cliente_crear(request):
     punto_formset = ClientePuntoVentaInlineFormSet(punto_data, instance=cliente, prefix="puntos", form_kwargs={"cliente": cliente})
     puntos_validos = punto_formset.is_valid() if punto_data is not None else True
     if request.method == "POST" and form.is_valid() and puntos_validos:
+        sync_operation = None
         with transaction.atomic():
             cliente = form.save(commit=False)
             cliente.creado_por = request.user
@@ -2498,9 +2499,12 @@ def cliente_crear(request):
                 punto_formset.save()
             # La disponibilidad de Alegra no bloquea el alta local. La cola solo
             # registra una operación durable; nunca realiza HTTP desde el formulario.
-            enqueue_create(cliente, actor=request.user)
+            sync_operation = enqueue_create(cliente, actor=request.user)
         messages.success(request, "Cliente creado.")
-        return redirect("panel_cliente_detalle", cliente_id=cliente.id)
+        target = reverse("panel_cliente_detalle", kwargs={"cliente_id": cliente.id})
+        if sync_operation:
+            target = f"{target}?sync_operation={sync_operation.pk}"
+        return redirect(target)
     if request.method == "POST":
         messages.error(request, "No se creó el cliente. Revisa los errores marcados en el formulario.")
     return render(request, "tienda/panel/cliente_form.html", {"form": form, "punto_formset": punto_formset, "puntos_venta": [], "titulo": "Crear cliente"})
@@ -2521,6 +2525,7 @@ def cliente_editar(request, cliente_id):
     )
     puntos_validos = punto_formset.is_valid() if punto_data is not None else True
     if request.method == "POST" and form.is_valid() and puntos_validos:
+        sync_operation = None
         with transaction.atomic():
             form.save()
             if punto_data is not None:
@@ -2534,14 +2539,17 @@ def cliente_editar(request, cliente_id):
                 status=ExternalObjectMap.STATUS_ACTIVE,
             ).exists()
             if has_active_mapping:
-                enqueue_update_if_changed(cliente, actor=request.user)
+                sync_operation = enqueue_update_if_changed(cliente, actor=request.user)
             else:
                 # Clientes históricos conservan su política de conciliación;
                 # solo los clientes elegibles para alta automática entran en
                 # la misma cola durable usada por la creación.
-                enqueue_create(cliente, actor=request.user)
+                sync_operation = enqueue_create(cliente, actor=request.user)
         messages.success(request, "Cliente actualizado.")
-        return redirect("panel_cliente_detalle", cliente_id=cliente.id)
+        target = reverse("panel_cliente_detalle", kwargs={"cliente_id": cliente.id})
+        if sync_operation:
+            target = f"{target}?sync_operation={sync_operation.pk}"
+        return redirect(target)
     return render(request, "tienda/panel/cliente_form.html", {"form": form, "punto_formset": punto_formset, "puntos_venta": cliente.puntos_venta.all(), "cliente": cliente, "titulo": "Editar cliente"})
 
 
@@ -2659,6 +2667,50 @@ def cliente_toggle(request, cliente_id):
 
 
 @panel_staff_required
+@require_GET
+def cliente_alegra_operacion_estado(request, cliente_id, operation_id):
+    """Devuelve el estado no sensible de una operación del cliente actual."""
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    operation = get_object_or_404(AlegraWriteOperation, pk=operation_id, client=cliente)
+    state_map = {
+        AlegraWriteOperation.STATE_PENDING: ("pending", "Pendiente de sincronización"),
+        AlegraWriteOperation.STATE_SENT: ("syncing", "Sincronizando"),
+        AlegraWriteOperation.STATE_SYNCED: ("synced", "Cliente sincronizado"),
+        AlegraWriteOperation.STATE_NEEDS_RECONCILIATION: ("reconciliation", "Requiere conciliación"),
+        AlegraWriteOperation.STATE_CONFLICT: ("reconciliation", "Requiere conciliación"),
+        AlegraWriteOperation.STATE_FAILED: ("correction", "Requiere corrección"),
+    }
+    code, label = state_map.get(operation.state, ("correction", "Requiere revisión"))
+    reasons = {
+        "payload_validation": "Corrige los datos obligatorios del cliente y vuelve a guardar.",
+        "remote_candidate": "Alegra encontró un contacto que requiere revisión manual para evitar duplicados.",
+        "remote_check": "No fue posible verificar Alegra; la operación puede reintentarse con backoff.",
+        "uncertain": "El resultado externo es incierto; requiere conciliación antes de reintentar.",
+    }
+    if operation.state == AlegraWriteOperation.STATE_SYNCED:
+        message = "Alegra confirmó la operación y el vínculo externo quedó registrado."
+    elif operation.state == AlegraWriteOperation.STATE_PENDING:
+        message = "La operación quedó registrada y seguirá siendo procesada por el cron."
+    else:
+        message = reasons.get(operation.error_code, "La operación no puede continuar automáticamente y requiere revisión.")
+    return JsonResponse({
+        "operation_id": operation.pk,
+        "state": code,
+        "label": label,
+        "message": message,
+        "attempts": operation.attempts,
+        "updated_at": operation.updated_at.isoformat(),
+        "external_id": operation.external_id if operation.state == AlegraWriteOperation.STATE_SYNCED else None,
+        "terminal": operation.state in {
+            AlegraWriteOperation.STATE_SYNCED,
+            AlegraWriteOperation.STATE_FAILED,
+            AlegraWriteOperation.STATE_CONFLICT,
+            AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+        },
+    })
+
+
+@panel_staff_required
 def cliente_detalle(request, cliente_id):
     cliente = get_object_or_404(Cliente.objects.select_related("creado_por"), pk=cliente_id)
     if request.method == "POST":
@@ -2709,13 +2761,63 @@ def cliente_detalle(request, cliente_id):
         "cotizaciones_aprobadas": cotizaciones.filter(estado=Cotizacion.ESTADO_APROBADA).count(),
         "total_cotizado": sum((cotizacion.total for cotizacion in cotizaciones), Decimal("0")),
     }
+    alegra_map = ExternalObjectMap.objects.filter(
+        resource_type="contacts", content_type__model="cliente", object_id=cliente.id,
+        status=ExternalObjectMap.STATUS_ACTIVE,
+    ).select_related("system").first()
+    alegra_operations = list(AlegraWriteOperation.objects.filter(client=cliente).order_by("-created_at", "-id")[:5])
+    latest_operation = alegra_operations[0] if alegra_operations else None
+    operation_is_newer = bool(
+        latest_operation
+        and alegra_map
+        and latest_operation.updated_at
+        and (not alegra_map.last_synced_at or latest_operation.updated_at > alegra_map.last_synced_at)
+    )
+    if latest_operation and (not alegra_map or operation_is_newer) and latest_operation.state == AlegraWriteOperation.STATE_PENDING:
+        sync_status = {"code": "pending", "label": "Pendiente", "detail": "La operación está registrada y será procesada por el cron."}
+        sync_at = latest_operation.updated_at
+    elif latest_operation and (not alegra_map or operation_is_newer) and latest_operation.state == AlegraWriteOperation.STATE_SENT:
+        sync_status = {"code": "syncing", "label": "Sincronizando", "detail": "La operación fue enviada y requiere confirmación."}
+        sync_at = latest_operation.updated_at
+    elif latest_operation and (not alegra_map or operation_is_newer) and latest_operation.state in {
+        AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+        AlegraWriteOperation.STATE_CONFLICT,
+    }:
+        sync_status = {"code": "reconciliation", "label": "Requiere conciliación", "detail": "La operación está bloqueada para evitar duplicados o cambios tributarios inseguros."}
+        sync_at = latest_operation.updated_at
+    elif latest_operation and (not alegra_map or operation_is_newer) and latest_operation.state == AlegraWriteOperation.STATE_FAILED:
+        sync_status = {"code": "correction", "label": "Requiere corrección", "detail": latest_operation.error_message or "La última operación no fue aceptada."}
+        sync_at = latest_operation.updated_at
+    elif alegra_map:
+        sync_status = {"code": "synced", "label": "Sincronizado", "detail": "Vínculo activo confirmado en BettaApp."}
+        sync_at = alegra_map.last_synced_at
+    elif cliente.alegra_sync_policy == Cliente.ALEGRA_SYNC_HISTORICAL_PENDING:
+        sync_status = {"code": "reconciliation", "label": "Requiere conciliación", "detail": "Cliente histórico pendiente de vinculación controlada."}
+        sync_at = None
+    else:
+        sync_status = {"code": "pending", "label": "Pendiente", "detail": "Aún no existe una confirmación externa."}
+        sync_at = None
+    sync_operation_id = None
+    try:
+        requested_operation_id = int(request.GET.get("sync_operation", ""))
+    except (TypeError, ValueError):
+        requested_operation_id = None
+    if requested_operation_id and AlegraWriteOperation.objects.filter(pk=requested_operation_id, client=cliente).exists():
+        sync_operation_id = requested_operation_id
     return render(
         request,
         "tienda/panel/cliente_detalle.html",
         {
             "cliente": cliente,
-            "alegra_map": ExternalObjectMap.objects.filter(resource_type="contacts", content_type__model="cliente", object_id=cliente.id, status=ExternalObjectMap.STATUS_ACTIVE).select_related("system").first(),
-            "alegra_operations": AlegraWriteOperation.objects.filter(client=cliente).order_by("-created_at", "-id")[:5],
+            "alegra_map": alegra_map,
+            "alegra_operations": alegra_operations,
+            "alegra_sync_status": sync_status,
+            "alegra_sync_at": sync_at,
+            "sync_operation_id": sync_operation_id,
+            "sync_operation_status_url": reverse(
+                "panel_cliente_alegra_operacion_estado",
+                kwargs={"cliente_id": cliente.id, "operation_id": sync_operation_id},
+            ) if sync_operation_id else "",
             "contactos": cliente.contactos.all(),
             "puntos_venta": cliente.puntos_venta.all(),
             "usuarios_portal": cliente.usuarios_portal.select_related("user", "contacto"),

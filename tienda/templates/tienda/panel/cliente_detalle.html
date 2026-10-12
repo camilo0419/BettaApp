@@ -55,8 +55,10 @@
           <dl class="detail-list"><dt>Dirección</dt><dd>{{ cliente.direccion|default:'-' }}</dd><dt>Ciudad</dt><dd>{{ cliente.ciudad|default:'-' }}</dd><dt>Departamento</dt><dd>{{ cliente.departamento|default:'-' }}</dd><dt>País</dt><dd>{{ cliente.pais|default:'-' }}</dd><dt>Código postal</dt><dd>{{ cliente.codigo_postal|default:'-' }}</dd></dl>
         </section>
       </div>
-      <div class="info-box">
-        <strong>Estado de sincronización</strong>
+      <div class="info-box alegra-client-sync alegra-client-sync-{{ alegra_sync_status.code }}" data-client-sync-status>
+        <div class="alegra-client-sync-head"><strong>Estado de sincronización</strong><span class="alegra-status-badge">{{ alegra_sync_status.label }}</span></div>
+        <p>{{ alegra_sync_status.detail }}</p>
+        {% if alegra_sync_at %}<p class="muted">Última actualización: {{ alegra_sync_at|date:'Y-m-d H:i' }}</p>{% endif %}
         {% if alegra_map %}<p>Vinculación activa con Alegra ({{ alegra_map.external_id }}). No se puede preparar otra creación.</p>{% endif %}
         {% for operation in alegra_operations %}<p>{{ operation.get_operation_display }} · {{ operation.get_state_display }} · intentos: {{ operation.attempts }}{% if operation.error_message %} · {{ operation.error_message }}{% endif %}</p>{% empty %}<p>Sin operaciones de sincronización registradas.</p>{% endfor %}
       </div>
@@ -326,4 +328,59 @@
   </div>
 </div>
 </div>
+{% if sync_operation_id %}
+<div class="modal-shell client-sync-modal is-open" data-client-operation-modal data-operation-status-url="{{ sync_operation_status_url }}" role="status" aria-live="polite" aria-busy="true">
+  <div class="modal-panel">
+    <span class="eyebrow">Alegra</span>
+    <h2 data-operation-title>Sincronizando</h2>
+    <p data-operation-message>Estamos consultando el estado real de la operación.</p>
+    <div class="client-sync-spinner" data-operation-spinner aria-hidden="true"></div>
+    <p class="muted" data-operation-attempts>La operación continúa bajo control del cron.</p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" data-operation-continue hidden>Continuar</button>
+      <a class="btn btn-primary" href="{% url 'panel_cliente_detalle' cliente.id %}" data-operation-view hidden>Ver estado</a>
+    </div>
+  </div>
+</div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  const modal = document.querySelector("[data-client-operation-modal]");
+  if (!modal) return;
+  const title = modal.querySelector("[data-operation-title]");
+  const message = modal.querySelector("[data-operation-message]");
+  const attempts = modal.querySelector("[data-operation-attempts]");
+  const spinner = modal.querySelector("[data-operation-spinner]");
+  const continueButton = modal.querySelector("[data-operation-continue]");
+  const viewLink = modal.querySelector("[data-operation-view]");
+  let polls = 0;
+  let stopped = false;
+  function finish(data, timedOut) {
+    stopped = true;
+    modal.setAttribute("aria-busy", "false");
+    title.textContent = timedOut ? "Pendiente de sincronización" : (data.label || "Estado de sincronización");
+    message.textContent = timedOut ? "El cliente se guardó en BettaApp. Alegra aún no ha confirmado la operación y el cron continuará procesándola." : (data.message || "Consulta el estado desde la ficha del cliente.");
+    attempts.textContent = data.attempts ? "Intentos registrados: " + data.attempts : "La operación continúa bajo control del cron.";
+    spinner.hidden = true;
+    continueButton.hidden = false;
+    viewLink.hidden = false;
+  }
+  function poll() {
+    if (stopped) return;
+    polls += 1;
+    fetch(modal.getAttribute("data-operation-status-url"), {credentials: "same-origin", headers: {"Accept": "application/json"}})
+      .then(function (response) { if (!response.ok) throw new Error("status"); return response.json(); })
+      .then(function (data) {
+        if (data.state === "synced" || data.state === "correction" || data.state === "reconciliation") finish(data, false);
+        else if (polls >= 15) finish(data, true);
+        else window.setTimeout(poll, 2000);
+      })
+      .catch(function () {
+        if (polls >= 15) finish({}, true); else window.setTimeout(poll, 2000);
+      });
+  }
+  continueButton.addEventListener("click", function () { modal.classList.remove("is-open"); modal.hidden = true; });
+  poll();
+});
+</script>
+{% endif %}
 {% endblock %}
