@@ -2762,6 +2762,7 @@ def cliente_alegra_operacion_procesar(request, cliente_id, operation_id):
             "operation_id": operation.pk,
             "state": operation.state,
             "message": "La operación ya está siendo procesada.",
+            "error_code": "processing_in_progress",
             "started": False,
         }, status=409)
     except Exception as exc:

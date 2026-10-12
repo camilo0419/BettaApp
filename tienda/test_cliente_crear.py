@@ -290,6 +290,7 @@ class ClienteCrearViewTests(TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertTrue(response.json()["ok"])
+        self.assertEqual(response.json()["error_code"], "processing_in_progress")
         self.assertEqual(response.json()["state"], AlegraWriteOperation.STATE_PENDING)
         self.assertFalse(response.json()["started"])
         process.assert_not_called()

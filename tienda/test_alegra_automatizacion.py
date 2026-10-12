@@ -74,6 +74,27 @@ class AutomationTests(TestCase):
         self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
         transport_class.return_value.find_candidates.assert_called_once_with(identification="123456789")
 
+    def test_repeated_create_enqueue_reuses_single_pending_operation(self):
+        client = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Persona repetida",
+            primer_nombre="Ana", primer_apellido="Prueba", identificacion="123456790",
+            tipo_identificacion=Cliente.ID_CC, regimen_tributario="COMMON_REGIME",
+            alegra_sync_policy=Cliente.ALEGRA_SYNC_AUTO,
+        )
+
+        first = enqueue_create(client, defer_remote_check=True)
+        client.email = "actualizado@example.test"
+        client.save(update_fields=["email"])
+        second = enqueue_create(client, defer_remote_check=True)
+
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(
+            AlegraWriteOperation.objects.filter(
+                client=client, operation=AlegraWriteOperation.OP_CREATE,
+            ).count(),
+            1,
+        )
+
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
     def test_form_create_persists_without_remote_get(self, transport_class):
         staff = get_user_model().objects.create_user(
@@ -739,6 +760,50 @@ class AutomationTests(TestCase):
         self.assertEqual(result["prepared"], ["preview:C-2"])
         self.assertIn({"external_id": "C-1", "reason": "missing_baseline"}, result["diagnostics"])
         transport_class.return_value.get_contact.assert_called_once_with("C-2")
+
+    @patch("tienda.services.alegra_write.AlegraContactWriteService.prepare_update")
+    @patch("tienda.services.alegra_write.AlegraWriteClient")
+    def test_linked_updates_reuse_existing_pending_operation(self, transport_class, prepare_update):
+        client = self._linked_client("Cliente actualización", "303")
+        mapping = self._contact_map(client, "C-3", {
+            "source": "alegra_write",
+            "last_synced_fields": {
+                "nombre": client.nombre, "identificacion": "303",
+                "tipo_identificacion": "cc", "email": "old@example.test",
+            },
+        })
+        client.email = "first@example.test"
+        client.save(update_fields=["email"])
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-3", "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": "303"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "email": "old@example.test", "type": ["client"], "status": "active",
+        }
+        def prepare_side_effect(current_client, system, *, external_id, remote_row, baseline):
+            operation = AlegraWriteOperation.objects.create(
+                system=system, client=current_client, operation=AlegraWriteOperation.OP_UPDATE,
+                external_id=external_id, idempotency_key="linked-update-pending-key",
+                state=AlegraWriteOperation.STATE_PENDING,
+            )
+            return operation, {"email": current_client.email}
+        prepare_update.side_effect = prepare_side_effect
+
+        first = linked_client_update_candidates(limit=1, persist=True)
+        self.assertTrue(first["prepared"], first)
+        client.email = "second@example.test"
+        client.save(update_fields=["email"])
+        second = linked_client_update_candidates(limit=1, persist=True)
+
+        self.assertEqual(first["prepared"], [AlegraWriteOperation.objects.get(client=client).pk])
+        self.assertEqual(second["prepared"], first["prepared"])
+        self.assertEqual(prepare_update.call_count, 1)
+        self.assertEqual(
+            AlegraWriteOperation.objects.filter(
+                client=client, operation=AlegraWriteOperation.OP_UPDATE,
+            ).count(),
+            1,
+        )
 
     def test_baseline_info_distinguishes_missing_partial_and_confirmed(self):
         from tienda.services.alegra_inbound_sync import InboundClientSyncService

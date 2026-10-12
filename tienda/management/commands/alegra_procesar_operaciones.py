@@ -28,13 +28,9 @@ class Command(BaseCommand):
         parser.add_argument("--confirm", default="")
 
     def handle(self, *args, **options):
-        try:
-            with advisory_lock(PROCESS_LOCK):
-                return self._handle_locked(options)
-        except DatabaseLockUnavailable as exc:
-            raise CommandError(str(exc)) from exc
+        return self._handle(options)
 
-    def _handle_locked(self, options):
+    def _handle(self, options):
         if options["execute"]:
             if options["confirm"] != "AUTORIZAR AUTOMATIZACION ALEGRA":
                 raise CommandError("--execute requiere confirmación explícita.")
@@ -67,9 +63,16 @@ class Command(BaseCommand):
             f"otros={sum(value for key, value in reasons.items() if key not in {'no_changes', 'missing_baseline', 'conflict', 'invalid_mapping', 'duplicate_active_maps'} and not key.startswith('query_error:'))}."
         )
         if options["execute"]:
-            processed = process_pending_operations(
-                limit=options["limit"], timeout=options["timeout"], execute=True,
-            )
-            self.stdout.write(f"Procesadas: {processed['results']}.")
+            try:
+                # El bloqueo global cubre únicamente la fase que puede ejecutar
+                # POST/PUT. Los recorridos y GET preparatorios ya terminaron.
+                with advisory_lock(PROCESS_LOCK):
+                    processed = process_pending_operations(
+                        limit=options["limit"], timeout=options["timeout"], execute=True,
+                    )
+            except DatabaseLockUnavailable:
+                self.stdout.write("Procesamiento omitido: otra ejecución está procesando operaciones.")
+            else:
+                self.stdout.write(f"Procesadas: {processed['results']}.")
         else:
             self.stdout.write("Modo dry-run; las escrituras externas siguen deshabilitadas.")

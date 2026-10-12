@@ -404,40 +404,52 @@ document.addEventListener("DOMContentLoaded", function () {
     document.getElementById("alegra-sync-status")?.scrollIntoView({behavior: "smooth", block: "center"});
   });
   let processStarted = false;
+  let processAttempts = 0;
+  const maxProcessAttempts = 3;
   function startProcessing() {
     if (processStarted) return;
     processStarted = true;
-    fetch(modal.getAttribute("data-operation-process-url"), {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Accept": "application/json",
-        "X-CSRFToken": modal.getAttribute("data-csrf-token")
-      }
-    }).then(function (response) {
-      return response.json().catch(function () { return {}; }).then(function (data) {
-        if (!response.ok) {
-          console.error("Alegra immediate processing rejected", response.status, data.technical_code || data.error_code || "unknown");
-          title.textContent = response.status === 403 ? "Permiso requerido" : "No se pudo iniciar la sincronización";
-          message.textContent = response.status === 409 ? (data.message || "La operación está ocupada o requiere configuración.") : "La operación quedó registrada, pero el procesamiento inmediato fue rechazado.";
-          spinner.hidden = true;
-          continueButton.hidden = false;
-          viewLink.hidden = false;
-          if (response.status !== 403) window.setTimeout(poll, 2000);
-          return;
+    function requestProcess() {
+      processAttempts += 1;
+      fetch(modal.getAttribute("data-operation-process-url"), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Accept": "application/json",
+          "X-CSRFToken": modal.getAttribute("data-csrf-token")
         }
-        updateStatusPanel(data);
-        if (data.state === "synced" || data.state === "correction" || data.state === "reconciliation") finish(data, false);
+      }).then(function (response) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+          if (!response.ok) {
+            if (response.status === 409 && data.error_code === "processing_in_progress" && processAttempts < maxProcessAttempts) {
+              title.textContent = "Esperando sincronización";
+              message.textContent = "Otra ejecución está terminando; se reintentará una vez liberado el bloqueo.";
+              window.setTimeout(requestProcess, 1000);
+              return;
+            }
+            console.error("Alegra immediate processing rejected", response.status, data.technical_code || data.error_code || "unknown");
+            title.textContent = response.status === 403 ? "Permiso requerido" : "No se pudo iniciar la sincronización";
+            message.textContent = response.status === 409 ? (data.message || "La operación está ocupada o requiere configuración.") : "La operación quedó registrada, pero el procesamiento inmediato fue rechazado.";
+            spinner.hidden = true;
+            continueButton.hidden = false;
+            viewLink.hidden = false;
+            if (response.status !== 403) window.setTimeout(poll, 2000);
+            return;
+          }
+          updateStatusPanel(data);
+          if (data.state === "synced" || data.state === "correction" || data.state === "reconciliation") finish(data, false);
+        });
+      }).catch(function (error) {
+        console.error("Alegra immediate processing network error", error?.name || "network_error");
+        title.textContent = "No se pudo contactar el procesador";
+        message.textContent = "La operación quedó registrada. Puedes continuar y consultar el estado más adelante.";
+        spinner.hidden = true;
+        continueButton.hidden = false;
+        viewLink.hidden = false;
+        window.setTimeout(poll, 2000);
       });
-    }).catch(function (error) {
-      console.error("Alegra immediate processing network error", error?.name || "network_error");
-      title.textContent = "No se pudo contactar el procesador";
-      message.textContent = "La operación quedó registrada. Puedes continuar y consultar el estado más adelante.";
-      spinner.hidden = true;
-      continueButton.hidden = false;
-      viewLink.hidden = false;
-      window.setTimeout(poll, 2000);
-    });
+    }
+    requestProcess();
   }
   startProcessing();
   poll();

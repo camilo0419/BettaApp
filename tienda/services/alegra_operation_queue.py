@@ -141,40 +141,58 @@ def enqueue_create(client: Cliente, *, actor=None, timeout=None, defer_remote_ch
         return _persist_create_validation_block(client, exc, actor=actor)
 
     key = BidirectionalClientSync.idempotency_key("betta_to_alegra_create", str(client.pk), payload)
-    existing = AlegraWriteOperation.objects.filter(
-        system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
-        state__in=[AlegraWriteOperation.STATE_PENDING, AlegraWriteOperation.STATE_SENT,
-                   AlegraWriteOperation.STATE_NEEDS_RECONCILIATION],
-    ).order_by("-id").first()
-    if existing:
-        # Una sola alta externa puede existir por cliente. Si aún no salió de
-        # BettaApp, se actualiza la intención con la última fotografía; si ya
-        # fue enviada o requiere conciliación, se conserva sin repetir POST.
-        if existing.state == AlegraWriteOperation.STATE_PENDING and existing.idempotency_key != key:
-            existing.idempotency_key = key
-            existing.payload = payload
-            existing.result_metadata = {
-                **(existing.result_metadata or {}),
-                "superseded_payload": True,
-            }
-            existing.save(update_fields=["idempotency_key", "payload", "result_metadata", "updated_at"])
-        # Un bloqueo exclusivamente local por payload incompleto sí puede
-        # resolverse con una edición posterior. Los bloqueos por candidato
-        # remoto, POST incierto u otra conciliación siguen siendo terminales
-        # para evitar duplicados.
-        if not (
-            existing.state == AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
-            and existing.error_code == "payload_validation"
-        ):
-            return existing
-    operation, _ = AlegraWriteOperation.objects.get_or_create(
-        system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
-        idempotency_key=key, defaults={"state": AlegraWriteOperation.STATE_PENDING},
-    )
-    if operation.state != AlegraWriteOperation.STATE_PENDING:
-        return operation
-    if defer_remote_check:
-        return operation
+    try:
+        with advisory_lock(f"bettaapp:alegra:queue:contact:{client.pk}"):
+            # Revalidar el vínculo dentro del bloqueo: mapped_ids puede ser
+            # una instantánea anterior cuando cron y Passenger corren juntos.
+            if ExternalObjectMap.objects.filter(
+                system=alegra_system(), resource_type="contacts", content_type=content_type,
+                object_id=client.pk, status=ExternalObjectMap.STATUS_ACTIVE,
+            ).exists():
+                return None
+            existing = AlegraWriteOperation.objects.filter(
+                system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
+                state__in=[AlegraWriteOperation.STATE_PENDING, AlegraWriteOperation.STATE_SENT,
+                           AlegraWriteOperation.STATE_NEEDS_RECONCILIATION],
+            ).order_by("-id").first()
+            if existing:
+                # Una sola alta externa puede existir por cliente. Si aún no
+                # salió de BettaApp, se actualiza la intención con la última
+                # fotografía; si ya fue enviada o requiere conciliación, se
+                # conserva sin repetir POST.
+                if existing.state == AlegraWriteOperation.STATE_PENDING and existing.idempotency_key != key:
+                    existing.idempotency_key = key
+                    existing.result_metadata = {
+                        **(existing.result_metadata or {}),
+                        "payload": payload,
+                        "superseded_payload": True,
+                    }
+                    existing.save(update_fields=["idempotency_key", "result_metadata", "updated_at"])
+                # Un bloqueo exclusivamente local por payload incompleto sí
+                # puede resolverse con una edición posterior. Los bloqueos por
+                # candidato remoto, POST incierto u otra conciliación siguen
+                # siendo terminales para evitar duplicados.
+                if not (
+                    existing.state == AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+                    and existing.error_code == "payload_validation"
+                ):
+                    return existing
+            operation, _ = AlegraWriteOperation.objects.get_or_create(
+                system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
+                idempotency_key=key, defaults={"state": AlegraWriteOperation.STATE_PENDING},
+            )
+            if operation.state != AlegraWriteOperation.STATE_PENDING:
+                return operation
+            if defer_remote_check:
+                return operation
+    except DatabaseLockUnavailable as exc:
+        SyncAuditLog.objects.create(
+            system=alegra_system(), operation="enqueue_contact_create", resource="contacts",
+            actor=actor, result=SyncAuditLog.RESULT_PARTIAL,
+            detail="Alta local conservada; otra operación está preparando la sincronización.",
+            metadata={"client_id": client.pk, "queued": False, "state": "queue_busy"},
+        )
+        return None
     try:
         _assert_remote_create_is_safe(client, timeout=timeout)
     except WriteConflict as exc:
@@ -613,10 +631,26 @@ def linked_client_update_candidates(*, limit=100, timeout=None, actor=None, pers
                     item = {"external_id": mapping.external_id, "reason": "no_changes"}
                     blocked.append(item); diagnostics.append(item); continue
                 if persist:
-                    operation, _ = service.prepare_update(
-                        client, system, external_id=mapping.external_id,
-                        remote_row=remote, baseline=baseline,
-                    )
+                    with advisory_lock(f"bettaapp:alegra:queue:contact:{client.pk}"):
+                        current_client = Cliente.objects.get(pk=client.pk)
+                        existing = AlegraWriteOperation.objects.select_for_update().filter(
+                            system=system, client_id=current_client.pk,
+                            operation=AlegraWriteOperation.OP_UPDATE,
+                            state__in=[AlegraWriteOperation.STATE_PENDING,
+                                       AlegraWriteOperation.STATE_SENT,
+                                       AlegraWriteOperation.STATE_NEEDS_RECONCILIATION],
+                        ).order_by("-id").first()
+                        if existing:
+                            if existing.state == AlegraWriteOperation.STATE_PENDING:
+                                operation = existing
+                            else:
+                                item = {"external_id": mapping.external_id, "reason": "existing_operation"}
+                                blocked.append(item); diagnostics.append(item); continue
+                        else:
+                            operation, _ = service.prepare_update(
+                                current_client, system, external_id=mapping.external_id,
+                                remote_row=remote, baseline=baseline,
+                            )
                     prepared.append(operation.pk)
                 else:
                     prepared.append(f"preview:{mapping.external_id}")
