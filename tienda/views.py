@@ -2843,7 +2843,7 @@ def cliente_detalle(request, cliente_id):
         and (not alegra_map.last_synced_at or latest_operation.updated_at > alegra_map.last_synced_at)
     )
     if latest_operation and (not alegra_map or operation_is_newer) and latest_operation.state == AlegraWriteOperation.STATE_PENDING:
-        sync_status = {"code": "pending", "label": "Pendiente", "detail": "La operación está registrada y será procesada por el cron."}
+        sync_status = {"code": "pending", "label": "Pendiente", "detail": "La operación está registrada y continúa de forma segura."}
         sync_at = latest_operation.updated_at
     elif latest_operation and (not alegra_map or operation_is_newer) and latest_operation.state == AlegraWriteOperation.STATE_SENT:
         sync_status = {"code": "syncing", "label": "Sincronizando", "detail": "La operación fue enviada y requiere confirmación."}

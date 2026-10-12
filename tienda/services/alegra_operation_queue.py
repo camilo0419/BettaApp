@@ -639,6 +639,30 @@ def process_pending_operations(*, limit=50, timeout=None, execute=False, actor=N
             )
             results.append({"id": operation.pk, "state": "pending_retry", "attempts": operation.attempts})
             continue
+        except ValidationError as exc:
+            # La materialización diferida valida nuevamente el contexto remoto
+            # antes de construir el PUT. Un contexto incompleto no es un fallo
+            # transitorio ni autoriza un reintento: debe quedar registrado como
+            # revisión para que no se seleccione indefinidamente con attempts=0.
+            operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+            operation.error_code = "payload_validation"
+            operation.error_message = str(exc)[:500]
+            operation.reconciliation_reason = (
+                "La actualización no pudo validarse con la información remota "
+                "disponible; requiere revisión antes de continuar."
+            )
+            operation.save(update_fields=[
+                "state", "error_code", "error_message", "reconciliation_reason", "updated_at",
+            ])
+            SyncAuditLog.objects.create(
+                system=operation.system, operation="process_outbound_contact", resource="contacts",
+                external_id=operation.external_id, actor=actor,
+                result=SyncAuditLog.RESULT_PARTIAL,
+                detail="Operación bloqueada por validación incompleta; no se escribió en Alegra.",
+                metadata={"operation_id": operation.pk, "state": "needs_reconciliation", "error_code": "payload_validation"},
+            )
+            results.append({"id": operation.pk, "state": operation.state, "attempts": operation.attempts})
+            continue
         results.append({"id": operation.pk, "state": result.state, "attempts": result.attempts})
         SyncAuditLog.objects.create(
             system=operation.system, operation="process_outbound_contact", resource="contacts",

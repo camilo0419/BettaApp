@@ -609,6 +609,52 @@ class AutomationTests(TestCase):
         result = process_pending_operations(limit=10, execute=False)
         self.assertEqual(result["pending"], 1)
 
+    @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_deferred_update_with_incomplete_remote_context_becomes_review(self, transport_class):
+        """Una validación incompleta no debe quedar pendiente indefinidamente."""
+        client = self._linked_client("Cliente contexto incompleto", "991001099")
+        mapping = self._contact_map(client, "C-incomplete", {
+            "source": "alegra_write",
+            "last_synced_fields": {
+                "nombre": client.nombre,
+                "identificacion": client.identificacion,
+                "tipo_identificacion": client.tipo_identificacion,
+                "email": "anterior@example.test",
+            },
+        })
+        operation = AlegraWriteOperation.objects.create(
+            system=mapping.system,
+            client=client,
+            operation=AlegraWriteOperation.OP_UPDATE,
+            external_id=mapping.external_id,
+            idempotency_key="deferred-incomplete-context",
+            state=AlegraWriteOperation.STATE_PENDING,
+            result_metadata={
+                "deferred_prepare": True,
+                "baseline": mapping.metadata["last_synced_fields"],
+                "local_snapshot": {"email": "nuevo@example.test"},
+            },
+        )
+        # Falta identificationObject: no hay contrato remoto suficiente para
+        # construir un PUT seguro y tampoco debe realizarse ninguna escritura.
+        transport_class.return_value.get_contact.return_value = {
+            "id": mapping.external_id,
+            "name": client.nombre,
+            "type": ["client"],
+            "status": "active",
+        }
+
+        result = process_pending_operations(limit=1, execute=True)
+
+        operation.refresh_from_db()
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(operation.error_code, "payload_validation")
+        self.assertEqual(operation.attempts, 0)
+        self.assertEqual(result["results"][0]["state"], AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        transport_class.return_value.update_contact.assert_not_called()
+
+
     @patch("tienda.services.alegra_write.AlegraWriteClient")
     def test_linked_updates_continue_after_missing_baseline(self, transport_class):
         first = self._linked_client("Primero", "301")
