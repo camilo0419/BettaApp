@@ -271,6 +271,44 @@ class AutomationTests(TestCase):
         self.assertIsNone(enqueue_update_if_changed(client, defer_remote_check=True))
         self.assertFalse(AlegraWriteOperation.objects.filter(client=client).exists())
 
+    @patch("tienda.management.commands.alegra_resolver_bloqueo_contacto.AlegraWriteClient")
+    def test_historical_protected_block_can_be_resolved_for_safe_followup(self, transport_class):
+        client = self._linked_client("Cliente reanudable", "991001011")
+        client.telefono_secundario = "3334455"
+        client.save(update_fields=["telefono_secundario", "fecha_actualizacion"])
+        mapping = self._contact_map(client, "C-reconcile", {
+            "source": "alegra_write",
+            "last_synced_fields": {"tipo_cliente": client.tipo_cliente, "nombre": client.nombre,
+                                    "identificacion": client.identificacion,
+                                    "tipo_identificacion": client.tipo_identificacion},
+        })
+        old_operation = AlegraWriteOperation.objects.create(
+            system=mapping.system, client=client, operation=AlegraWriteOperation.OP_UPDATE,
+            external_id="C-reconcile", state=AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+            idempotency_key="a" * 64, error_code="protected_change",
+            reconciliation_reason="Bloqueo histórico de prueba.",
+            result_metadata={"baseline": {"tipo_cliente": client.tipo_cliente, "nombre": client.nombre,
+                                           "identificacion": client.identificacion,
+                                           "tipo_identificacion": client.tipo_identificacion,
+                                           "telefono_secundario": "3000000000"}},
+        )
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-reconcile", "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "phoneSecondary": "3000000000", "type": ["client"], "status": "active",
+        }
+        output = StringIO()
+        call_command("alegra_resolver_bloqueo_contacto", "--operation-id", old_operation.pk,
+                     "--apply", "--confirm", "AUTORIZAR REBASE ALEGRA", stdout=output)
+        old_operation.refresh_from_db()
+        self.assertEqual(old_operation.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(old_operation.result_metadata["resolution_status"], "resolved_for_followup")
+        follow_up = AlegraWriteOperation.objects.filter(client=client, operation=AlegraWriteOperation.OP_UPDATE).exclude(pk=old_operation.pk).get()
+        self.assertEqual(follow_up.state, AlegraWriteOperation.STATE_PENDING)
+        self.assertEqual(follow_up.external_id, "C-reconcile")
+        transport_class.return_value.get_contact.assert_called_once_with("C-reconcile")
+
     @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
     @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")

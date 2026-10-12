@@ -265,6 +265,8 @@ def enqueue_update_if_changed(client: Cliente, *, actor=None, timeout=None, defe
                         state__in=[AlegraWriteOperation.STATE_PENDING, AlegraWriteOperation.STATE_SENT,
                                    AlegraWriteOperation.STATE_NEEDS_RECONCILIATION],
                     ).order_by("-id").first()
+                    if existing and (existing.result_metadata or {}).get("resolution_status") == "resolved_for_followup":
+                        existing = None
                     if existing:
                         existing_metadata = existing.result_metadata if isinstance(existing.result_metadata, dict) else {}
                         if existing.state == AlegraWriteOperation.STATE_PENDING and existing_metadata.get("deferred_prepare"):
