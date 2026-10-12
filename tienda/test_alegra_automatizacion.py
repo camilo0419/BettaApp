@@ -213,6 +213,63 @@ class AutomationTests(TestCase):
     @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
     @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_explicit_empty_remote_fields_are_not_classified_as_new_noop(self, transport_class, execute_update):
+        """Reproduce la operación 13: Alegra devuelve las claves, pero vacías."""
+        client = self._linked_client("Persona de Prueba Test", "1212121212")
+        client.email = "test@gmail.com"
+        client.telefono = "2222222"
+        client.telefono_secundario = "3334455"
+        client.ciudad = "MEDELLÍN"
+        client.departamento = "ANTIOQUIA"
+        client.pais = "Colombia"
+        client.save(update_fields=[
+            "email", "telefono", "telefono_secundario", "ciudad", "departamento", "pais", "fecha_actualizacion",
+        ])
+        mapping = self._contact_map(client, "678", {
+            "source": "alegra_write",
+            "last_synced_fields": {
+                "nombre": client.nombre,
+                "identificacion": client.identificacion,
+                "tipo_identificacion": client.tipo_identificacion,
+                "email": "",
+                "telefono": "",
+                "telefono_secundario": "",
+                "ciudad": "",
+                "departamento": "",
+                "pais": "",
+            },
+        })
+        operation = enqueue_update_if_changed(client, defer_remote_check=True)
+        self.assertIsNotNone(operation)
+        transport_class.return_value.get_contact.return_value = {
+            "id": "678",
+            "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY",
+            "regime": "COMMON_REGIME",
+            "email": "",
+            "phonePrimary": "",
+            "phoneSecondary": "",
+            "mobile": "",
+            "address": {"address": "", "city": "", "department": "", "country": ""},
+            "type": ["client"],
+            "status": "active",
+        }
+        execute_update.side_effect = lambda operation_id, authorization: AlegraWriteOperation.objects.get(pk=operation_id)
+
+        process_pending_operations(limit=1, execute=True)
+
+        operation.refresh_from_db()
+        self.assertFalse(operation.result_metadata.get("no_op", False))
+        self.assertNotEqual(operation.state, AlegraWriteOperation.STATE_SYNCED)
+        self.assertTrue(set((
+            "email", "telefono", "telefono_secundario", "ciudad", "departamento", "pais",
+        )).issubset(set(operation.result_metadata["fields"])))
+        execute_update.assert_called_once()
+
+    @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
+    @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
     def test_local_phone_change_remains_authorizable(self, transport_class, execute_update):
         client = self._linked_client("Cliente teléfono", "991001005")
         self._contact_map(client, "C-phone", {

@@ -365,28 +365,35 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
             "codigo_postal": ("address.zipCode",),
         }
 
-        def remote_has_field(field):
+        def remote_field_value(field):
+            """Devuelve (presente, valor) sin confundir vacío con omitido."""
             keys = remote_field_keys.get(field, ())
             for key in keys:
                 if key.startswith("address."):
                     address = remote.get("address")
                     if isinstance(address, dict) and key.split(".", 1)[1] in address:
-                        return True
+                        return True, address.get(key.split(".", 1)[1])
                 elif key == "nameObject":
                     if isinstance(remote.get(key), dict):
-                        return True
+                        return True, remote.get(key)
                 elif key == "identificationObject":
                     if isinstance(remote.get(key), dict):
-                        return True
+                        return True, remote.get(key)
                 elif key in remote:
-                    return True
-            return False
+                    return True, remote.get(key)
+            return False, None
 
         for field, value in local_snapshot.items():
             if str(value or "").strip() == str(baseline.get(field, "") or "").strip():
                 continue
-            if remote_has_field(field):
-                continue
+            present, remote_value = remote_field_value(field)
+            if present:
+                # Un atributo devuelto explícitamente vacío es información
+                # válida y no equivale a omisión. Si el usuario guardó un
+                # valor ordinario distinto del baseline, debe prepararse el
+                # PUT; los campos protegidos seguirán bloqueándose abajo.
+                if str(remote_value or "").strip() != "":
+                    continue
             if field not in comparison["local_fields"]:
                 comparison["local_fields"].append(field)
             if field not in comparison["changed_fields"]:
