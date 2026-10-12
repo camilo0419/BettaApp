@@ -1,7 +1,10 @@
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import Client as DjangoClient, TestCase
 from django.urls import reverse
+from django.template.loader import render_to_string
+from unittest.mock import patch
 
 from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap, SyncAuditLog
 from tienda.services.alegra_import import get_alegra_system
@@ -268,3 +271,40 @@ class InboundAlegraSyncTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertIn("/panel/login/", response.url)
+
+    def test_name_resolution_actions_render_without_external_applicable_changes(self):
+        rendered = render_to_string(
+            "tienda/panel/cliente_alegra_cambios.html",
+            {
+                "cliente": self.client,
+                "alegra_map": self.mapping,
+                "review_token": "signed-review-token",
+                "review": {
+                    "state": CONFLICT,
+                    "reason": "Cambios simultáneos requieren revisión manual.",
+                    "changes": [],
+                    "remote_fields": [],
+                    "local_fields": [],
+                    "conflict_fields": ["nombre"],
+                    "protected_fields": [],
+                    "name_conflict_only": True,
+                },
+            },
+        )
+        self.assertIn("Conservar nombre de Alegra", rendered)
+        self.assertIn("Aplicar nombre de BettaApp", rendered)
+
+    def test_review_view_exposes_name_actions_for_conflict_constant(self):
+        _service, _review, row = self._name_conflict(remote_name="Nombre remoto")
+        user = get_user_model().objects.create_user(
+            username="staff-name-review", password="test-password", is_staff=True,
+        )
+        browser = DjangoClient()
+        browser.force_login(user)
+        with patch("tienda.views.AlegraWriteClient.get_contact", return_value=row):
+            response = browser.get(
+                reverse("panel_cliente_alegra_revisar_cambios", kwargs={"cliente_id": self.client.pk}),
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Conservar nombre de Alegra")
+        self.assertContains(response, "Aplicar nombre de BettaApp")

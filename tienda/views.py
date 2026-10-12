@@ -123,6 +123,7 @@ from .services.centro_control import centro_control_snapshot, refresh_control_al
 from .services.integrity import link_invoice_to_sale
 from .services.sync_freshness import financial_freshness, source_freshness
 from .services.alegra_write import AlegraContactWriteService, AlegraError, AlegraWriteClient
+from .services.alegra_bidirectional_clients import CONFLICT
 from .services.alegra_inbound_sync import InboundClientSyncService, InboundSyncConflict
 from .services.alegra_operation_queue import (
     OUTBOUND_PROCESS_LOCK,
@@ -2642,7 +2643,7 @@ def cliente_alegra_revisar_cambios(request, cliente_id):
         remote = AlegraWriteClient().get_contact(mapping.external_id)
         review = InboundClientSyncService(AlegraWriteClient()).review(cliente, mapping, remote)
         review["name_conflict_only"] = (
-            review.get("state") == "conflict"
+            review.get("state") == CONFLICT
             and review.get("conflict_fields") == ["nombre"]
             and not review.get("protected_fields")
         )
