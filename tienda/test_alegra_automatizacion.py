@@ -523,7 +523,7 @@ class AutomationTests(TestCase):
     @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
     @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
-    def test_local_name_change_requires_manual_reconciliation(self, transport_class, execute_update):
+    def test_local_name_change_is_authorizable_when_remote_name_is_unchanged(self, transport_class, execute_update):
         client = self._linked_client("Cliente nombre", "991001006")
         self._contact_map(client, "C-name", {
             "source": "alegra_write",
@@ -539,11 +539,59 @@ class AutomationTests(TestCase):
             "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
             "type": ["client"], "status": "active",
         }
-        execute_update.side_effect = AssertionError("No debe ejecutarse PUT para un cambio de identidad")
+        execute_update.side_effect = lambda operation_id, authorization: AlegraWriteOperation.objects.get(pk=operation_id)
         process_pending_operations(limit=1, execute=True)
         operation.refresh_from_db()
-        self.assertEqual(operation.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
-        self.assertEqual(operation.error_code, "protected_change")
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
+        execute_update.assert_called_once()
+
+    @patch("tienda.services.alegra_write.AlegraWriteClient")
+    def test_name_put_confirms_and_persists_remote_name_as_baseline(self, transport_class):
+        client = self._linked_client("Nombre original", "991001008")
+        mapping = self._contact_map(client, "C-name-confirmed", {
+            "source": "alegra_write",
+            "last_confirmed": {
+                "nombre": "Nombre original",
+                "identificacion": client.identificacion,
+                "tipo_identificacion": client.tipo_identificacion,
+            },
+            "last_synced_fields": {"nombre": "Nombre original"},
+        })
+        client.primer_nombre = "PERSON TEST"
+        client.primer_apellido = "Test 222 Test Test SA"
+        client.nombre = "PERSON TEST Test 222 Test Test SA"
+        client.save(update_fields=["primer_nombre", "primer_apellido", "nombre", "fecha_actualizacion"])
+        remote_before = {
+            "id": mapping.external_id,
+            "name": "Nombre original",
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        service = AlegraContactWriteService(transport=transport_class.return_value)
+        operation, payload = service.prepare_update(
+            client, mapping.system, external_id=mapping.external_id,
+            remote_row=remote_before, baseline=mapping.metadata["last_confirmed"],
+        )
+        self.assertIn("nombre", operation.result_metadata["fields"])
+        self.assertEqual(payload["name"], client.nombre_mostrado)
+        transport_class.return_value.update_contact.return_value = {"id": mapping.external_id}
+        transport_class.return_value.get_contact.return_value = {
+            **remote_before,
+            "name": "PERSON TEST Test 222 Test Test SA",
+            "nameObject": {"firstName": "PERSON TEST", "lastName": "Test 222 Test Test SA"},
+        }
+        result = service.execute_update(
+            operation.pk,
+            authorization=authorize_external_write(
+                client_id=client.pk, operation="PUT", environment="production", confirmed=True,
+            ),
+        )
+        mapping.refresh_from_db()
+        self.assertEqual(result.state, AlegraWriteOperation.STATE_SYNCED)
+        self.assertEqual(mapping.metadata["last_confirmed"]["nombre"], "PERSON TEST Test 222 Test Test SA")
+        self.assertEqual(mapping.metadata["last_synced_fields"]["nombre"], "PERSON TEST Test 222 Test Test SA")
+        self.assertEqual(mapping.metadata["baseline_source"], "alegra_write")
 
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
     def test_new_client_with_remote_candidate_is_not_queued(self, transport_class):

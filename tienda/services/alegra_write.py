@@ -28,7 +28,7 @@ from django.utils import timezone
 from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap, ExternalSystem
 from .alegra_bidirectional_clients import BidirectionalClientSync
 from .alegra_client import AlegraConfigurationError, AlegraError, AlegraReadOnlyClient, extract_rows
-from .alegra_contact_import import normalize_identity
+from .alegra_contact_import import normalize_identity, normalize_name
 from .alegra_normalization import extract_identification_context
 from .geografia import alegra_location, normalize_location
 from .database_lock import DatabaseLockUnavailable, advisory_lock
@@ -319,7 +319,7 @@ class AlegraContactWriteService:
     """Orquesta operación, estado, mapeo y auditoría sin reintentos ciegos."""
 
     PROTECTED_UPDATE_FIELDS = {
-        "tipo_cliente", "nombre", "tipo_identificacion", "identificacion", "digito_verificacion", "regimen_tributario",
+        "tipo_cliente", "tipo_identificacion", "identificacion", "digito_verificacion", "regimen_tributario",
     }
 
     def __init__(self, *, transport: AlegraWriteClient | None = None):
@@ -640,6 +640,18 @@ class AlegraContactWriteService:
 
     @staticmethod
     def _confirmed_update_value(row: Mapping[str, Any], field: str) -> tuple[bool, Any]:
+        if field == "nombre":
+            if "name" in row:
+                return True, row.get("name")
+            name_object = row.get("nameObject")
+            if isinstance(name_object, Mapping):
+                value = " ".join(
+                    str(name_object.get(key) or "").strip()
+                    for key in ("firstName", "secondName", "lastName", "secondLastName")
+                    if str(name_object.get(key) or "").strip()
+                )
+                return True, value
+            return False, None
         simple = {
             "email": "email",
             "telefono": "phonePrimary",
@@ -667,6 +679,8 @@ class AlegraContactWriteService:
     def _same_confirmed_value(field: str, expected: Any, actual: Any) -> bool:
         expected = str(expected or "").strip()
         actual = str(actual or "").strip()
+        if field == "nombre":
+            return normalize_name(expected) == normalize_name(actual)
         if field in {"ciudad", "departamento", "pais"}:
             return normalize_location(expected) == normalize_location(actual)
         return expected == actual
@@ -736,12 +750,18 @@ class AlegraContactWriteService:
             local_payload = BidirectionalClientSync().build_betta_payload(operation.client)
             missing_fields = []
             mismatched_fields = []
+            confirmed_values = {}
             for field in fields:
                 present, actual = self._confirmed_update_value(confirmed, field)
                 if not present:
                     missing_fields.append(field)
                 elif not self._same_confirmed_value(field, local_payload.get(field), actual):
                     mismatched_fields.append(field)
+                else:
+                    # El baseline debe representar el valor realmente
+                    # devuelto por Alegra, no solo la fotografía local que se
+                    # envió en el PUT.
+                    confirmed_values[field] = actual
             if missing_fields:
                 return self._mark_confirmation_issue(
                     operation_id,
@@ -771,7 +791,7 @@ class AlegraContactWriteService:
                 status=ExternalObjectMap.STATUS_ACTIVE,
             ).first()
             if mapping:
-                synced = {field: local_payload[field] for field in fields if field in local_payload}
+                synced = dict(confirmed_values)
                 mapping_metadata = dict(mapping.metadata or {})
                 previous_synced = mapping_metadata.get("last_synced_fields", {})
                 if not isinstance(previous_synced, dict):
@@ -786,6 +806,7 @@ class AlegraContactWriteService:
                     # únicamente la fotografía compartida que acaba de
                     # confirmarse mediante PUT + GET.
                     "last_confirmed": {**previous_confirmed, **synced},
+                    "baseline_source": "alegra_write",
                 }
                 mapping.last_synced_at = timezone.now()
                 mapping.save(update_fields=["metadata", "last_synced_at"])
