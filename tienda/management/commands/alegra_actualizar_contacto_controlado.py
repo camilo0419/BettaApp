@@ -71,6 +71,18 @@ class Command(BaseCommand):
         return [field for field, (remote, local) in checks.items() if str(remote or "").strip() != str(local or "").strip()]
 
     @staticmethod
+    def _normalized_name_object(value):
+        """Compara solo componentes con contenido; null y vacío son equivalentes."""
+        if not isinstance(value, dict):
+            return {}
+        result = {}
+        for key in ("firstName", "secondName", "lastName", "secondLastName"):
+            normalized = str(value.get(key) or "").strip()
+            if normalized:
+                result[key] = normalized
+        return result
+
+    @staticmethod
     def _field_value(confirmed, field):
         address = confirmed.get("address") if isinstance(confirmed.get("address"), dict) else {}
         key = {
@@ -122,13 +134,20 @@ class Command(BaseCommand):
             if client.segundo_apellido:
                 expected_name_object["secondLastName"] = client.segundo_apellido.strip()
             remote_name_object = remote.get("nameObject")
-            if remote_name_object != expected_name_object:
+            if self._normalized_name_object(remote_name_object) != self._normalized_name_object(expected_name_object):
                 protected.append("nameObject")
             if str(remote.get("name") or "").strip() != str(client.nombre_mostrado or "").strip():
                 protected.append("name")
             if protected:
                 raise CommandError("Campos protegidos diferentes: " + ", ".join(protected))
             payload = service._build_update_payload(client, list(TARGET_FIELDS), external_context=context)
+            # El nombre está protegido: conservar la representación remota
+            # confirmada, omitiendo únicamente null/vacío opcional.
+            payload["nameObject"] = {
+                key: str(remote_name_object.get(key)).strip()
+                for key in ("firstName", "secondName", "lastName", "secondLastName")
+                if isinstance(remote_name_object, dict) and str(remote_name_object.get(key) or "").strip()
+            }
         except (AlegraError, ValueError, KeyError) as exc:
             raise CommandError(f"GET o construcción segura bloqueada: {exc}") from exc
 

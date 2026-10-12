@@ -44,7 +44,10 @@ class ControlledContactUpdateTests(TestCase):
         )
         self.remote = {
             "id": "678", "name": "Persona de Prueba Test",
-            "nameObject": {"firstName": "Persona de Prueba", "lastName": "Test"},
+            "nameObject": {
+                "firstName": "Persona de Prueba", "secondName": None,
+                "lastName": "Test", "secondLastName": None,
+            },
             "identificationObject": {"type": "CC", "number": "1212121212"},
             "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
             "type": ["client"], "status": "active",
@@ -96,6 +99,20 @@ class ControlledContactUpdateTests(TestCase):
 
         client_class.return_value.update_contact.assert_called_once()
         self.assertEqual(SyncAuditLog.objects.get().result, SyncAuditLog.RESULT_PARTIAL)
+
+    @patch("tienda.management.commands.alegra_actualizar_contacto_controlado.AlegraWriteClient")
+    def test_name_object_realmente_diferente_mantiene_bloqueo(self, client_class):
+        different = {**self.remote, "nameObject": {
+            "firstName": "Otro nombre", "secondName": None,
+            "lastName": "Test", "secondLastName": None,
+        }}
+        client_class.return_value.get_contact.return_value = different
+
+        with self.assertRaises(CommandError) as raised:
+            call_command("alegra_actualizar_contacto_controlado")
+
+        self.assertIn("nameObject", str(raised.exception))
+        client_class.return_value.update_contact.assert_not_called()
 
     @patch("tienda.management.commands.alegra_actualizar_contacto_controlado.AlegraWriteClient")
     def test_vinculo_incorrecto_bloquea_antes_del_get(self, client_class):
