@@ -317,6 +317,12 @@ class BidirectionalClientSync:
         geographic_fields = {"ciudad", "departamento", "pais"}
         def comparable(field, value):
             value = str(value or "").strip()
+            if field == "nombre":
+                # name/nameObject y los formularios locales pueden diferir
+                # solo en espacios o capitalización. La comparación debe
+                # conservar conflictos semánticos, pero no crear falsos
+                # conflictos por representación.
+                return normalize_name(value)
             return normalize_location(value) if field in geographic_fields else value
 
         normalized_baseline = {key: comparable(key, value) for key, value in baseline.items()}

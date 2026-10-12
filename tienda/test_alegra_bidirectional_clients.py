@@ -13,6 +13,7 @@ from tienda.services.alegra_bidirectional_clients import (
     CLASS_PROBABLE,
     NEEDS_RECONCILIATION,
     PENDING,
+    SYNCED,
     SafeAlegraWriteAdapter,
 )
 from tienda.services.alegra_import import get_alegra_system
@@ -99,6 +100,67 @@ class BidirectionalClientSyncTests(TestCase):
             {"nombre": "Alegra", "email": "old@example.test"},
         )
         self.assertEqual(conflicts, ["nombre"])
+
+    def test_local_name_change_without_remote_change_is_allowed(self):
+        client = Cliente.objects.create(nombre="Original", identificacion="900123")
+        client.nombre = "PERSON TEST Test 222 Test Test SA"
+        result = self.service.compare_linked_client(
+            client,
+            {"id": "678", "name": "Original"},
+            {"nombre": "Original"},
+        )
+        self.assertEqual(result["conflict_fields"], [])
+        self.assertEqual(result["local_fields"], ["nombre"])
+
+    def test_name_comparison_ignores_only_representation_differences(self):
+        client = Cliente.objects.create(nombre="Persona de Prueba Test", identificacion="900124")
+        result = self.service.compare_linked_client(
+            client,
+            {"id": "678", "name": "  PERSONA   DE PRUEBA TEST  "},
+            {"nombre": "Persona de Prueba Test"},
+        )
+        self.assertEqual(result["state"], SYNCED)
+        self.assertEqual(result["conflict_fields"], [])
+
+    def test_name_object_is_used_when_remote_name_is_omitted(self):
+        client = Cliente.objects.create(nombre="Persona de Prueba Test", identificacion="900126")
+        result = self.service.compare_linked_client(
+            client,
+            {
+                "id": "678",
+                "nameObject": {
+                    "firstName": "PERSONA",
+                    "lastName": "DE PRUEBA TEST",
+                },
+            },
+            {"nombre": "Persona de Prueba Test"},
+        )
+        self.assertEqual(result["state"], SYNCED)
+        self.assertEqual(result["conflict_fields"], [])
+
+    def test_independent_remote_field_does_not_conflict_with_local_name_change(self):
+        client = Cliente.objects.create(
+            nombre="Nombre local nuevo",
+            identificacion="900127",
+            email="old@example.test",
+        )
+        result = self.service.compare_linked_client(
+            client,
+            {"id": "678", "name": "Nombre original", "email": "remote@example.test"},
+            {"nombre": "Nombre original", "email": "old@example.test"},
+        )
+        self.assertEqual(result["conflict_fields"], [])
+        self.assertEqual(result["local_fields"], ["nombre"])
+        self.assertEqual(result["remote_fields"], ["email"])
+
+    def test_divergent_remote_and_local_name_remains_conflict(self):
+        client = Cliente.objects.create(nombre="Nombre local", identificacion="900125")
+        result = self.service.compare_linked_client(
+            client,
+            {"id": "678", "name": "Nombre remoto"},
+            {"nombre": "Nombre original"},
+        )
+        self.assertEqual(result["conflict_fields"], ["nombre"])
 
     def test_simulated_adapter_has_no_external_write_method(self):
         adapter = SafeAlegraWriteAdapter()
