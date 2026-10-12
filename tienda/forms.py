@@ -43,6 +43,7 @@ from .models import (
     CompromisoPago,
     CarteraResponsable,
 )
+from .services.geografia import normalize_location
 
 User = get_user_model()
 
@@ -459,6 +460,18 @@ class ClienteForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        location_text = (cleaned_data.get("municipio_departamento") or "").strip()
+        location_code = (cleaned_data.get("divipola_code") or "").strip()
+        municipio = getattr(self, "_selected_divipola", None)
+        if location_text and not location_code:
+            self.add_error("municipio_departamento", "Selecciona una ubicación del catálogo DIVIPOLA.")
+        elif location_code and municipio is not None:
+            expected = normalize_location(str(municipio))
+            if normalize_location(location_text) != expected:
+                self.add_error(
+                    "municipio_departamento",
+                    "La ubicación no coincide con el código DIVIPOLA seleccionado.",
+                )
         tipo = cleaned_data.get("tipo_cliente")
         nombre = (cleaned_data.get("nombre") or "").strip()
         razon_social = (cleaned_data.get("razon_social") or "").strip()
@@ -523,7 +536,7 @@ class ClienteForm(forms.ModelForm):
             "tipo_cliente", "nombre", "primer_nombre", "segundo_nombre", "primer_apellido", "segundo_apellido",
             "razon_social", "tipo_identificacion", "identificacion", "digito_verificacion", "regimen_tributario",
             "email", "telefono", "telefono_secundario", "celular", "whatsapp", "direccion",
-            "ciudad", "departamento", "pais", "codigo_postal", "contacto_principal", "nombre_comercial", "sector",
+            "municipio_departamento", "divipola_code", "pais", "codigo_postal", "contacto_principal", "nombre_comercial", "sector",
             "sitio_web", "preferencia_contacto", "notas", "activo",
         ]
         widgets = {

@@ -37,6 +37,43 @@ class GeografiaColombianaTests(TestCase):
         self.assertEqual(cliente.departamento, "Antioquia")
         self.assertEqual(cliente.pais, "Colombia")
 
+    def test_form_exposes_only_divipola_location_selector(self):
+        form = ClienteForm()
+        self.assertIn("municipio_departamento", form.fields)
+        self.assertIn("divipola_code", form.fields)
+        self.assertNotIn("ciudad", form.fields)
+        self.assertNotIn("departamento", form.fields)
+
+    def test_form_rejects_free_text_or_contradictory_divipola_selection(self):
+        data = {
+            "tipo_cliente": "persona", "primer_nombre": "Diego", "primer_apellido": "Garzon",
+            "tipo_identificacion": "cc", "identificacion": "1017175766",
+            "regimen_tributario": "COMMON_REGIME", "municipio_departamento": "Bogotá, Cundinamarca",
+            "divipola_code": "05001",
+        }
+        form = ClienteForm(data=data)
+        self.assertFalse(form.is_valid())
+        self.assertIn("municipio_departamento", form.errors)
+
+        data["divipola_code"] = ""
+        form = ClienteForm(data=data)
+        self.assertFalse(form.is_valid())
+        self.assertIn("municipio_departamento", form.errors)
+
+    def test_edit_without_location_selection_preserves_legacy_location(self):
+        cliente = Cliente.objects.create(
+            nombre="Cliente histórico", ciudad="Cali", departamento="Valle del Cauca", pais="Colombia",
+        )
+        form = ClienteForm(data={
+            "tipo_cliente": "persona", "nombre": "Cliente histórico", "primer_nombre": "Cliente",
+            "primer_apellido": "histórico", "tipo_identificacion": "cc", "identificacion": "100",
+            "regimen_tributario": "COMMON_REGIME", "municipio_departamento": "", "divipola_code": "",
+        }, instance=cliente)
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(saved.ciudad, "Cali")
+        self.assertEqual(saved.departamento, "Valle del Cauca")
+
     def test_baseline_comparison_treats_geographic_accents_as_equal(self):
         cliente = Cliente.objects.create(
             nombre="Diego Garzon", primer_nombre="Diego", primer_apellido="Garzon",
