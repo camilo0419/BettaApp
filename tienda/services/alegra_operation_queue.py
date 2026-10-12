@@ -22,6 +22,7 @@ from tienda.services.alegra_write import (
     AlegraContactWriteService,
     AlegraWriteClient,
     RemoteCandidateConflict,
+    summarize_remote_candidate,
     WriteConflict,
     authorize_external_write,
     build_contact_payload,
@@ -45,7 +46,8 @@ def _assert_remote_create_is_safe(client: Cliente, *, timeout=None, transport=No
     candidates = transport.find_candidates(identification=normalize_identity(client.identificacion))
     if candidates:
         raise RemoteCandidateConflict(
-            f"Alegra devolvió {len(candidates)} candidato(s) por identificación; requiere revisión manual."
+            f"Alegra devolvió {len(candidates)} candidato(s) por identificación; requiere revisión manual.",
+            candidates=candidates,
         )
 
 
@@ -206,7 +208,16 @@ def enqueue_create(client: Cliente, *, actor=None, timeout=None, defer_remote_ch
         operation.reconciliation_reason = str(exc)[:500]
         operation.error_code = "remote_candidate"
         operation.error_message = str(exc)[:500]
-        operation.save(update_fields=["state", "reconciliation_reason", "error_code", "error_message", "updated_at"])
+        if isinstance(exc, RemoteCandidateConflict):
+            summaries = [summarize_remote_candidate(row) for row in exc.candidates]
+            operation.result_metadata = {
+                **(operation.result_metadata if isinstance(operation.result_metadata, dict) else {}),
+                "remote_candidates": summaries,
+                "candidate_count": len(summaries),
+            }
+            operation.save(update_fields=["state", "reconciliation_reason", "error_code", "error_message", "result_metadata", "updated_at"])
+        else:
+            operation.save(update_fields=["state", "reconciliation_reason", "error_code", "error_message", "updated_at"])
         return operation
     except (AlegraError, TimeoutError, OSError) as exc:
         retry_count = int((operation.result_metadata or {}).get("retry_count", 0)) + 1

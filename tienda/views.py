@@ -122,7 +122,13 @@ from .services.cartera import cartera_rows, cartera_summary, facturacion_summary
 from .services.centro_control import centro_control_snapshot, refresh_control_alerts
 from .services.integrity import link_invoice_to_sale
 from .services.sync_freshness import financial_freshness, source_freshness
-from .services.alegra_write import AlegraContactWriteService, AlegraError, AlegraWriteClient
+from .services.alegra_write import (
+    AlegraContactWriteService,
+    AlegraError,
+    AlegraWriteClient,
+    RemoteCandidateLinkConflict,
+    summarize_remote_candidate,
+)
 from .services.alegra_bidirectional_clients import CONFLICT
 from .services.alegra_inbound_sync import InboundClientSyncService, InboundSyncConflict
 from .services.alegra_operation_queue import (
@@ -2745,6 +2751,15 @@ def cliente_alegra_operacion_estado(request, cliente_id, operation_id):
         message = "La operación quedó registrada y continuará su procesamiento de forma segura."
     else:
         message = reasons.get(operation.error_code, "La operación no puede continuar automáticamente y requiere revisión.")
+    metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
+    candidates = metadata.get("remote_candidates") if operation.error_code == "remote_candidate" else []
+    review_url = None
+    if operation.state == AlegraWriteOperation.STATE_NEEDS_RECONCILIATION and operation.error_code == "remote_candidate":
+        review_url = reverse(
+            "panel_cliente_alegra_revisar_candidato",
+            kwargs={"cliente_id": cliente.pk, "operation_id": operation.pk},
+        )
+        message = "Alegra encontró contactos con la misma identificación. Revisa y confirma una vinculación explícita."
     return JsonResponse({
         "operation_id": operation.pk,
         "state": code,
@@ -2753,6 +2768,8 @@ def cliente_alegra_operacion_estado(request, cliente_id, operation_id):
         "attempts": operation.attempts,
         "updated_at": operation.updated_at.isoformat(),
         "external_id": operation.external_id if operation.state == AlegraWriteOperation.STATE_SYNCED else None,
+        "candidate_count": len(candidates) if isinstance(candidates, list) else 0,
+        "review_url": review_url,
         "terminal": operation.state in {
             AlegraWriteOperation.STATE_SYNCED,
             AlegraWriteOperation.STATE_FAILED,
@@ -2760,6 +2777,71 @@ def cliente_alegra_operacion_estado(request, cliente_id, operation_id):
             AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
         },
     })
+
+
+@panel_staff_required
+@require_GET
+def cliente_alegra_revisar_candidato(request, cliente_id, operation_id):
+    """Muestra los candidatos conservados por el GET preventivo, sin consultar Alegra."""
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    operation = get_object_or_404(AlegraWriteOperation, pk=operation_id, client=cliente)
+    metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
+    candidates = metadata.get("remote_candidates") if operation.error_code == "remote_candidate" else []
+    if operation.state != AlegraWriteOperation.STATE_NEEDS_RECONCILIATION or operation.error_code != "remote_candidate":
+        messages.error(request, "Esta operación no tiene candidatos vigentes para revisar.")
+        return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+    if not isinstance(candidates, list) or not candidates:
+        try:
+            rows = AlegraWriteClient().find_candidates(identification=cliente.identificacion)
+            candidates = [summarize_remote_candidate(row) for row in rows]
+            if candidates:
+                operation.result_metadata = {**metadata, "remote_candidates": candidates, "candidate_count": len(candidates), "candidate_review_source": "explicit_review_get"}
+                operation.save(update_fields=["result_metadata", "updated_at"])
+        except (AlegraError, ValidationError) as exc:
+            messages.error(request, f"No se pudieron consultar los candidatos: {exc}")
+            return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+    if not candidates:
+        messages.info(request, "La consulta explícita no encontró candidatos; la operación requiere una nueva revisión.")
+        return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+    token = signing.dumps(
+        {"client_id": cliente.pk, "operation_id": operation.pk, "candidate_ids": [str(item.get("id")) for item in candidates]},
+        salt="tienda.alegra_candidate_review",
+    )
+    return render(request, "tienda/panel/cliente_alegra_candidato.html", {
+        "cliente": cliente,
+        "operation": operation,
+        "candidates": candidates,
+        "candidate_token": token,
+    })
+
+
+@panel_staff_required
+@require_POST
+def cliente_alegra_vincular_candidato(request, cliente_id, operation_id):
+    """Confirma una vinculación existente con GET fresco; nunca realiza POST externo."""
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    token = request.POST.get("candidate_token", "")
+    external_id = str(request.POST.get("external_id", "")).strip()
+    try:
+        data = signing.loads(token, salt="tienda.alegra_candidate_review", max_age=900)
+        if int(data.get("client_id")) != cliente.pk or int(data.get("operation_id")) != int(operation_id):
+            raise RemoteCandidateLinkConflict("La revisión no corresponde al cliente u operación solicitados.")
+        if external_id not in {str(value) for value in data.get("candidate_ids", [])}:
+            raise RemoteCandidateLinkConflict("El candidato seleccionado no pertenece a la revisión vigente.")
+        operation = get_object_or_404(AlegraWriteOperation, pk=operation_id, client=cliente)
+        metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
+        candidates = metadata.get("remote_candidates") if isinstance(metadata.get("remote_candidates"), list) else []
+        candidate = next((item for item in candidates if str(item.get("id")) == external_id), None)
+        if not candidate:
+            raise RemoteCandidateLinkConflict("El candidato ya no está disponible para revisión.")
+        AlegraContactWriteService().link_existing_candidate(
+            operation.pk, external_id, candidate, actor=request.user,
+        )
+        messages.success(request, "Contacto Alegra vinculado. No se modificó el nombre ni se creó un contacto nuevo.")
+        return redirect("panel_cliente_alegra_revisar_cambios", cliente_id=cliente.pk)
+    except (AlegraError, RemoteCandidateLinkConflict, DatabaseLockUnavailable, ValidationError, TypeError, ValueError) as exc:
+        messages.error(request, f"No se confirmó la vinculación: {exc}")
+        return redirect("panel_cliente_alegra_revisar_candidato", cliente_id=cliente.pk, operation_id=operation_id)
 
 
 @panel_staff_required
@@ -2922,6 +3004,14 @@ def cliente_detalle(request, cliente_id):
         requested_operation_id = None
     if requested_operation_id and AlegraWriteOperation.objects.filter(pk=requested_operation_id, client=cliente).exists():
         sync_operation_id = requested_operation_id
+    candidate_review_url = ""
+    if not alegra_map and latest_operation and latest_operation.state == AlegraWriteOperation.STATE_NEEDS_RECONCILIATION:
+        operation_metadata = latest_operation.result_metadata if isinstance(latest_operation.result_metadata, dict) else {}
+        if latest_operation.error_code == "remote_candidate":
+            candidate_review_url = reverse(
+                "panel_cliente_alegra_revisar_candidato",
+                kwargs={"cliente_id": cliente.pk, "operation_id": latest_operation.pk},
+            )
     return render(
         request,
         "tienda/panel/cliente_detalle.html",
@@ -2940,6 +3030,7 @@ def cliente_detalle(request, cliente_id):
                 "panel_cliente_alegra_operacion_procesar",
                 kwargs={"cliente_id": cliente.id, "operation_id": sync_operation_id},
             ) if sync_operation_id else "",
+            "candidate_review_url": candidate_review_url,
             "contactos": cliente.contactos.all(),
             "puntos_venta": cliente.puntos_venta.all(),
             "usuarios_portal": cliente.usuarios_portal.select_related("user", "contacto"),

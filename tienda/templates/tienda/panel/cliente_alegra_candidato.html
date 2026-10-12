@@ -1,0 +1,56 @@
+{% extends 'tienda/panel/base_panel.html' %}
+
+{% block title %}Revisar coincidencia Alegra | {{ cliente }}{% endblock %}
+
+{% block content %}
+<div class="cliente-detalle cliente-candidate-review">
+  <div class="panel-head cliente-detalle-head">
+    <div>
+      <span class="eyebrow">Revisión manual</span>
+      <h1>Coincidencia con Alegra</h1>
+      <p class="muted">Alegra encontró contactos con la misma identificación. Compara los datos y confirma solo si pertenecen al mismo cliente.</p>
+    </div>
+    <div class="head-actions">
+      <a href="{% url 'panel_cliente_detalle' cliente.id %}" class="btn btn-outline">Volver al cliente</a>
+    </div>
+  </div>
+
+  <div class="panel-card candidate-local-card">
+    <h2>Datos de BettaApp</h2>
+    <dl class="detail-list">
+      <dt>Nombre</dt><dd>{{ cliente.nombre_mostrado }}</dd>
+      <dt>Identificación</dt><dd>{{ cliente.tipo_identificacion|upper }} {{ cliente.identificacion }}</dd>
+      <dt>Tipo de persona</dt><dd>{{ cliente.get_tipo_cliente_display }}</dd>
+    </dl>
+  </div>
+
+  <div class="panel-card">
+    <h2>Contactos encontrados</h2>
+    <p class="muted">La confirmación solo vincula el contacto existente. No cambia nombres ni ejecuta POST en Alegra.</p>
+    <div class="candidate-list">
+      {% for candidate in candidates %}
+      <article class="candidate-card">
+        <div>
+          <span class="eyebrow">ID Alegra {{ candidate.id }}</span>
+          <h3>{{ candidate.name|default:'Sin nombre' }}</h3>
+          <dl class="detail-list">
+            <dt>Documento</dt><dd>{{ candidate.identification_type|upper }} {{ candidate.identification|default:'-' }}{% if candidate.dv %} · DV {{ candidate.dv }}{% endif %}</dd>
+            <dt>Tipo</dt><dd>{{ candidate.kind_of_person|default:'-' }}</dd>
+            <dt>Régimen</dt><dd>{{ candidate.regime|default:'-' }}</dd>
+            <dt>Estado</dt><dd>{{ candidate.status|default:'-' }}</dd>
+          </dl>
+        </div>
+        <form method="post" action="{% url 'panel_cliente_alegra_vincular_candidato' cliente.id operation.id %}">
+          {% csrf_token %}
+          <input type="hidden" name="candidate_token" value="{{ candidate_token }}">
+          <input type="hidden" name="external_id" value="{{ candidate.id }}">
+          <button type="submit" class="btn btn-primary">Confirmar vinculación</button>
+        </form>
+      </article>
+      {% empty %}
+      <p>No hay candidatos disponibles para esta revisión.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -25,7 +25,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap, ExternalSystem
+from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap, ExternalSystem, SyncAuditLog
 from .alegra_bidirectional_clients import BidirectionalClientSync
 from .alegra_client import AlegraConfigurationError, AlegraError, AlegraReadOnlyClient, extract_rows
 from .alegra_contact_import import normalize_identity, normalize_name
@@ -63,6 +63,35 @@ class WriteConflict(AlegraError):
 
 class RemoteCandidateConflict(WriteConflict):
     """Alegra confirmó candidatos; requiere conciliación, no reintento."""
+
+    def __init__(self, message: str, *, candidates: list[Mapping[str, Any]] | None = None):
+        super().__init__(message)
+        self.candidates = list(candidates or [])
+
+
+class RemoteCandidateLinkConflict(WriteConflict):
+    """El candidato cambió o no puede vincularse de forma inequívoca."""
+
+
+def summarize_remote_candidate(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Conserva solo identidad y clasificación necesarias para revisión humana."""
+    identity = extract_identification_context(row)
+    return {
+        "id": str(row.get("id") or "").strip(),
+        "name": str(row.get("name") or "").strip(),
+        "identification": str(identity.get("number") or "").strip(),
+        "identification_type": str(identity.get("type") or "").strip(),
+        "dv": str(identity.get("dv") or "").strip(),
+        "kind_of_person": str(identity.get("kind") or row.get("kindOfPerson") or "").strip(),
+        "regime": str(identity.get("regime") or row.get("regime") or "").strip(),
+        "type": str(row.get("type") or "").strip(),
+        "status": str(row.get("status") or "").strip(),
+    }
+
+
+def candidate_fingerprint(candidate: Mapping[str, Any]) -> str:
+    raw = json.dumps(dict(candidate), sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _safe_http_error_detail(error: HTTPError) -> str:
@@ -330,7 +359,8 @@ class AlegraContactWriteService:
         candidates = self.transport.find_candidates(identification=normalize_identity(client.identificacion))
         if candidates:
             raise RemoteCandidateConflict(
-                f"Alegra devolvió {len(candidates)} candidato(s) por identificación; requiere revisión manual."
+                f"Alegra devolvió {len(candidates)} candidato(s) por identificación; requiere revisión manual.",
+                candidates=candidates,
             )
 
     def prepare_create(self, client: Cliente, system: ExternalSystem, *,
@@ -364,6 +394,121 @@ class AlegraContactWriteService:
         if operation.state == AlegraWriteOperation.STATE_SENT:
             raise WriteConflict("La creación anterior está en curso o requiere verificación.")
         return operation, payload
+
+    def link_existing_candidate(
+        self,
+        operation_id: int,
+        external_id: str,
+        candidate_snapshot: Mapping[str, Any],
+        *,
+        actor=None,
+    ) -> AlegraWriteOperation:
+        """Vincula un candidato confirmado, sin crear ni modificar el contacto remoto."""
+        if not self.transport:
+            self.transport = AlegraWriteClient()
+        external_id = str(external_id).strip()
+        if not external_id:
+            raise ValidationError("El contacto candidato no tiene un ID externo válido.")
+        with advisory_lock(f"bettaapp:alegra:candidate-link:contacts:{external_id}"):
+            operation = AlegraWriteOperation.objects.select_related("client", "system").get(pk=operation_id)
+            if operation.operation != AlegraWriteOperation.OP_CREATE:
+                raise WriteConflict("La vinculación solo aplica a operaciones de creación.")
+            if operation.state == AlegraWriteOperation.STATE_SYNCED:
+                return operation
+            if operation.state != AlegraWriteOperation.STATE_NEEDS_RECONCILIATION or operation.error_code != "remote_candidate":
+                raise WriteConflict("La operación ya no está en revisión de candidato.")
+            metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
+            stored = [item for item in metadata.get("remote_candidates", []) if isinstance(item, dict)]
+            stored_candidate = next((item for item in stored if str(item.get("id")) == external_id), None)
+            if not stored_candidate:
+                raise RemoteCandidateLinkConflict("El candidato no pertenece a la revisión vigente.")
+            if candidate_fingerprint(stored_candidate) != candidate_fingerprint(candidate_snapshot):
+                raise RemoteCandidateLinkConflict("La revisión del candidato no corresponde al estado mostrado.")
+
+            remote = self.transport.get_contact(external_id)
+            fresh = summarize_remote_candidate(remote)
+            if fresh.get("id") != external_id or candidate_fingerprint(fresh) != candidate_fingerprint(stored_candidate):
+                raise RemoteCandidateLinkConflict("El contacto Alegra cambió; se requiere una nueva revisión.")
+            client = Cliente.objects.select_for_update().get(pk=operation.client_id)
+            identity = extract_identification_context(remote)
+            local_number = normalize_identity(client.identificacion)
+            remote_number = normalize_identity(identity.get("number"))
+            if not local_number or local_number != remote_number:
+                raise RemoteCandidateLinkConflict("La identificación del candidato ya no coincide con el cliente.")
+            local_type = str(client.tipo_identificacion or "").strip().casefold()
+            remote_type = str(identity.get("type") or "").strip().casefold()
+            if local_type and remote_type and local_type != remote_type:
+                raise RemoteCandidateLinkConflict("El tipo de documento del candidato no coincide.")
+            content_type = ContentType.objects.get_for_model(Cliente)
+            active_external_qs = ExternalObjectMap.objects.filter(
+                system=operation.system, resource_type="contacts", external_id=external_id,
+                status=ExternalObjectMap.STATUS_ACTIVE,
+            )
+            if active_external_qs.count() > 1:
+                raise RemoteCandidateLinkConflict("Existen vínculos activos ambiguos para el contacto Alegra.")
+            active_external = active_external_qs.first()
+            if active_external and (active_external.content_type_id != content_type.pk or active_external.object_id != client.pk):
+                raise RemoteCandidateLinkConflict("El contacto Alegra ya está vinculado a otro cliente.")
+            active_local_qs = ExternalObjectMap.objects.filter(
+                system=operation.system, resource_type="contacts", content_type=content_type,
+                object_id=client.pk, status=ExternalObjectMap.STATUS_ACTIVE,
+            ).exclude(external_id=external_id)
+            if active_local_qs.count() > 1:
+                raise RemoteCandidateLinkConflict("Existen vínculos Alegra activos ambiguos para el cliente.")
+            active_local = active_local_qs.first()
+            if active_local:
+                raise RemoteCandidateLinkConflict("El cliente ya tiene otro vínculo Alegra activo.")
+            remote_values = BidirectionalClientSync()._external_values(remote)
+            map_metadata = {
+                "source": "manual_candidate_link",
+                "candidate_operation_id": operation.pk,
+                "last_confirmed": remote_values,
+                "last_synced_fields": remote_values,
+                "baseline_source": "alegra_candidate_link_get",
+                "protected_fields": {
+                    "tipo_identificacion": identity.get("type") or "",
+                    "identificacion": identity.get("number") or "",
+                    "digito_verificacion": identity.get("dv") or "",
+                    "kindOfPerson": identity.get("kind") or remote.get("kindOfPerson") or "",
+                    "regime": identity.get("regime") or remote.get("regime") or "",
+                },
+            }
+            with transaction.atomic():
+                if active_external is None:
+                    ExternalObjectMap.objects.create(
+                        system=operation.system, resource_type="contacts", external_id=external_id,
+                        content_type=content_type, object_id=client.pk,
+                        status=ExternalObjectMap.STATUS_ACTIVE, last_synced_at=timezone.now(),
+                        metadata=map_metadata,
+                    )
+                else:
+                    active_external.last_synced_at = timezone.now()
+                    active_external.metadata = map_metadata
+                    active_external.save(update_fields=["last_synced_at", "metadata", "updated_at"])
+                operation.external_id = external_id
+                operation.state = AlegraWriteOperation.STATE_SYNCED
+                operation.reconciliation_reason = "Vinculación manual confirmada; no se creó un contacto nuevo."
+                operation.error_code = ""
+                operation.error_message = ""
+                operation.result_metadata = {
+                    **metadata,
+                    "linked_existing": True,
+                    "no_op": True,
+                    "confirmed_by_get": True,
+                    "linked_external_id": external_id,
+                }
+                operation.save(update_fields=["external_id", "state", "reconciliation_reason", "error_code", "error_message", "result_metadata", "updated_at"])
+                SyncAuditLog.objects.create(
+                    system=operation.system,
+                    operation="manual_candidate_link",
+                    resource="contacts",
+                    external_id=external_id,
+                    actor=actor,
+                    result=SyncAuditLog.RESULT_SUCCESS,
+                    detail="Candidato de identificación vinculado explícitamente; sin escritura externa.",
+                    metadata={"operation_id": operation.pk, "candidate_count": len(stored)},
+                )
+                return operation
 
     def prepare_update(self, client: Cliente, system: ExternalSystem, *, external_id: str,
                        remote_row: Mapping[str, Any], baseline: Mapping[str, Any]) -> tuple[AlegraWriteOperation, dict[str, Any]]:
@@ -521,7 +666,7 @@ class AlegraContactWriteService:
         try:
             self._assert_remote_create_is_safe(candidate_operation.client)
         except RemoteCandidateConflict as exc:
-            return self._mark_remote_candidate(operation_id, str(exc))
+            return self._mark_remote_candidate(operation_id, str(exc), exc.candidates)
         with transaction.atomic():
             operation = AlegraWriteOperation.objects.select_for_update().select_related("client", "system").get(pk=operation_id)
             if operation.state == AlegraWriteOperation.STATE_SYNCED:
@@ -617,13 +762,24 @@ class AlegraContactWriteService:
         return operation
 
     @staticmethod
-    def _mark_remote_candidate(operation_id: int, message: str) -> AlegraWriteOperation:
+    def _mark_remote_candidate(
+        operation_id: int,
+        message: str,
+        candidates: list[Mapping[str, Any]] | None = None,
+    ) -> AlegraWriteOperation:
         operation = AlegraWriteOperation.objects.get(pk=operation_id)
+        metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
+        summaries = [summarize_remote_candidate(row) for row in (candidates or [])]
         operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
         operation.reconciliation_reason = str(message)[:500]
         operation.error_code = "remote_candidate"
         operation.error_message = str(message)[:500]
-        operation.save(update_fields=["state", "reconciliation_reason", "error_code", "error_message", "updated_at"])
+        operation.result_metadata = {
+            **metadata,
+            "remote_candidates": summaries,
+            "candidate_count": len(summaries),
+        }
+        operation.save(update_fields=["state", "reconciliation_reason", "error_code", "error_message", "result_metadata", "updated_at"])
         return operation
 
     def _mark_failed(self, operation_id: int, message: str) -> AlegraWriteOperation:

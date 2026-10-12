@@ -12,7 +12,7 @@
   </div>
   <div class="head-actions">
     <a href="{% url 'panel_cliente_editar' cliente.id %}" class="btn btn-primary">Editar cliente</a>
-    {% if not alegra_map %}<form method="post" action="{% url 'panel_cliente_alegra_preparar' cliente.id %}" class="inline-form">{% csrf_token %}<button class="btn btn-outline" type="submit">Preparar sincronización Alegra</button></form>{% else %}<a href="{% url 'panel_cliente_alegra_revisar_cambios' cliente.id %}" class="btn btn-outline">Consultar cambios de Alegra</a><form method="post" action="{% url 'panel_cliente_alegra_preparar_actualizacion' cliente.id %}" class="inline-form">{% csrf_token %}<button class="btn btn-outline" type="submit">Preparar actualización en Alegra</button></form>{% endif %}
+    {% if not alegra_map %}{% if candidate_review_url %}<a href="{{ candidate_review_url }}" class="btn btn-outline">Revisar coincidencia con Alegra</a>{% else %}<form method="post" action="{% url 'panel_cliente_alegra_preparar' cliente.id %}" class="inline-form">{% csrf_token %}<button class="btn btn-outline" type="submit">Preparar sincronización Alegra</button></form>{% endif %}{% else %}<a href="{% url 'panel_cliente_alegra_revisar_cambios' cliente.id %}" class="btn btn-outline">Consultar cambios de Alegra</a><form method="post" action="{% url 'panel_cliente_alegra_preparar_actualizacion' cliente.id %}" class="inline-form">{% csrf_token %}<button class="btn btn-outline" type="submit">Preparar actualización en Alegra</button></form>{% endif %}
     <a href="{% url 'panel_proyecto_crear' %}?cliente={{ cliente.id }}" class="btn btn-outline">Crear proyecto</a>
     <a href="{% url 'panel_clientes' %}" class="btn btn-outline">Volver</a>
   </div>
@@ -59,7 +59,7 @@
         <div class="alegra-client-sync-head"><strong>Estado de sincronización</strong><span class="alegra-status-badge" data-sync-status-label>{{ alegra_sync_status.label }}</span></div>
         <p data-sync-status-detail>{{ alegra_sync_status.detail }}</p>
         <p class="muted" data-sync-status-at{% if not alegra_sync_at %} hidden{% endif %}>{% if alegra_sync_at %}Última actualización: {{ alegra_sync_at|date:'Y-m-d H:i' }}{% endif %}</p>
-        {% if alegra_map %}<p>Vinculación activa con Alegra. Las nuevas sincronizaciones utilizarán actualizaciones del contacto existente.</p>{% endif %}
+        {% if alegra_map %}<p>Vinculación activa con Alegra. Las nuevas sincronizaciones actualizarán el contacto existente.</p>{% endif %}
         {% if user.is_staff %}<details class="alegra-sync-technical"><summary>Ver historial técnico</summary>{% for operation in alegra_operations %}<p>{{ operation.get_operation_display }} · {{ operation.get_state_display }} · {{ operation.updated_at|date:'Y-m-d H:i' }}{% if operation.error_message %} · {{ operation.error_message }}{% endif %}</p>{% empty %}<p>Sin operaciones de sincronización registradas.</p>{% endfor %}</details>{% endif %}
       </div>
       {% if cliente.notas %}<p>{{ cliente.notas }}</p>{% endif %}
@@ -338,6 +338,7 @@
     <p class="muted" data-operation-attempts>La operación se está procesando de forma segura.</p>
     <div class="modal-actions">
       <button type="button" class="btn btn-outline" data-operation-continue hidden>Continuar</button>
+      <a class="btn btn-primary" href="#" data-operation-review hidden>Revisar coincidencia</a>
       <a class="btn btn-primary" href="#alegra-sync-status" data-operation-view hidden>Ver estado</a>
     </div>
   </div>
@@ -352,6 +353,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const spinner = modal.querySelector("[data-operation-spinner]");
   const continueButton = modal.querySelector("[data-operation-continue]");
   const viewLink = modal.querySelector("[data-operation-view]");
+  const reviewLink = modal.querySelector("[data-operation-review]");
   let polls = 0;
   let stopped = false;
   const statusPanel = document.querySelector("[data-client-sync-status]");
@@ -383,7 +385,10 @@ document.addEventListener("DOMContentLoaded", function () {
     attempts.textContent = data.attempts ? "Intentos registrados: " + data.attempts : "La operación continúa pendiente de confirmación.";
     spinner.hidden = true;
     continueButton.hidden = false;
-    viewLink.hidden = false;
+    const hasCandidateReview = Boolean(data && data.review_url);
+    reviewLink.hidden = !hasCandidateReview;
+    if (hasCandidateReview) reviewLink.href = data.review_url;
+    viewLink.hidden = hasCandidateReview;
   }
   function poll() {
     if (stopped) return;
@@ -410,6 +415,10 @@ document.addEventListener("DOMContentLoaded", function () {
       .then(updateStatusPanel)
       .catch(function () { /* El estado persistente sigue disponible en la ficha. */ });
     document.getElementById("alegra-sync-status")?.scrollIntoView({behavior: "smooth", block: "center"});
+  });
+  reviewLink.addEventListener("click", function () {
+    stopped = true;
+    modal.classList.remove("is-open"); modal.hidden = true;
   });
   let processStarted = false;
   let processAttempts = 0;
@@ -441,7 +450,7 @@ document.addEventListener("DOMContentLoaded", function () {
             message.textContent = response.status === 409 ? (data.message || "La operación está ocupada o requiere configuración.") : "La operación quedó registrada, pero el procesamiento inmediato fue rechazado.";
             spinner.hidden = true;
             continueButton.hidden = false;
-            viewLink.hidden = false;
+            viewLink.hidden = response.status === 403;
             if (response.status !== 403) window.setTimeout(poll, 2000);
             return;
           }

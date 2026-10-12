@@ -1,6 +1,6 @@
 from io import StringIO
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -606,6 +606,41 @@ class AutomationTests(TestCase):
         operation.refresh_from_db()
         self.assertEqual(operation.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
         self.assertEqual(AlegraWriteOperation.objects.filter(client=client).count(), 1)
+
+    def test_candidate_is_stored_and_explicit_link_uses_fresh_get_without_post(self):
+        client = self._linked_client("Ana Prueba", "123456790")
+        operation = AlegraWriteOperation.objects.create(
+            system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="candidate-review-operation", state=AlegraWriteOperation.STATE_PENDING,
+        )
+        remote = {
+            "id": "A-1", "name": "Contacto remoto", "identification": "123456790",
+            "identificationObject": {"type": "CC", "number": "123456790"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        transport = Mock()
+        transport.find_candidates.return_value = [remote]
+        service = AlegraContactWriteService(transport=transport)
+        result = service.execute_create(
+            operation.pk,
+            authorization=authorize_external_write(
+                client_id=client.pk, operation="POST", environment="production", confirmed=True,
+            ),
+        )
+        self.assertEqual(result.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        result.refresh_from_db()
+        candidate = result.result_metadata["remote_candidates"][0]
+        self.assertEqual(candidate["id"], "A-1")
+        self.assertEqual(candidate["identification"], "123456790")
+        transport.get_contact.return_value = remote
+        linked = service.link_existing_candidate(result.pk, "A-1", candidate)
+        self.assertEqual(linked.state, AlegraWriteOperation.STATE_SYNCED)
+        self.assertTrue(linked.result_metadata["linked_existing"])
+        self.assertTrue(ExternalObjectMap.objects.filter(
+            object_id=client.pk, external_id="A-1", status=ExternalObjectMap.STATUS_ACTIVE,
+        ).exists())
+        transport.create_contact.assert_not_called()
 
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
     def test_remote_check_failure_persists_create_with_backoff(self, transport_class):

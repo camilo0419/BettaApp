@@ -233,6 +233,31 @@ class ClienteCrearViewTests(TestCase):
         forbidden = self.client.get(reverse("panel_cliente_alegra_operacion_estado", args=[other.pk, operation.pk]))
         self.assertEqual(forbidden.status_code, 404)
 
+    def test_candidato_remoto_ofrece_revision_explicita_en_detalle_y_estado(self):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Cliente revisión", primer_nombre="Cliente",
+            primer_apellido="Revisión", identificacion="1017166214", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME",
+        )
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="candidate-status-key", state=AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+            error_code="remote_candidate", result_metadata={"remote_candidates": [{
+                "id": "678", "name": "Contacto remoto", "identification": "1017166214",
+                "identification_type": "CC", "kind_of_person": "PERSON_ENTITY",
+                "regime": "COMMON_REGIME", "status": "active",
+            }]},
+        )
+        detail = self.client.get(reverse("panel_cliente_detalle", args=[cliente.pk]))
+        self.assertContains(detail, "Revisar coincidencia con Alegra")
+        status = self.client.get(reverse("panel_cliente_alegra_operacion_estado", args=[cliente.pk, operation.pk]))
+        self.assertEqual(status.json()["candidate_count"], 1)
+        self.assertIn("revisar-candidato", status.json()["review_url"])
+        review = self.client.get(reverse("panel_cliente_alegra_revisar_candidato", args=[cliente.pk, operation.pk]))
+        self.assertContains(review, "Confirmar vinculación")
+        self.assertContains(review, "Contacto remoto")
+
     @patch("tienda.views.process_pending_operations")
     def test_endpoint_procesa_unicamente_la_operacion_del_cliente(self, process):
         cliente = Cliente.objects.create(
