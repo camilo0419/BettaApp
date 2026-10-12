@@ -319,7 +319,7 @@ class AlegraContactWriteService:
     """Orquesta operación, estado, mapeo y auditoría sin reintentos ciegos."""
 
     PROTECTED_UPDATE_FIELDS = {
-        "tipo_cliente", "tipo_identificacion", "identificacion", "digito_verificacion", "regimen_tributario",
+        "tipo_cliente", "nombre", "tipo_identificacion", "identificacion", "digito_verificacion", "regimen_tributario",
     }
 
     def __init__(self, *, transport: AlegraWriteClient | None = None):

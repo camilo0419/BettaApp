@@ -345,10 +345,43 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
         operation.reconciliation_reason = "Existen cambios simultáneos; se requiere revisión manual."
         operation.save(update_fields=["state", "error_code", "reconciliation_reason", "updated_at"])
         return operation
+    all_local_fields = list(comparison["local_fields"])
     local_fields = [
-        field for field in comparison["local_fields"]
+        field for field in all_local_fields
         if field not in AlegraContactWriteService.PROTECTED_UPDATE_FIELDS
     ]
+    if not local_fields and comparison["remote_fields"]:
+        operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+        operation.error_code = "remote_change"
+        operation.reconciliation_reason = "Alegra tiene cambios no reflejados localmente; requiere revisión manual."
+        operation.save(update_fields=["state", "error_code", "reconciliation_reason", "updated_at"])
+        return operation
+    if not local_fields and not comparison["changed_fields"]:
+        # La intención se creó por un baseline parcial o por una edición que
+        # finalmente ya coincide con Alegra. No hay PUT que ejecutar ni motivo
+        # para clasificarla como cambio protegido.
+        operation.state = AlegraWriteOperation.STATE_SYNCED
+        operation.result_metadata = {
+            **metadata,
+            "deferred_prepare": False,
+            "fields": [],
+            "no_op": True,
+            "confirmed_by_get": True,
+        }
+        operation.save(update_fields=["state", "result_metadata", "updated_at"])
+        synced = BidirectionalClientSync().build_betta_payload(operation.client)
+        mapping_metadata = dict(mapping.metadata or {})
+        previous_confirmed = mapping_metadata.get("last_confirmed", {})
+        if not isinstance(previous_confirmed, dict):
+            previous_confirmed = {}
+        mapping.metadata = {
+            **mapping_metadata,
+            "last_synced_fields": synced,
+            "last_confirmed": {**previous_confirmed, **synced},
+        }
+        mapping.last_synced_at = timezone.now()
+        mapping.save(update_fields=["metadata", "last_synced_at", "updated_at"])
+        return operation
     if not local_fields:
         operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
         operation.error_code = "protected_change"

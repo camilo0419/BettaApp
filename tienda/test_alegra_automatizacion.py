@@ -146,6 +146,156 @@ class AutomationTests(TestCase):
         self.assertFalse(operation.result_metadata.get("deferred_prepare"))
         transport_class.return_value.get_contact.assert_called_once_with("C-deferred")
 
+    @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
+    @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_partial_baseline_with_matching_remote_state_is_noop_not_protected(self, transport_class, execute_update):
+        client = self._linked_client("Cliente sin cambio", "991001004")
+        mapping = self._contact_map(client, "C-noop", {
+            "source": "alegra_write",
+            "last_synced_fields": {
+                "nombre": client.nombre,
+                "identificacion": client.identificacion,
+                "tipo_identificacion": client.tipo_identificacion,
+            },
+        })
+        operation = enqueue_update_if_changed(client, defer_remote_check=True)
+        self.assertIsNotNone(operation)
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-noop", "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "email": client.email, "type": ["client"], "status": "active",
+        }
+        execute_update.side_effect = AssertionError("No debe ejecutarse PUT para una intención sin cambios")
+        result = process_pending_operations(limit=1, execute=True)
+        operation.refresh_from_db()
+        mapping.refresh_from_db()
+        self.assertEqual(result["results"][0]["state"], AlegraWriteOperation.STATE_SYNCED)
+        self.assertTrue(operation.result_metadata["no_op"])
+        self.assertEqual(operation.attempts, 0)
+        self.assertIn("email", mapping.metadata["last_synced_fields"])
+
+    @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
+    @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_local_phone_change_remains_authorizable(self, transport_class, execute_update):
+        client = self._linked_client("Cliente teléfono", "991001005")
+        self._contact_map(client, "C-phone", {
+            "source": "alegra_write",
+            "last_synced_fields": {"nombre": client.nombre, "identificacion": client.identificacion,
+                                    "tipo_identificacion": client.tipo_identificacion, "telefono": "3000000000"},
+        })
+        client.telefono = "3111111111"
+        client.save(update_fields=["telefono", "fecha_actualizacion"])
+        operation = enqueue_update_if_changed(client, defer_remote_check=True)
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-phone", "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "phonePrimary": "3000000000", "type": ["client"], "status": "active",
+        }
+        execute_update.side_effect = lambda operation_id, authorization: AlegraWriteOperation.objects.get(pk=operation_id)
+        process_pending_operations(limit=1, execute=True)
+        operation.refresh_from_db()
+        self.assertFalse(operation.result_metadata.get("deferred_prepare"))
+        self.assertEqual(operation.result_metadata["fields"], ["telefono"])
+
+    @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
+    @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_local_geographic_change_remains_authorizable(self, transport_class, execute_update):
+        client = self._linked_client("Cliente ubicación", "991001007")
+        client.ciudad = "Cali"
+        client.departamento = "Valle del Cauca"
+        client.pais = "Colombia"
+        client.save(update_fields=["ciudad", "departamento", "pais", "fecha_actualizacion"])
+        self._contact_map(client, "C-location", {
+            "source": "alegra_write",
+            "last_synced_fields": {"nombre": client.nombre, "identificacion": client.identificacion,
+                                    "tipo_identificacion": client.tipo_identificacion,
+                                    "ciudad": "Medellín", "departamento": "Antioquia", "pais": "Colombia"},
+        })
+        operation = enqueue_update_if_changed(client, defer_remote_check=True)
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-location", "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "address": {"city": "Medellín", "department": "Antioquia", "country": "Colombia"},
+            "type": ["client"], "status": "active",
+        }
+        execute_update.side_effect = lambda operation_id, authorization: AlegraWriteOperation.objects.get(pk=operation_id)
+        process_pending_operations(limit=1, execute=True)
+        operation.refresh_from_db()
+        self.assertEqual(operation.result_metadata["fields"], ["ciudad", "departamento"])
+
+    @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
+    @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_identification_and_document_type_changes_are_protected(self, transport_class, execute_update):
+        clients = []
+        for index, field, value in ((8, "identificacion", "991001108"), (9, "tipo_identificacion", Cliente.ID_NIT)):
+            client = self._linked_client(f"Cliente protegido {index}", f"99100100{index}")
+            self._contact_map(client, f"C-protected-{index}", {
+                "source": "alegra_write",
+                "last_synced_fields": {"nombre": client.nombre, "identificacion": client.identificacion,
+                                        "tipo_identificacion": client.tipo_identificacion},
+            })
+            setattr(client, field, value)
+            client.save(update_fields=[field, "fecha_actualizacion"])
+            enqueue_update_if_changed(client, defer_remote_check=True)
+            clients.append(client)
+        transport_class.return_value.get_contact.side_effect = [
+            {"id": "C-protected-8", "name": clients[0].nombre,
+             "identificationObject": {"type": "CC", "number": "991001008"},
+             "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME", "type": ["client"]},
+            {"id": "C-protected-9", "name": clients[1].nombre,
+             "identificationObject": {"type": "CC", "number": "991001009"},
+             "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME", "type": ["client"]},
+        ]
+        execute_update.side_effect = AssertionError("No debe ejecutarse PUT para cambios protegidos")
+        process_pending_operations(limit=2, execute=True)
+        operations = list(AlegraWriteOperation.objects.filter(client__in=clients).order_by("client_id"))
+        self.assertEqual([operation.error_code for operation in operations], ["protected_change", "protected_change"])
+
+    def test_regime_change_is_not_enqueued_as_an_automatic_contact_update(self):
+        client = self._linked_client("Cliente régimen", "991001010")
+        self._contact_map(client, "C-regime", {
+            "source": "alegra_write",
+            "last_synced_fields": {"tipo_cliente": client.tipo_cliente, "nombre": client.nombre, "identificacion": client.identificacion,
+                                    "tipo_identificacion": client.tipo_identificacion, "email": client.email,
+                                    "pais": "Colombia"},
+        })
+        client.regimen_tributario = "SIMPLIFIED_REGIME"
+        client.save(update_fields=["regimen_tributario", "fecha_actualizacion"])
+        self.assertIsNone(enqueue_update_if_changed(client, defer_remote_check=True))
+        self.assertFalse(AlegraWriteOperation.objects.filter(client=client).exists())
+
+    @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
+    @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_local_name_change_requires_manual_reconciliation(self, transport_class, execute_update):
+        client = self._linked_client("Cliente nombre", "991001006")
+        self._contact_map(client, "C-name", {
+            "source": "alegra_write",
+            "last_synced_fields": {"nombre": "Nombre anterior", "identificacion": client.identificacion,
+                                    "tipo_identificacion": client.tipo_identificacion},
+        })
+        client.nombre = "Nombre nuevo"
+        client.save(update_fields=["nombre", "fecha_actualizacion"])
+        operation = enqueue_update_if_changed(client, defer_remote_check=True)
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-name", "name": "Nombre anterior",
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        execute_update.side_effect = AssertionError("No debe ejecutarse PUT para un cambio de identidad")
+        process_pending_operations(limit=1, execute=True)
+        operation.refresh_from_db()
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(operation.error_code, "protected_change")
+
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
     def test_new_client_with_remote_candidate_is_not_queued(self, transport_class):
         transport_class.return_value.find_candidates.return_value = [{"id": "A-1"}]
