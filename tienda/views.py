@@ -4578,6 +4578,17 @@ def alegra_integraciones(request):
 
 @alegra_staff_required
 @require_GET
+def alegra_writes_configuration_status(request):
+    """Expose only the write flags from the environment of the web process."""
+    status = alegra_operational_status()
+    return JsonResponse({
+        "external_writes_enabled": bool(status["writes_enabled"]),
+        "automation_writes_enabled": bool(status["automation_enabled"]),
+    })
+
+
+@alegra_staff_required
+@require_GET
 def alegra_connection_status(request):
     force = request.GET.get("force") == "1"
     state = check_connection(force=force) if force else connection_state()

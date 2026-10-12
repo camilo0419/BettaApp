@@ -14,6 +14,38 @@ class ClienteCrearViewTests(TestCase):
         self.client.force_login(self.staff)
         self.url = reverse("panel_cliente_crear")
 
+    @patch.dict(
+        "os.environ",
+        {
+            "ALEGRA_EXTERNAL_WRITES_ENABLED": "true",
+            "ALEGRA_AUTOMATION_WRITES_ENABLED": "false",
+            "ALEGRA_API_TOKEN": "token-no-debe-aparecer",
+        },
+        clear=False,
+    )
+    def test_estado_banderas_usa_el_proceso_web_y_no_expone_secretos(self):
+        self.staff.is_superuser = True
+        self.staff.save(update_fields=["is_superuser"])
+        response = self.client.get(reverse("alegra_writes_configuration_status"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "external_writes_enabled": True,
+                "automation_writes_enabled": False,
+            },
+        )
+        body = response.content.decode()
+        self.assertNotIn("ALEGRA_API_TOKEN", body)
+        self.assertNotIn("token-no-debe-aparecer", body)
+
+    def test_estado_banderas_requiere_permisos_de_alegra(self):
+        self.staff.user_permissions.clear()
+        response = self.client.get(reverse("alegra_writes_configuration_status"))
+
+        self.assertEqual(response.status_code, 403)
+
     def test_post_invalido_muestra_errores_y_no_crea_cliente(self):
         response = self.client.post(self.url, {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": ""})
 

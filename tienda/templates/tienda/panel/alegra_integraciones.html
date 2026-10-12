@@ -34,7 +34,8 @@
     {% if alegra_status.last_write %}{{ alegra_status.last_write.get_state_display }} · {{ alegra_status.last_write.updated_at }}{% else %}Sin operaciones{% endif %}
   </p>
   <p><strong>Operaciones pendientes:</strong> {{ alegra_status.pending_writes }} · <strong>Con error o revisión:</strong> {{ alegra_status.failed_writes }}</p>
-  <p><strong>Escrituras externas:</strong> {% if alegra_status.writes_enabled %}habilitadas por configuración{% else %}deshabilitadas{% endif %} · <strong>Automatización:</strong> {% if alegra_status.automation_enabled %}habilitada por configuración{% else %}deshabilitada{% endif %}</p>
+  <p><strong>Escrituras externas (proceso web):</strong> {% if alegra_status.writes_enabled %}habilitadas{% else %}deshabilitadas{% endif %} · <strong>Automatización (proceso web):</strong> {% if alegra_status.automation_enabled %}habilitada{% else %}deshabilitada{% endif %}</p>
+  <p><a href="{% url 'alegra_writes_configuration_status' %}">Ver comprobación técnica JSON</a></p>
 </div>
 
 <div class="dashboard-kpis">
