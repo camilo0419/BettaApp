@@ -101,6 +101,16 @@ class Command(BaseCommand):
         diagnostics = self._aggregate_review_causes(candidates)
 
         applied = 0
+        omission_counts = Counter({
+            "query_error": 0,
+            "invalid_response": 0,
+            "baseline_exists": 0,
+            "classification_changed": 0,
+            "mapping_missing": 0,
+            "client_missing": 0,
+            "transaction_error": 0,
+            "other_error": 0,
+        })
         if apply_mode:
             for mapping, client, remote, candidate in candidates:
                 if candidate.get("state") != "SAFE":
@@ -110,39 +120,78 @@ class Command(BaseCommand):
                     latest_remote = response.data if isinstance(response.data, dict) and response.data.get("id") else None
                     if latest_remote is None:
                         rows = extract_rows(response.data)
-                        latest_remote = rows[0] if len(rows) == 1 and isinstance(rows[0], dict) else None
-                    if latest_remote is None:
+                        latest_remote = rows[0] if len(rows) == 1 and isinstance(rows[0], dict) and rows[0].get("id") else None
+                    if latest_remote is None or str(latest_remote.get("id")) != str(mapping.external_id):
+                        omission_counts["invalid_response"] += 1
                         continue
                 except AlegraError:
+                    omission_counts["query_error"] += 1
                     continue
-                with transaction.atomic():
-                    locked_mapping = ExternalObjectMap.objects.select_for_update().get(pk=mapping.pk)
-                    locked_client = Cliente.objects.select_for_update().get(pk=client.pk)
-                    metadata = locked_mapping.metadata if isinstance(locked_mapping.metadata, dict) else {}
-                    baseline_state, _baseline = service.baseline_info(metadata)
-                    if baseline_state == "confirmed":
-                        continue
-                    current = service.baseline_candidate(locked_client, locked_mapping, latest_remote)
-                    if current.get("state") != "SAFE":
-                        continue
-                    service.set_baseline(locked_mapping, current)
-                    applied += 1
+                except Exception:
+                    # El informe solo conserva el tipo de omisión agregado; no
+                    # se registra la excepción porque puede contener datos de
+                    # respuesta o configuración.
+                    omission_counts["other_error"] += 1
+                    continue
+                try:
+                    with transaction.atomic():
+                        try:
+                            locked_mapping = ExternalObjectMap.objects.select_for_update().get(pk=mapping.pk)
+                        except ExternalObjectMap.DoesNotExist:
+                            omission_counts["mapping_missing"] += 1
+                            continue
+                        try:
+                            locked_client = Cliente.objects.select_for_update().get(pk=client.pk)
+                        except Cliente.DoesNotExist:
+                            omission_counts["client_missing"] += 1
+                            continue
+                        metadata = locked_mapping.metadata if isinstance(locked_mapping.metadata, dict) else {}
+                        baseline_state, _baseline = service.baseline_info(metadata)
+                        if baseline_state == "confirmed":
+                            omission_counts["baseline_exists"] += 1
+                            continue
+                        current = service.baseline_candidate(locked_client, locked_mapping, latest_remote)
+                        if current.get("state") != "SAFE":
+                            omission_counts["classification_changed"] += 1
+                            continue
+                        service.set_baseline(locked_mapping, current)
+                        applied += 1
+                except Exception:
+                    # La transacción revierte cualquier cambio parcial; el
+                    # registro agregado permite investigar sin exponer PII.
+                    omission_counts["transaction_error"] += 1
             SyncAuditLog.objects.create(
                 system=system,
                 operation="reconcile_alegra_client_baselines",
                 resource="contacts",
-                result=SyncAuditLog.RESULT_SUCCESS if counts["REVIEW"] == 0 and counts["MISSING_REMOTE"] == 0 else SyncAuditLog.RESULT_PARTIAL,
+                result=(
+                    SyncAuditLog.RESULT_SUCCESS
+                    if counts["REVIEW"] == 0
+                    and counts["MISSING_REMOTE"] == 0
+                    and not any(value for key, value in omission_counts.items() if key != "baseline_exists")
+                    else SyncAuditLog.RESULT_PARTIAL
+                ),
                 detail=f"Baselines inicializados: {applied}; revisión: {counts['REVIEW'] + counts['MISSING_REMOTE']}.",
-                metadata={"counts": counts, "applied": applied, "coverage": fetched["coverage"], "direction": "alegra_to_betta"},
+                metadata={
+                    "counts": counts,
+                    "omission_counts": dict(omission_counts),
+                    "applied": applied,
+                    "coverage": fetched["coverage"],
+                    "direction": "alegra_to_betta",
+                },
             )
-        report = self._report(fetched, counts, diagnostics, applied, apply_mode)
+        report = self._report(fetched, counts, diagnostics, applied, apply_mode, omission_counts)
         output = Path(options["output"])
         if not output.is_absolute():
             output = Path.cwd() / output
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(report, encoding="utf-8")
         mode = "APLICACIÓN" if apply_mode else "DRY-RUN"
-        self.stdout.write(self.style.SUCCESS(f"{mode}: baselines seguros={counts['SAFE']}; revisión={counts['REVIEW'] + counts['MISSING_REMOTE']}; informe={output}"))
+        self.stdout.write(self.style.SUCCESS(
+            f"{mode}: baselines seguros={counts['SAFE']}; "
+            f"revisión={counts['REVIEW'] + counts['MISSING_REMOTE']}; "
+            f"omisiones={dict(omission_counts)}; informe={output}"
+        ))
 
     @staticmethod
     def _aggregate_review_causes(candidates):
@@ -203,7 +252,8 @@ class Command(BaseCommand):
         }
 
     @staticmethod
-    def _report(fetched, counts, diagnostics, applied, apply_mode):
+    def _report(fetched, counts, diagnostics, applied, apply_mode, omission_counts=None):
+        omission_counts = dict(omission_counts or {})
         return "\n".join([
             "# Conciliación de baselines Alegra → BettaApp",
             "",
@@ -215,6 +265,7 @@ class Command(BaseCommand):
             f"- Contactos vinculados no recuperados: {counts['MISSING_REMOTE']}.",
             f"- Baselines inicializados: {applied}.",
             f"- Errores de consulta: {len(fetched['errors'])}; IDs duplicados observados: {fetched['duplicate_external_ids']}.",
+            f"- Omisiones en segunda validación: {omission_counts}.",
             "",
             "## Diagnóstico agregado de REVIEW",
             "",
