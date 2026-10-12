@@ -25,24 +25,28 @@
     {% endif %}
     <div class="form-grid two">
       {% for field in form %}
-        {% if field.name == 'tipo_cliente' %}<div class="client-form-section-title full"><span class="eyebrow">Identificación</span><h2>Datos básicos</h2></div>{% endif %}
-        {% if field.name == 'regimen_tributario' %}<div class="client-form-section-title full"><span class="eyebrow">Información fiscal</span><h2>Datos tributarios</h2></div>{% endif %}
-        {% if field.name == 'email' %}<div class="client-form-section-title full"><span class="eyebrow">Comunicación</span><h2>Datos de contacto</h2></div>{% endif %}
-        {% if field.name == 'direccion' %}<div class="client-form-section-title full"><span class="eyebrow">Ubicación</span><h2>Dirección y ubicación</h2></div>{% endif %}
-        <div class="field {% if field.name == 'notas' or field.name == 'direccion' %}full{% endif %}"
-          {% if field.name == 'nombre' %}data-client-reference-field{% endif %}
-          {% if field.name == 'primer_nombre' or field.name == 'segundo_nombre' or field.name == 'primer_apellido' or field.name == 'segundo_apellido' %}data-client-natural-field{% if form.tipo_cliente.value == 'empresa' %} hidden{% endif %}{% endif %}
-          {% if field.name == 'razon_social' or field.name == 'nombre_comercial' %}data-client-company-field{% if form.tipo_cliente.value != 'empresa' %} hidden{% endif %}{% endif %}
-          {% if field.name == 'nombre' and form.tipo_cliente.value != 'empresa' %}hidden{% endif %}>
-          {% if field.name == 'nombre' %}
-            <label for="{{ field.id_for_label }}" data-cliente-nombre-label>{{ field.label }}</label>
-          {% else %}
-            {{ field.label_tag }}
-          {% endif %}
+        {% if field.is_hidden %}
           {{ field }}
-          {% if field.errors %}<div class="field-errors" role="alert">{{ field.errors }}</div>{% endif %}
-          {% if field.help_text %}<small data-cliente-nombre-help>{% if field.name == 'nombre' %}{{ field.help_text }}{% else %}{{ field.help_text }}{% endif %}</small>{% endif %}
-        </div>
+        {% else %}
+          {% if field.name == 'tipo_cliente' %}<div class="client-form-section-title full"><span class="eyebrow">Identificación</span><h2>Datos básicos</h2></div>{% endif %}
+          {% if field.name == 'regimen_tributario' %}<div class="client-form-section-title full"><span class="eyebrow">Información fiscal</span><h2>Datos tributarios</h2></div>{% endif %}
+          {% if field.name == 'email' %}<div class="client-form-section-title full"><span class="eyebrow">Comunicación</span><h2>Datos de contacto</h2></div>{% endif %}
+          {% if field.name == 'direccion' %}<div class="client-form-section-title full"><span class="eyebrow">Ubicación</span><h2>Dirección y ubicación</h2></div>{% endif %}
+          <div class="field {% if field.name == 'notas' or field.name == 'direccion' %}full{% endif %}"
+            {% if field.name == 'nombre' %}data-client-reference-field{% endif %}
+            {% if field.name == 'primer_nombre' or field.name == 'segundo_nombre' or field.name == 'primer_apellido' or field.name == 'segundo_apellido' %}data-client-natural-field{% if form.tipo_cliente.value == 'empresa' %} hidden{% endif %}{% endif %}
+            {% if field.name == 'razon_social' or field.name == 'nombre_comercial' %}data-client-company-field{% if form.tipo_cliente.value != 'empresa' %} hidden{% endif %}{% endif %}
+            {% if field.name == 'nombre' and form.tipo_cliente.value != 'empresa' %}hidden{% endif %}>
+            {% if field.name == 'nombre' %}
+              <label for="{{ field.id_for_label }}" data-cliente-nombre-label>{{ field.label }}</label>
+            {% else %}
+              {{ field.label_tag }}
+            {% endif %}
+            {{ field }}
+            {% if field.errors %}<div class="field-errors" role="alert">{{ field.errors }}</div>{% endif %}
+            {% if field.help_text %}<small data-cliente-nombre-help>{% if field.name == 'nombre' %}{{ field.help_text }}{% else %}{{ field.help_text }}{% endif %}</small>{% endif %}
+          </div>
+        {% endif %}
       {% endfor %}
     </div>
     <section class="form-section-block client-points-section">
