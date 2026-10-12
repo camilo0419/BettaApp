@@ -341,6 +341,56 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
     comparison = BidirectionalClientSync().compare_linked_client(
         operation.client, remote, baseline,
     )
+    # Alegra puede omitir campos opcionales en un GET. En ese caso
+    # compare_linked_client no los clasifica como cambios locales para evitar
+    # sobrescribir datos con vacío. Para una intención diferida sí conocemos
+    # los valores que el usuario guardó: si el campo no vino en la respuesta,
+    # debe seguir siendo una actualización pendiente, nunca un no-op.
+    local_snapshot = metadata.get("local_snapshot")
+    if isinstance(local_snapshot, dict):
+        remote_field_keys = {
+            "nombre": ("name", "nameObject"),
+            "tipo_cliente": ("kindOfPerson",),
+            "tipo_identificacion": ("identificationObject",),
+            "identificacion": ("identificationObject",),
+            "digito_verificacion": ("identificationObject",),
+            "email": ("email",),
+            "telefono": ("phonePrimary",),
+            "telefono_secundario": ("phoneSecondary",),
+            "celular": ("mobile",),
+            "direccion": ("address.address",),
+            "ciudad": ("address.city",),
+            "departamento": ("address.department",),
+            "pais": ("address.country",),
+            "codigo_postal": ("address.zipCode",),
+        }
+
+        def remote_has_field(field):
+            keys = remote_field_keys.get(field, ())
+            for key in keys:
+                if key.startswith("address."):
+                    address = remote.get("address")
+                    if isinstance(address, dict) and key.split(".", 1)[1] in address:
+                        return True
+                elif key == "nameObject":
+                    if isinstance(remote.get(key), dict):
+                        return True
+                elif key == "identificationObject":
+                    if isinstance(remote.get(key), dict):
+                        return True
+                elif key in remote:
+                    return True
+            return False
+
+        for field, value in local_snapshot.items():
+            if str(value or "").strip() == str(baseline.get(field, "") or "").strip():
+                continue
+            if remote_has_field(field):
+                continue
+            if field not in comparison["local_fields"]:
+                comparison["local_fields"].append(field)
+            if field not in comparison["changed_fields"]:
+                comparison["changed_fields"].append(field)
     if comparison["conflict_fields"]:
         operation.state = AlegraWriteOperation.STATE_CONFLICT
         operation.error_code = "conflict"
@@ -372,6 +422,22 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
         }
         operation.save(update_fields=["state", "result_metadata", "updated_at"])
         synced = BidirectionalClientSync().build_betta_payload(operation.client)
+        # Solo confirmar en el baseline los campos que realmente llegaron en
+        # la respuesta GET. Los campos omitidos siguen sin estar confirmados.
+        address = remote.get("address") if isinstance(remote.get("address"), dict) else {}
+        present_fields = {
+            "nombre": "name" in remote or isinstance(remote.get("nameObject"), dict),
+            "email": "email" in remote,
+            "telefono": "phonePrimary" in remote,
+            "telefono_secundario": "phoneSecondary" in remote,
+            "celular": "mobile" in remote,
+            "direccion": "address" in remote and "address" in address,
+            "ciudad": "address" in remote and "city" in address,
+            "departamento": "address" in remote and "department" in address,
+            "pais": "address" in remote and "country" in address,
+            "codigo_postal": "address" in remote and "zipCode" in address,
+        }
+        synced = {field: value for field, value in synced.items() if present_fields.get(field, True)}
         mapping_metadata = dict(mapping.metadata or {})
         previous_confirmed = mapping_metadata.get("last_confirmed", {})
         if not isinstance(previous_confirmed, dict):

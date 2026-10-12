@@ -179,12 +179,47 @@ class AutomationTests(TestCase):
     @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
     @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_deferred_followup_does_not_mark_omitted_remote_fields_as_noop(self, transport_class, execute_update):
+        client = self._linked_client("Cliente seguimiento", "991001012")
+        client.email = "test@gmail.com"
+        client.telefono_secundario = "3334455"
+        client.ciudad = "MEDELLÍN"
+        client.departamento = "ANTIOQUIA"
+        client.save(update_fields=["email", "telefono_secundario", "ciudad", "departamento", "fecha_actualizacion"])
+        self._contact_map(client, "C-omitted", {
+            "source": "alegra_write",
+            "last_synced_fields": {
+                "nombre": client.nombre,
+                "identificacion": client.identificacion,
+                "tipo_identificacion": client.tipo_identificacion,
+            },
+        })
+        operation = enqueue_update_if_changed(client, defer_remote_check=True)
+        self.assertIsNotNone(operation)
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-omitted", "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        execute_update.side_effect = lambda operation_id, authorization: AlegraWriteOperation.objects.get(pk=operation_id)
+        process_pending_operations(limit=1, execute=True)
+        operation.refresh_from_db()
+        self.assertFalse(operation.result_metadata.get("no_op", False))
+        self.assertTrue(set(("email", "telefono_secundario", "ciudad", "departamento")).issubset(
+            set(operation.result_metadata["fields"])
+        ))
+
+    @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
+    @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
     def test_local_phone_change_remains_authorizable(self, transport_class, execute_update):
         client = self._linked_client("Cliente teléfono", "991001005")
         self._contact_map(client, "C-phone", {
             "source": "alegra_write",
             "last_synced_fields": {"nombre": client.nombre, "identificacion": client.identificacion,
-                                    "tipo_identificacion": client.tipo_identificacion, "telefono": "3000000000"},
+                                    "tipo_identificacion": client.tipo_identificacion, "email": client.email,
+                                    "telefono": "3000000000"},
         })
         client.telefono = "3111111111"
         client.save(update_fields=["telefono", "fecha_actualizacion"])
@@ -214,6 +249,7 @@ class AutomationTests(TestCase):
             "source": "alegra_write",
             "last_synced_fields": {"nombre": client.nombre, "identificacion": client.identificacion,
                                     "tipo_identificacion": client.tipo_identificacion,
+                                    "email": client.email,
                                     "ciudad": "Medellín", "departamento": "Antioquia", "pais": "Colombia"},
         })
         operation = enqueue_update_if_changed(client, defer_remote_check=True)
@@ -239,7 +275,7 @@ class AutomationTests(TestCase):
             self._contact_map(client, f"C-protected-{index}", {
                 "source": "alegra_write",
                 "last_synced_fields": {"nombre": client.nombre, "identificacion": client.identificacion,
-                                        "tipo_identificacion": client.tipo_identificacion},
+                                        "tipo_identificacion": client.tipo_identificacion, "email": client.email},
             })
             setattr(client, field, value)
             client.save(update_fields=[field, "fecha_actualizacion"])
@@ -309,6 +345,96 @@ class AutomationTests(TestCase):
         self.assertEqual(follow_up.external_id, "C-reconcile")
         transport_class.return_value.get_contact.assert_called_once_with("C-reconcile")
 
+    @patch("tienda.management.commands.alegra_recuperar_noop_contacto.AlegraWriteClient")
+    def test_noop_recovery_blocks_omitted_remote_fields(self, transport_class):
+        client = self._linked_client("Cliente omitido", "991001013")
+        client.email = "test@gmail.com"
+        client.telefono_secundario = "3334455"
+        client.save(update_fields=["email", "telefono_secundario", "fecha_actualizacion"])
+        mapping = self._contact_map(client, "C-noop-omitted", {"source": "alegra_write"})
+        operation = AlegraWriteOperation.objects.create(
+            system=mapping.system, client=client, operation=AlegraWriteOperation.OP_UPDATE,
+            external_id="C-noop-omitted", state=AlegraWriteOperation.STATE_SYNCED,
+            idempotency_key="b" * 64,
+            result_metadata={
+                "no_op": True, "confirmed_by_get": True,
+                "local_snapshot": {"email": client.email, "telefono_secundario": client.telefono_secundario},
+                "baseline": {"email": "", "telefono_secundario": ""},
+            },
+        )
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-noop-omitted", "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        output = StringIO()
+        call_command("alegra_recuperar_noop_contacto", "--operation-id", operation.pk, stdout=output)
+        self.assertIn("campos_remotos_omitidos", output.getvalue())
+        self.assertEqual(AlegraWriteOperation.objects.filter(client=client).count(), 1)
+
+    @patch("tienda.management.commands.alegra_recuperar_noop_contacto.AlegraWriteClient")
+    def test_noop_recovery_is_idempotent_and_creates_one_follow_up(self, transport_class):
+        client = self._linked_client("Cliente recuperable", "991001014")
+        client.digito_verificacion = "0"
+        client.telefono_secundario = "3334455"
+        client.save(update_fields=["digito_verificacion", "telefono_secundario", "fecha_actualizacion"])
+        mapping = self._contact_map(client, "C-noop-safe", {"source": "alegra_write"})
+        operation = AlegraWriteOperation.objects.create(
+            system=mapping.system, client=client, operation=AlegraWriteOperation.OP_UPDATE,
+            external_id="C-noop-safe", state=AlegraWriteOperation.STATE_SYNCED,
+            idempotency_key="c" * 64,
+            result_metadata={
+                "no_op": True, "confirmed_by_get": True,
+                "local_snapshot": {"telefono_secundario": client.telefono_secundario},
+                "baseline": {"telefono_secundario": "3000000000"},
+            },
+        )
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-noop-safe", "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": client.identificacion, "dv": "0"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "email": client.email, "phoneSecondary": "3000000000",
+            "type": ["client"], "status": "active",
+        }
+        kwargs = {"operation_id": operation.pk, "apply": True,
+                  "confirm": "AUTORIZAR RECUPERACION NO_OP ALEGRA"}
+        call_command("alegra_recuperar_noop_contacto", **kwargs)
+        operation.refresh_from_db()
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_SYNCED)
+        self.assertTrue(operation.result_metadata["invalidated_no_op"])
+        self.assertEqual(AlegraWriteOperation.objects.filter(client=client, operation=AlegraWriteOperation.OP_UPDATE).count(), 2)
+        call_command("alegra_recuperar_noop_contacto", **kwargs)
+        self.assertEqual(AlegraWriteOperation.objects.filter(client=client, operation=AlegraWriteOperation.OP_UPDATE).count(), 2)
+        transport_class.return_value.get_contact.assert_called_once_with("C-noop-safe")
+
+    @patch("tienda.management.commands.alegra_recuperar_noop_contacto.AlegraWriteClient")
+    def test_noop_recovery_blocks_protected_difference_and_explicit_empty_is_not_omitted(self, transport_class):
+        client = self._linked_client("Cliente protegido", "991001015")
+        client.digito_verificacion = "0"
+        client.save(update_fields=["digito_verificacion", "fecha_actualizacion"])
+        mapping = self._contact_map(client, "C-noop-protected", {"source": "alegra_write"})
+        operation = AlegraWriteOperation.objects.create(
+            system=mapping.system, client=client, operation=AlegraWriteOperation.OP_UPDATE,
+            external_id="C-noop-protected", state=AlegraWriteOperation.STATE_SYNCED,
+            idempotency_key="d" * 64,
+            result_metadata={
+                "no_op": True, "confirmed_by_get": True,
+                "local_snapshot": {"email": "nuevo@example.test"},
+                "baseline": {"email": "anterior@example.test", "identificacion": client.identificacion},
+            },
+        )
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-noop-protected", "name": client.nombre,
+            "identificationObject": {"type": "NIT", "number": client.identificacion, "dv": "0"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "email": "", "type": ["client"], "status": "active",
+        }
+        output = StringIO()
+        call_command("alegra_recuperar_noop_contacto", "--operation-id", operation.pk, stdout=output)
+        self.assertIn("diferencias_protegidas", output.getvalue())
+        self.assertEqual(AlegraWriteOperation.objects.filter(client=client).count(), 1)
+
     @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
     @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
@@ -317,7 +443,7 @@ class AutomationTests(TestCase):
         self._contact_map(client, "C-name", {
             "source": "alegra_write",
             "last_synced_fields": {"nombre": "Nombre anterior", "identificacion": client.identificacion,
-                                    "tipo_identificacion": client.tipo_identificacion},
+                                    "tipo_identificacion": client.tipo_identificacion, "email": client.email},
         })
         client.nombre = "Nombre nuevo"
         client.save(update_fields=["nombre", "fecha_actualizacion"])
