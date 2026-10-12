@@ -2786,14 +2786,15 @@ def cliente_alegra_revisar_candidato(request, cliente_id, operation_id):
     cliente = get_object_or_404(Cliente, pk=cliente_id)
     operation = get_object_or_404(AlegraWriteOperation, pk=operation_id, client=cliente)
     metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
-    candidates = metadata.get("remote_candidates") if operation.error_code == "remote_candidate" else []
+    raw_candidates = metadata.get("remote_candidates") if operation.error_code == "remote_candidate" else []
+    candidates = [item for item in raw_candidates if isinstance(item, dict) and str(item.get("id") or "").strip()] if isinstance(raw_candidates, list) else []
     if operation.state != AlegraWriteOperation.STATE_NEEDS_RECONCILIATION or operation.error_code != "remote_candidate":
         messages.error(request, "Esta operación no tiene candidatos vigentes para revisar.")
         return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
-    if not isinstance(candidates, list) or not candidates:
+    if not candidates:
         try:
             rows = AlegraWriteClient().find_candidates(identification=cliente.identificacion)
-            candidates = [summarize_remote_candidate(row) for row in rows]
+            candidates = [summarize_remote_candidate(row) for row in rows if isinstance(row, dict) and str(row.get("id") or "").strip()]
             if candidates:
                 operation.result_metadata = {**metadata, "remote_candidates": candidates, "candidate_count": len(candidates), "candidate_review_source": "explicit_review_get"}
                 operation.save(update_fields=["result_metadata", "updated_at"])
@@ -2901,12 +2902,19 @@ def cliente_alegra_operacion_procesar(request, cliente_id, operation_id):
         message = "La operación requiere conciliación antes de continuar."
     else:
         message = "La operación no se confirmó y requiere revisión."
+    review_url = None
+    if operation.state == AlegraWriteOperation.STATE_NEEDS_RECONCILIATION and operation.error_code == "remote_candidate":
+        review_url = reverse(
+            "panel_cliente_alegra_revisar_candidato",
+            kwargs={"cliente_id": cliente.pk, "operation_id": operation.pk},
+        )
     return JsonResponse({
         "ok": True,
         "operation_id": operation.pk,
         "state": operation.state,
         "message": message,
         "started": bool(result.get("results")),
+        "review_url": review_url,
     })
 
 

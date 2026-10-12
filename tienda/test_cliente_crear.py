@@ -251,12 +251,64 @@ class ClienteCrearViewTests(TestCase):
         )
         detail = self.client.get(reverse("panel_cliente_detalle", args=[cliente.pk]))
         self.assertContains(detail, "Revisar coincidencia con Alegra")
+        modal_detail = self.client.get(
+            f"{reverse('panel_cliente_detalle', args=[cliente.pk])}?sync_operation={operation.pk}"
+        )
+        self.assertContains(modal_detail, "Conciliación con Alegra")
+        self.assertContains(modal_detail, "Se encontró un contacto en Alegra con la misma identificación")
+        self.assertContains(modal_detail, "data-operation-review")
         status = self.client.get(reverse("panel_cliente_alegra_operacion_estado", args=[cliente.pk, operation.pk]))
         self.assertEqual(status.json()["candidate_count"], 1)
         self.assertIn("revisar-candidato", status.json()["review_url"])
         review = self.client.get(reverse("panel_cliente_alegra_revisar_candidato", args=[cliente.pk, operation.pk]))
         self.assertContains(review, "Confirmar vinculación")
         self.assertContains(review, "Contacto remoto")
+
+    @patch("tienda.views.AlegraWriteClient")
+    def test_revision_historica_sin_candidatos_guardados_consulta_y_renderiza(self, transport_class):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Cliente histórico", primer_nombre="Cliente",
+            primer_apellido="Histórico", identificacion="1017166214", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME",
+        )
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="historical-candidate-key", state=AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+            error_code="remote_candidate", result_metadata={},
+        )
+        transport_class.return_value.find_candidates.return_value = [{
+            "id": "678", "name": "Contacto histórico",
+            "identificationObject": {"type": "CC", "number": "1017166214"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME", "status": "active",
+        }]
+        response = self.client.get(reverse("panel_cliente_alegra_revisar_candidato", args=[cliente.pk, operation.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Contacto histórico")
+        operation.refresh_from_db()
+        self.assertEqual(operation.result_metadata["candidate_count"], 1)
+
+    @patch("tienda.views.AlegraWriteClient")
+    def test_revision_historica_descarta_metadata_de_candidatos_malformada(self, transport_class):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Cliente legado", primer_nombre="Cliente",
+            primer_apellido="Legado", identificacion="1017166215", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME",
+        )
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="malformed-candidate-key", state=AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+            error_code="remote_candidate", result_metadata={"remote_candidates": [1, "678"]},
+        )
+        transport_class.return_value.find_candidates.return_value = [{
+            "id": "678", "name": "Contacto recuperado",
+            "identificationObject": {"type": "CC", "number": "1017166215"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME", "status": "active",
+        }]
+        response = self.client.get(reverse("panel_cliente_alegra_revisar_candidato", args=[cliente.pk, operation.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Contacto recuperado")
 
     @patch("tienda.views.process_pending_operations")
     def test_endpoint_procesa_unicamente_la_operacion_del_cliente(self, process):

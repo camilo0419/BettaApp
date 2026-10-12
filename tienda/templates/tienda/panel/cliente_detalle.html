@@ -380,12 +380,13 @@ document.addEventListener("DOMContentLoaded", function () {
       modal.hidden = true;
       return;
     }
-    title.textContent = timedOut ? "Pendiente de sincronización" : (data.label || "Estado de sincronización");
-    message.textContent = timedOut ? "El cliente se guardó en BettaApp. Alegra aún no ha confirmado la operación; puedes consultar su estado posteriormente." : (data.message || "Consulta el estado desde la ficha del cliente.");
-    attempts.textContent = data.attempts ? "Intentos registrados: " + data.attempts : "La operación continúa pendiente de confirmación.";
+    const hasCandidateReview = Boolean(data && data.review_url);
+    title.textContent = hasCandidateReview ? "Conciliación con Alegra" : (timedOut ? "Pendiente de sincronización" : (data.label || "Estado de sincronización"));
+    message.textContent = hasCandidateReview ? "Se encontró un contacto en Alegra con la misma identificación. Revisa sus datos antes de vincularlo" : (timedOut ? "El cliente se guardó en BettaApp. Alegra aún no ha confirmado la operación; puedes consultar su estado posteriormente." : (data.message || "Consulta el estado desde la ficha del cliente."));
+    attempts.textContent = hasCandidateReview ? "La creación automática está detenida para evitar duplicados." : (data.attempts ? "Intentos registrados: " + data.attempts : "La operación continúa pendiente de confirmación.");
     spinner.hidden = true;
     continueButton.hidden = false;
-    const hasCandidateReview = Boolean(data && data.review_url);
+    continueButton.textContent = hasCandidateReview ? "Cerrar" : "Continuar";
     reviewLink.hidden = !hasCandidateReview;
     if (hasCandidateReview) reviewLink.href = data.review_url;
     viewLink.hidden = hasCandidateReview;
