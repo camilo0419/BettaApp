@@ -2528,7 +2528,18 @@ def cliente_editar(request, cliente_id):
             # El guardado local no depende de Alegra. Si existe un vínculo y un
             # baseline válido, se prepara una única operación idempotente; nunca
             # se ejecuta una escritura externa desde el formulario.
-            enqueue_update_if_changed(cliente, actor=request.user)
+            has_active_mapping = ExternalObjectMap.objects.filter(
+                system__code="alegra", resource_type="contacts",
+                content_type__model="cliente", object_id=cliente.pk,
+                status=ExternalObjectMap.STATUS_ACTIVE,
+            ).exists()
+            if has_active_mapping:
+                enqueue_update_if_changed(cliente, actor=request.user)
+            else:
+                # Clientes históricos conservan su política de conciliación;
+                # solo los clientes elegibles para alta automática entran en
+                # la misma cola durable usada por la creación.
+                enqueue_create(cliente, actor=request.user)
         messages.success(request, "Cliente actualizado.")
         return redirect("panel_cliente_detalle", cliente_id=cliente.id)
     return render(request, "tienda/panel/cliente_form.html", {"form": form, "punto_formset": punto_formset, "puntos_venta": cliente.puntos_venta.all(), "cliente": cliente, "titulo": "Editar cliente"})

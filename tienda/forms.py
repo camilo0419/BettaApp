@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import PasswordResetForm
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import models, transaction
 from PIL import Image, UnidentifiedImageError
 from .models import (
@@ -418,6 +419,10 @@ class SolicitudEstadoForm(forms.ModelForm):
 
 
 class ClienteForm(forms.ModelForm):
+    # URLField rechaza dominios válidos sin protocolo antes de llegar a
+    # clean_sitio_web. Se recibe como texto y se valida después de normalizar.
+    sitio_web = forms.CharField(label="Sitio web", required=False)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         tipo = self.data.get("tipo_cliente") if self.is_bound else self.instance.tipo_cliente
@@ -463,6 +468,17 @@ class ClienteForm(forms.ModelForm):
             else:
                 self.add_error("razon_social", "Ingresa la razón social o el nombre comercial de la empresa.")
         return cleaned_data
+
+    def clean_sitio_web(self):
+        value = (self.cleaned_data.get("sitio_web") or "").strip()
+        if not value:
+            return ""
+        normalized = value if value.lower().startswith(("http://", "https://")) else f"https://{value}"
+        try:
+            URLValidator()(normalized)
+        except ValidationError as exc:
+            raise forms.ValidationError("Ingresa un dominio o URL válida, por ejemplo https://ejemplo.com.") from exc
+        return normalized
 
     class Meta:
         model = Cliente

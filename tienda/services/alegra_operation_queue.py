@@ -88,6 +88,24 @@ def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteO
         return None
 
     key = BidirectionalClientSync.idempotency_key("betta_to_alegra_create", str(client.pk), payload)
+    existing = AlegraWriteOperation.objects.filter(
+        system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
+        state__in=[AlegraWriteOperation.STATE_PENDING, AlegraWriteOperation.STATE_SENT,
+                   AlegraWriteOperation.STATE_NEEDS_RECONCILIATION],
+    ).order_by("-id").first()
+    if existing:
+        # Una sola alta externa puede existir por cliente. Si aún no salió de
+        # BettaApp, se actualiza la intención con la última fotografía; si ya
+        # fue enviada o requiere conciliación, se conserva sin repetir POST.
+        if existing.state == AlegraWriteOperation.STATE_PENDING and existing.idempotency_key != key:
+            existing.idempotency_key = key
+            existing.payload = payload
+            existing.result_metadata = {
+                **(existing.result_metadata or {}),
+                "superseded_payload": True,
+            }
+            existing.save(update_fields=["idempotency_key", "payload", "result_metadata", "updated_at"])
+        return existing
     operation, _ = AlegraWriteOperation.objects.get_or_create(
         system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
         idempotency_key=key, defaults={"state": AlegraWriteOperation.STATE_PENDING},

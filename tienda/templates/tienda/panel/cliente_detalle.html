@@ -32,29 +32,29 @@
   <div>
     <div class="panel-card">
       <h2>Datos generales</h2>
-      <dl class="detail-list">
-        <dt>Alegra</dt><dd>{% if alegra_map %}Vinculado · ID externo {{ alegra_map.external_id }}{% else %}Sin vinculación{% endif %}</dd>
-        <dt>Tipo</dt><dd>{{ cliente.get_tipo_cliente_display }}</dd>
-        <dt>Nombre</dt><dd>{{ cliente.nombre_mostrado }}{% if cliente.tipo_cliente == 'empresa' and cliente.nombre != cliente.nombre_mostrado %}<br><small>Referencia interna: {{ cliente.nombre }}</small>{% endif %}</dd>
-        <dt>Razón social</dt><dd>{{ cliente.razon_social|default:'-' }}</dd>
-        <dt>Nombre comercial</dt><dd>{{ cliente.nombre_comercial|default:'-' }}</dd>
-        <dt>Sector</dt><dd>{{ cliente.sector|default:'-' }}</dd>
-        <dt>Identificación</dt><dd>{{ cliente.tipo_identificacion|upper|default:'-' }} {{ cliente.identificacion|default:'' }}</dd>
-        <dt>DV</dt><dd>{{ cliente.digito_verificacion|default:'-' }}</dd>
-        <dt>Email</dt><dd>{{ cliente.email|default:'-' }}</dd>
-        <dt>Teléfono</dt><dd>{{ cliente.telefono|default:'-' }}</dd>
-        <dt>Teléfono secundario</dt><dd>{{ cliente.telefono_secundario|default:'-' }}</dd>
-        <dt>Celular</dt><dd>{{ cliente.celular|default:'-' }}</dd>
-        <dt>WhatsApp</dt><dd>{{ cliente.whatsapp|default:'-' }}</dd>
-        <dt>Sitio web</dt><dd>{{ cliente.sitio_web|default:'-' }}</dd>
-        <dt>Preferencia contacto</dt><dd>{{ cliente.preferencia_contacto|default:'-' }}</dd>
-        <dt>Ciudad</dt><dd>{{ cliente.ciudad|default:'-' }}</dd>
-        <dt>Departamento</dt><dd>{{ cliente.departamento|default:'-' }}</dd>
-        <dt>País</dt><dd>{{ cliente.pais|default:'-' }}</dd>
-        <dt>Código postal</dt><dd>{{ cliente.codigo_postal|default:'-' }}</dd>
-        <dt>Dirección</dt><dd>{{ cliente.direccion|default:'-' }}</dd>
-        <dt>Estado</dt><dd>{% if cliente.activo %}Activo{% else %}Inactivo{% endif %}</dd>
-      </dl>
+      <div class="cliente-general-grid">
+        <section class="cliente-general-card cliente-general-card-wide">
+          <span class="eyebrow">Perfil</span>
+          <h3>{{ cliente.nombre_mostrado }}</h3>
+          {% if cliente.tipo_cliente == 'empresa' and cliente.nombre != cliente.nombre_mostrado %}<p class="muted">Referencia interna: {{ cliente.nombre }}</p>{% endif %}
+          <div class="cliente-general-meta"><span>{{ cliente.get_tipo_cliente_display }}</span><span>{% if cliente.activo %}Activo{% else %}Inactivo{% endif %}</span><span>{% if alegra_map %}Alegra vinculado · {{ alegra_map.external_id }}{% else %}Alegra sin vinculación{% endif %}</span></div>
+          {% if cliente.razon_social %}<p><strong>Razón social:</strong> {{ cliente.razon_social }}</p>{% endif %}
+          {% if cliente.nombre_comercial %}<p><strong>Nombre comercial:</strong> {{ cliente.nombre_comercial }}</p>{% endif %}
+        </section>
+        <section class="cliente-general-card">
+          <span class="eyebrow">Identificación</span>
+          <dl class="detail-list"><dt>Tipo</dt><dd>{{ cliente.tipo_identificacion|upper|default:'-' }}</dd><dt>Número</dt><dd>{{ cliente.identificacion|default:'-' }}</dd><dt>DV</dt><dd>{{ cliente.digito_verificacion|default:'-' }}</dd><dt>Sector</dt><dd>{{ cliente.sector|default:'-' }}</dd></dl>
+        </section>
+        <section class="cliente-general-card">
+          <span class="eyebrow">Contacto</span>
+          <dl class="detail-list"><dt>Correo</dt><dd>{% if cliente.email %}<a href="mailto:{{ cliente.email }}">{{ cliente.email }}</a>{% else %}-{% endif %}</dd><dt>Teléfono</dt><dd>{% if cliente.telefono %}<a href="tel:{{ cliente.telefono }}">{{ cliente.telefono }}</a>{% else %}-{% endif %}</dd><dt>Tel. secundario</dt><dd>{{ cliente.telefono_secundario|default:'-' }}</dd><dt>Celular</dt><dd>{% if cliente.celular %}<a href="tel:{{ cliente.celular }}">{{ cliente.celular }}</a>{% else %}-{% endif %}</dd><dt>WhatsApp</dt><dd>{{ cliente.whatsapp|default:'-' }}</dd><dt>Preferencia</dt><dd>{{ cliente.preferencia_contacto|default:'-' }}</dd></dl>
+          {% if cliente.sitio_web %}<p><strong>Sitio web:</strong> <a href="{{ cliente.sitio_web }}" target="_blank" rel="noopener">{{ cliente.sitio_web }}</a></p>{% endif %}
+        </section>
+        <section class="cliente-general-card cliente-general-card-wide">
+          <span class="eyebrow">Ubicación</span>
+          <dl class="detail-list"><dt>Dirección</dt><dd>{{ cliente.direccion|default:'-' }}</dd><dt>Ciudad</dt><dd>{{ cliente.ciudad|default:'-' }}</dd><dt>Departamento</dt><dd>{{ cliente.departamento|default:'-' }}</dd><dt>País</dt><dd>{{ cliente.pais|default:'-' }}</dd><dt>Código postal</dt><dd>{{ cliente.codigo_postal|default:'-' }}</dd></dl>
+        </section>
+      </div>
       <div class="info-box">
         <strong>Estado de sincronización</strong>
         {% if alegra_map %}<p>Vinculación activa con Alegra ({{ alegra_map.external_id }}). No se puede preparar otra creación.</p>{% endif %}

@@ -60,6 +60,24 @@ class ClienteAlegraFormTests(TestCase):
         self.assertIsNotNone(client.pk)
         transport.assert_not_called()
 
+    def test_sitio_web_sin_protocolo_se_normaliza(self):
+        form = ClienteForm(data=self.natural_data(sitio_web="veltrixcol.com.co"))
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["sitio_web"], "https://veltrixcol.com.co")
+
+    def test_sitio_web_con_protocolo_se_conserva(self):
+        form = ClienteForm(data=self.natural_data(sitio_web="http://ejemplo.com"))
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["sitio_web"], "http://ejemplo.com")
+
+    def test_sitio_web_invalido_muestra_error(self):
+        form = ClienteForm(data=self.natural_data(sitio_web="no es una url"))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("sitio_web", form.errors)
+
     def test_payload_blocks_missing_regime_without_changing_client(self):
         client = Cliente(
             nombre="Camilo Test", tipo_cliente=Cliente.TIPO_PERSONA,
