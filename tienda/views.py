@@ -2811,11 +2811,19 @@ def cliente_alegra_operacion_procesar(request, cliente_id, operation_id):
             "started": False,
         }, status=409 if operation.state == AlegraWriteOperation.STATE_PENDING else 200)
     operation.refresh_from_db()
+    if operation.state == AlegraWriteOperation.STATE_SYNCED:
+        message = "Alegra confirmó la sincronización del cliente."
+    elif operation.state in {AlegraWriteOperation.STATE_PENDING, AlegraWriteOperation.STATE_SENT}:
+        message = "La operación sigue procesándose y aún no tiene confirmación definitiva."
+    elif operation.state in {AlegraWriteOperation.STATE_CONFLICT, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION}:
+        message = "La operación requiere conciliación antes de continuar."
+    else:
+        message = "La operación no se confirmó y requiere revisión."
     return JsonResponse({
         "ok": True,
         "operation_id": operation.pk,
         "state": operation.state,
-        "message": "La operación fue procesada; consulta el estado confirmado.",
+        "message": message,
         "started": bool(result.get("results")),
     })
 

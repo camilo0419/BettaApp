@@ -193,6 +193,21 @@ class ClienteCrearViewTests(TestCase):
         self.assertContains(response, "Pendiente")
         self.assertContains(response, "Aún no existe una confirmación externa.")
 
+    def test_detalle_cierra_modal_y_deja_estado_discreto_al_confirmar_synced(self):
+        cliente = Cliente.objects.create(nombre="Modal confirmado")
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_UPDATE,
+            idempotency_key="modal-confirmed-key", state=AlegraWriteOperation.STATE_SYNCED,
+            attempts=1,
+        )
+        response = self.client.get(
+            f"{reverse('panel_cliente_detalle', args=[cliente.pk])}?sync_operation={operation.pk}"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data.state === "synced"', html=False)
+        self.assertContains(response, "modal.hidden = true", html=False)
+
     def test_estado_de_operacion_no_expone_datos_y_exige_cliente_correcto(self):
         cliente = Cliente.objects.create(
             tipo_cliente=Cliente.TIPO_EMPRESA,
@@ -240,6 +255,29 @@ class ClienteCrearViewTests(TestCase):
             limit=1, timeout=15, execute=True, actor=self.staff,
             operation_id=operation.pk,
         )
+
+    @patch("tienda.views.process_pending_operations")
+    def test_endpoint_devuelve_confirmacion_real_si_termina_sincronizada(self, process):
+        cliente = Cliente.objects.create(nombre="Confirmación visual")
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_UPDATE,
+            idempotency_key="confirmed-status-key", state=AlegraWriteOperation.STATE_PENDING,
+        )
+
+        def complete_operation(**kwargs):
+            operation.state = AlegraWriteOperation.STATE_SYNCED
+            operation.attempts = 1
+            operation.save(update_fields=["state", "attempts", "updated_at"])
+            return {"results": [{"id": operation.pk, "state": AlegraWriteOperation.STATE_SYNCED}]}
+
+        process.side_effect = complete_operation
+        response = self.client.post(
+            reverse("panel_cliente_alegra_operacion_procesar", args=[cliente.pk, operation.pk]),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["state"], AlegraWriteOperation.STATE_SYNCED)
+        self.assertEqual(response.json()["message"], "Alegra confirmó la sincronización del cliente.")
 
     @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "false"}, clear=False)
     def test_endpoint_informa_configuracion_sin_dejar_operacion_en_error(self):

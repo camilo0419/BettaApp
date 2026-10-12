@@ -372,6 +372,12 @@ document.addEventListener("DOMContentLoaded", function () {
     stopped = true;
     modal.setAttribute("aria-busy", "false");
     updateStatusPanel(data);
+    if (!timedOut && data && data.state === "synced") {
+      // La confirmación persistente ya está disponible; no bloquear la ficha.
+      modal.classList.remove("is-open");
+      modal.hidden = true;
+      return;
+    }
     title.textContent = timedOut ? "Pendiente de sincronización" : (data.label || "Estado de sincronización");
     message.textContent = timedOut ? "El cliente se guardó en BettaApp. Alegra aún no ha confirmado la operación; puedes consultar su estado posteriormente." : (data.message || "Consulta el estado desde la ficha del cliente.");
     attempts.textContent = data.attempts ? "Intentos registrados: " + data.attempts : "La operación continúa pendiente de confirmación.";
@@ -385,11 +391,13 @@ document.addEventListener("DOMContentLoaded", function () {
     fetch(modal.getAttribute("data-operation-status-url"), {credentials: "same-origin", headers: {"Accept": "application/json"}})
       .then(function (response) { if (!response.ok) throw new Error("status"); return response.json(); })
       .then(function (data) {
+        if (stopped) return;
         if (["synced", "correction", "failed", "reconciliation", "needs_reconciliation", "conflict"].indexOf(data.state) >= 0) finish(data, false);
         else if (polls >= 15) finish(data, true);
         else window.setTimeout(poll, 2000);
       })
       .catch(function () {
+        if (stopped) return;
         if (polls >= 15) finish({}, true); else window.setTimeout(poll, 2000);
       });
   }
@@ -420,6 +428,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }).then(function (response) {
         return response.json().catch(function () { return {}; }).then(function (data) {
+          if (stopped) return;
           if (!response.ok) {
             if (response.status === 409 && data.error_code === "processing_in_progress" && processAttempts < maxProcessAttempts) {
               title.textContent = "Esperando sincronización";
@@ -437,9 +446,10 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
           }
           updateStatusPanel(data);
-          if (data.state === "synced" || data.state === "correction" || data.state === "reconciliation") finish(data, false);
+          if (data.state === "synced" || data.state === "correction" || data.state === "reconciliation" || data.state === "conflict" || data.state === "needs_reconciliation" || data.state === "failed") finish(data, false);
         });
       }).catch(function (error) {
+        if (stopped) return;
         console.error("Alegra immediate processing network error", error?.name || "network_error");
         title.textContent = "No se pudo contactar el procesador";
         message.textContent = "La operación quedó registrada. Puedes continuar y consultar el estado más adelante.";
