@@ -208,6 +208,27 @@ class ClienteCrearViewTests(TestCase):
             operation_id=operation.pk,
         )
 
+    @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "false"}, clear=False)
+    def test_endpoint_informa_configuracion_sin_dejar_operacion_en_error(self):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_EMPRESA,
+            nombre="Procesamiento bloqueado",
+            identificacion="900123459",
+            tipo_identificacion=Cliente.ID_NIT,
+            regimen_tributario="COMMON_REGIME",
+        )
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="configuration-operation-key", state=AlegraWriteOperation.STATE_PENDING,
+        )
+        response = self.client.post(reverse("panel_cliente_alegra_operacion_procesar", args=[cliente.pk, operation.pk]))
+
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(response.json()["ok"])
+        self.assertEqual(response.json()["state"], AlegraWriteOperation.STATE_PENDING)
+        self.assertEqual(operation.attempts, 0)
+
     def test_endpoint_no_reprocesa_operacion_terminal(self):
         cliente = Cliente.objects.create(nombre="Ya sincronizado")
         system = ExternalSystem.objects.create(code="alegra", name="Alegra")

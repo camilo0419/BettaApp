@@ -55,10 +55,10 @@
           <dl class="detail-list"><dt>Dirección</dt><dd>{{ cliente.direccion|default:'-' }}</dd><dt>Ciudad</dt><dd>{{ cliente.ciudad|default:'-' }}</dd><dt>Departamento</dt><dd>{{ cliente.departamento|default:'-' }}</dd><dt>País</dt><dd>{{ cliente.pais|default:'-' }}</dd><dt>Código postal</dt><dd>{{ cliente.codigo_postal|default:'-' }}</dd></dl>
         </section>
       </div>
-      <div class="info-box alegra-client-sync alegra-client-sync-{{ alegra_sync_status.code }}" data-client-sync-status>
-        <div class="alegra-client-sync-head"><strong>Estado de sincronización</strong><span class="alegra-status-badge">{{ alegra_sync_status.label }}</span></div>
-        <p>{{ alegra_sync_status.detail }}</p>
-        {% if alegra_sync_at %}<p class="muted">Última actualización: {{ alegra_sync_at|date:'Y-m-d H:i' }}</p>{% endif %}
+      <div id="alegra-sync-status" class="info-box alegra-client-sync alegra-client-sync-{{ alegra_sync_status.code }}" data-client-sync-status>
+        <div class="alegra-client-sync-head"><strong>Estado de sincronización</strong><span class="alegra-status-badge" data-sync-status-label>{{ alegra_sync_status.label }}</span></div>
+        <p data-sync-status-detail>{{ alegra_sync_status.detail }}</p>
+        <p class="muted" data-sync-status-at{% if not alegra_sync_at %} hidden{% endif %}>{% if alegra_sync_at %}Última actualización: {{ alegra_sync_at|date:'Y-m-d H:i' }}{% endif %}</p>
         {% if alegra_map %}<p>Vinculación activa con Alegra. No se puede preparar otra creación.</p>{% endif %}
         {% if user.is_staff %}<details class="alegra-sync-technical"><summary>Ver historial técnico</summary>{% for operation in alegra_operations %}<p>{{ operation.get_operation_display }} · {{ operation.get_state_display }} · {{ operation.updated_at|date:'Y-m-d H:i' }}{% if operation.error_message %} · {{ operation.error_message }}{% endif %}</p>{% empty %}<p>Sin operaciones de sincronización registradas.</p>{% endfor %}</details>{% endif %}
       </div>
@@ -338,7 +338,7 @@
     <p class="muted" data-operation-attempts>La operación se está procesando de forma segura.</p>
     <div class="modal-actions">
       <button type="button" class="btn btn-outline" data-operation-continue hidden>Continuar</button>
-      <a class="btn btn-primary" href="{% url 'panel_cliente_detalle' cliente.id %}" data-operation-view hidden>Ver estado</a>
+      <a class="btn btn-primary" href="#alegra-sync-status" data-operation-view hidden>Ver estado</a>
     </div>
   </div>
 </div>
@@ -354,9 +354,24 @@ document.addEventListener("DOMContentLoaded", function () {
   const viewLink = modal.querySelector("[data-operation-view]");
   let polls = 0;
   let stopped = false;
+  const statusPanel = document.querySelector("[data-client-sync-status]");
+  const statusLabel = statusPanel?.querySelector("[data-sync-status-label]");
+  const statusDetail = statusPanel?.querySelector("[data-sync-status-detail]");
+  const statusAt = statusPanel?.querySelector("[data-sync-status-at]");
+  const statusCodes = ["pending", "syncing", "synced", "reconciliation", "correction"];
+  function updateStatusPanel(data) {
+    if (!statusPanel || !data) return;
+    statusCodes.forEach(function (code) { statusPanel.classList.remove("alegra-client-sync-" + code); });
+    const code = data.state === "synced" ? "synced" : ((data.state === "syncing" || data.state === "sent") ? "syncing" : ((data.state === "reconciliation" || data.state === "needs_reconciliation" || data.state === "conflict") ? "reconciliation" : ((data.state === "correction" || data.state === "failed") ? "correction" : "pending")));
+    statusPanel.classList.add("alegra-client-sync-" + code);
+    if (statusLabel) statusLabel.textContent = data.label || (code === "synced" ? "Sincronizado" : "Pendiente");
+    if (statusDetail) statusDetail.textContent = data.message || "La operación continúa registrada.";
+    if (statusAt && data.updated_at) { statusAt.hidden = false; statusAt.textContent = "Última actualización: " + new Date(data.updated_at).toLocaleString(); }
+  }
   function finish(data, timedOut) {
     stopped = true;
     modal.setAttribute("aria-busy", "false");
+    updateStatusPanel(data);
     title.textContent = timedOut ? "Pendiente de sincronización" : (data.label || "Estado de sincronización");
     message.textContent = timedOut ? "El cliente se guardó en BettaApp. Alegra aún no ha confirmado la operación; puedes consultar su estado posteriormente." : (data.message || "Consulta el estado desde la ficha del cliente.");
     attempts.textContent = data.attempts ? "Intentos registrados: " + data.attempts : "La operación continúa pendiente de confirmación.";
@@ -370,7 +385,7 @@ document.addEventListener("DOMContentLoaded", function () {
     fetch(modal.getAttribute("data-operation-status-url"), {credentials: "same-origin", headers: {"Accept": "application/json"}})
       .then(function (response) { if (!response.ok) throw new Error("status"); return response.json(); })
       .then(function (data) {
-        if (data.state === "synced" || data.state === "correction" || data.state === "reconciliation") finish(data, false);
+        if (["synced", "correction", "failed", "reconciliation", "needs_reconciliation", "conflict"].indexOf(data.state) >= 0) finish(data, false);
         else if (polls >= 15) finish(data, true);
         else window.setTimeout(poll, 2000);
       })
@@ -379,6 +394,15 @@ document.addEventListener("DOMContentLoaded", function () {
       });
   }
   continueButton.addEventListener("click", function () { modal.classList.remove("is-open"); modal.hidden = true; });
+  viewLink.addEventListener("click", function (event) {
+    event.preventDefault();
+    modal.classList.remove("is-open"); modal.hidden = true;
+    fetch(modal.getAttribute("data-operation-status-url"), {credentials: "same-origin", headers: {"Accept": "application/json"}})
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(updateStatusPanel)
+      .catch(function () { /* El estado persistente sigue disponible en la ficha. */ });
+    document.getElementById("alegra-sync-status")?.scrollIntoView({behavior: "smooth", block: "center"});
+  });
   let processStarted = false;
   function startProcessing() {
     if (processStarted) return;
@@ -390,8 +414,29 @@ document.addEventListener("DOMContentLoaded", function () {
         "Accept": "application/json",
         "X-CSRFToken": modal.getAttribute("data-csrf-token")
       }
-    }).catch(function () {
-      // La operación queda persistida; el estado seguirá siendo consultable.
+    }).then(function (response) {
+      return response.json().catch(function () { return {}; }).then(function (data) {
+        if (!response.ok) {
+          console.error("Alegra immediate processing rejected", response.status, data.technical_code || data.error_code || "unknown");
+          title.textContent = response.status === 403 ? "Permiso requerido" : "No se pudo iniciar la sincronización";
+          message.textContent = response.status === 409 ? (data.message || "La operación está ocupada o requiere configuración.") : "La operación quedó registrada, pero el procesamiento inmediato fue rechazado.";
+          spinner.hidden = true;
+          continueButton.hidden = false;
+          viewLink.hidden = false;
+          if (response.status !== 403) window.setTimeout(poll, 2000);
+          return;
+        }
+        updateStatusPanel(data);
+        if (data.state === "synced" || data.state === "correction" || data.state === "reconciliation") finish(data, false);
+      });
+    }).catch(function (error) {
+      console.error("Alegra immediate processing network error", error?.name || "network_error");
+      title.textContent = "No se pudo contactar el procesador";
+      message.textContent = "La operación quedó registrada. Puedes continuar y consultar el estado más adelante.";
+      spinner.hidden = true;
+      continueButton.hidden = false;
+      viewLink.hidden = false;
+      window.setTimeout(poll, 2000);
     });
   }
   startProcessing();

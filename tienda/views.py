@@ -2752,6 +2752,10 @@ def cliente_alegra_operacion_procesar(request, cliente_id, operation_id):
                 limit=1, timeout=15, execute=True, actor=request.user, operation_id=operation.pk,
             )
     except DatabaseLockUnavailable:
+        logger.info(
+            "Alegra immediate processing deferred because the outbound lock is busy",
+            extra={"cliente_id": cliente.pk, "operation_id": operation.pk},
+        )
         return JsonResponse({
             "ok": True,
             "operation_id": operation.pk,
@@ -2759,14 +2763,19 @@ def cliente_alegra_operacion_procesar(request, cliente_id, operation_id):
             "message": "La operación ya está siendo procesada.",
             "started": False,
         }, status=409)
-    except Exception:
+    except Exception as exc:
+        logger.exception(
+            "Alegra immediate processing failed",
+            extra={"cliente_id": cliente.pk, "operation_id": operation.pk},
+        )
         operation.refresh_from_db()
         return JsonResponse({
             "ok": False,
             "operation_id": operation.pk,
             "state": operation.state,
-            "message": "La sincronización continúa pendiente y podrá recuperarse posteriormente.",
+            "message": "No fue posible iniciar la sincronización. La operación quedó registrada y puede recuperarse posteriormente.",
             "error_code": "pending" if operation.state == AlegraWriteOperation.STATE_PENDING else "operation_blocked",
+            "technical_code": exc.__class__.__name__ if request.user.is_staff else "processing_error",
             "started": False,
         }, status=409 if operation.state == AlegraWriteOperation.STATE_PENDING else 200)
     operation.refresh_from_db()
