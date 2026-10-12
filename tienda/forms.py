@@ -18,6 +18,7 @@ from .models import (
     CampoOpcion,
     Categoria,
     Cliente,
+    ColombiaMunicipio,
     ClienteContacto,
     ClientePuntoVenta,
     ClienteUsuario,
@@ -422,9 +423,22 @@ class ClienteForm(forms.ModelForm):
     # URLField rechaza dominios válidos sin protocolo antes de llegar a
     # clean_sitio_web. Se recibe como texto y se valida después de normalizar.
     sitio_web = forms.CharField(label="Sitio web", required=False)
+    municipio_departamento = forms.CharField(
+        label="Municipio / Departamento", required=False,
+        widget=forms.TextInput(attrs={
+            "autocomplete": "off", "placeholder": "Buscar municipio o departamento...",
+            "data-divipola-search": "true", "role": "combobox", "aria-autocomplete": "list",
+        }),
+        help_text="Selecciona una ubicación oficial; el departamento se completa automáticamente.",
+    )
+    divipola_code = forms.CharField(required=False, widget=forms.HiddenInput())
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        municipio = getattr(self.instance, "divipola_municipio", None)
+        if municipio and not self.is_bound:
+            self.initial["municipio_departamento"] = str(municipio)
+            self.initial["divipola_code"] = municipio.codigo
         tipo = self.data.get("tipo_cliente") if self.is_bound else self.instance.tipo_cliente
         if tipo == Cliente.TIPO_EMPRESA:
             self.fields["nombre"].required = False
@@ -468,6 +482,29 @@ class ClienteForm(forms.ModelForm):
             else:
                 self.add_error("razon_social", "Ingresa la razón social o el nombre comercial de la empresa.")
         return cleaned_data
+
+    def clean_divipola_code(self):
+        code = (self.cleaned_data.get("divipola_code") or "").strip()
+        if not code:
+            return ""
+        municipio = ColombiaMunicipio.objects.filter(codigo=code, activo=True).order_by("-id").first()
+        if municipio is None:
+            raise forms.ValidationError("Selecciona un municipio válido del catálogo DIVIPOLA.")
+        self._selected_divipola = municipio
+        return code
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        municipio = getattr(self, "_selected_divipola", None)
+        if municipio is not None:
+            instance.divipola_municipio = municipio
+            instance.ciudad = municipio.nombre
+            instance.departamento = municipio.departamento
+            instance.pais = "Colombia"
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
 
     def clean_sitio_web(self):
         value = (self.cleaned_data.get("sitio_web") or "").strip()

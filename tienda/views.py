@@ -124,9 +124,16 @@ from .services.integrity import link_invoice_to_sale
 from .services.sync_freshness import financial_freshness, source_freshness
 from .services.alegra_write import AlegraContactWriteService, AlegraError, AlegraWriteClient
 from .services.alegra_inbound_sync import InboundClientSyncService, InboundSyncConflict
-from .services.alegra_operation_queue import enqueue_create, enqueue_update_if_changed
+from .services.alegra_operation_queue import (
+    OUTBOUND_PROCESS_LOCK,
+    enqueue_create,
+    enqueue_update_if_changed,
+    process_pending_operations,
+)
+from .services.database_lock import DatabaseLockUnavailable, advisory_lock
 from .services.alegra_status import alegra_operational_status, check_connection, connection_state
 from .services.unspsc import recommend_unspsc, unspsc_result
+from .services.geografia import search_municipios
 
 COTIZACION_TOKEN_SALT = "tienda.cotizacion_exito"
 logger = logging.getLogger(__name__)
@@ -1642,6 +1649,21 @@ def panel_ajax_cliente_solicitudes(request, cliente_id):
 
 
 @panel_staff_required
+@require_GET
+def panel_ajax_divipola(request):
+    query = (request.GET.get("q") or "").strip()
+    results = search_municipios(query, limit=20)
+    return JsonResponse({
+        "results": [
+            {"id": municipio.codigo, "label": str(municipio), "municipio": municipio.nombre,
+             "departamento": municipio.departamento, "version": municipio.version}
+            for municipio in results
+        ],
+        "query": query,
+    })
+
+
+@panel_staff_required
 def panel_ajax_proyecto_solicitudes(request, proyecto_id):
     solicitudes = (
         Solicitud.objects.filter(proyecto_id=proyecto_id)
@@ -2499,7 +2521,7 @@ def cliente_crear(request):
                 punto_formset.save()
             # La disponibilidad de Alegra no bloquea el alta local. La cola solo
             # registra una operación durable; nunca realiza HTTP desde el formulario.
-            sync_operation = enqueue_create(cliente, actor=request.user)
+            sync_operation = enqueue_create(cliente, actor=request.user, defer_remote_check=True)
         messages.success(request, "Cliente creado.")
         target = reverse("panel_cliente_detalle", kwargs={"cliente_id": cliente.id})
         if sync_operation:
@@ -2539,12 +2561,12 @@ def cliente_editar(request, cliente_id):
                 status=ExternalObjectMap.STATUS_ACTIVE,
             ).exists()
             if has_active_mapping:
-                sync_operation = enqueue_update_if_changed(cliente, actor=request.user)
+                sync_operation = enqueue_update_if_changed(cliente, actor=request.user, defer_remote_check=True)
             else:
                 # Clientes históricos conservan su política de conciliación;
                 # solo los clientes elegibles para alta automática entran en
                 # la misma cola durable usada por la creación.
-                sync_operation = enqueue_create(cliente, actor=request.user)
+                sync_operation = enqueue_create(cliente, actor=request.user, defer_remote_check=True)
         messages.success(request, "Cliente actualizado.")
         target = reverse("panel_cliente_detalle", kwargs={"cliente_id": cliente.id})
         if sync_operation:
@@ -2690,7 +2712,7 @@ def cliente_alegra_operacion_estado(request, cliente_id, operation_id):
     if operation.state == AlegraWriteOperation.STATE_SYNCED:
         message = "Alegra confirmó la operación y el vínculo externo quedó registrado."
     elif operation.state == AlegraWriteOperation.STATE_PENDING:
-        message = "La operación quedó registrada y seguirá siendo procesada por el cron."
+        message = "La operación quedó registrada y continuará su procesamiento de forma segura."
     else:
         message = reasons.get(operation.error_code, "La operación no puede continuar automáticamente y requiere revisión.")
     return JsonResponse({
@@ -2707,6 +2729,53 @@ def cliente_alegra_operacion_estado(request, cliente_id, operation_id):
             AlegraWriteOperation.STATE_CONFLICT,
             AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
         },
+    })
+
+
+@panel_staff_required
+@require_POST
+def cliente_alegra_operacion_procesar(request, cliente_id, operation_id):
+    """Solicita una ejecución acotada de la operación del cliente actual."""
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    operation = get_object_or_404(AlegraWriteOperation, pk=operation_id, client=cliente)
+    if operation.state != AlegraWriteOperation.STATE_PENDING:
+        return JsonResponse({
+            "ok": True,
+            "operation_id": operation.pk,
+            "state": operation.state,
+            "message": "La operación ya fue procesada o requiere revisión.",
+            "started": False,
+        })
+    try:
+        with advisory_lock(OUTBOUND_PROCESS_LOCK):
+            result = process_pending_operations(
+                limit=1, timeout=15, execute=True, actor=request.user, operation_id=operation.pk,
+            )
+    except DatabaseLockUnavailable:
+        return JsonResponse({
+            "ok": True,
+            "operation_id": operation.pk,
+            "state": "sent",
+            "message": "La operación ya está siendo procesada.",
+            "started": False,
+        }, status=409)
+    except Exception:
+        operation.refresh_from_db()
+        return JsonResponse({
+            "ok": False,
+            "operation_id": operation.pk,
+            "state": operation.state,
+            "message": "La sincronización continúa pendiente y podrá recuperarse posteriormente.",
+            "error_code": "pending" if operation.state == AlegraWriteOperation.STATE_PENDING else "operation_blocked",
+            "started": False,
+        }, status=409 if operation.state == AlegraWriteOperation.STATE_PENDING else 200)
+    operation.refresh_from_db()
+    return JsonResponse({
+        "ok": True,
+        "operation_id": operation.pk,
+        "state": operation.state,
+        "message": "La operación fue procesada; consulta el estado confirmado.",
+        "started": bool(result.get("results")),
     })
 
 
@@ -2816,6 +2885,10 @@ def cliente_detalle(request, cliente_id):
             "sync_operation_id": sync_operation_id,
             "sync_operation_status_url": reverse(
                 "panel_cliente_alegra_operacion_estado",
+                kwargs={"cliente_id": cliente.id, "operation_id": sync_operation_id},
+            ) if sync_operation_id else "",
+            "sync_operation_process_url": reverse(
+                "panel_cliente_alegra_operacion_procesar",
                 kwargs={"cliente_id": cliente.id, "operation_id": sync_operation_id},
             ) if sync_operation_id else "",
             "contactos": cliente.contactos.all(),

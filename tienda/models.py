@@ -515,6 +515,30 @@ class CampoMaestroOpcion(models.Model):
         super().save(*args, **kwargs)
 
 
+class ColombiaMunicipio(models.Model):
+    """Municipio DIVIPOLA versionado; los códigos se conservan como texto."""
+
+    codigo = models.CharField(max_length=5)
+    codigo_departamento = models.CharField(max_length=2)
+    nombre = models.CharField(max_length=120)
+    departamento = models.CharField(max_length=120)
+    version = models.CharField(max_length=30)
+    activo = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["departamento", "nombre", "codigo"]
+        constraints = [
+            models.UniqueConstraint(fields=["version", "codigo"], name="colombia_mpio_version_code_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["version", "activo", "nombre"], name="colombia_mpio_name_idx"),
+            models.Index(fields=["version", "activo", "departamento"], name="colombia_mpio_dept_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.nombre}, {self.departamento}"
+
+
 class Cliente(models.Model):
     TIPO_PERSONA = "persona"
     TIPO_EMPRESA = "empresa"
@@ -571,6 +595,10 @@ class Cliente(models.Model):
     departamento = models.CharField(max_length=120, blank=True)
     pais = models.CharField(max_length=80, blank=True)
     codigo_postal = models.CharField(max_length=20, blank=True)
+    divipola_municipio = models.ForeignKey(
+        ColombiaMunicipio, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="clientes", db_index=True,
+    )
     digito_verificacion = models.CharField(max_length=4, blank=True)
     regimen_tributario = models.CharField(max_length=40, choices=ALEGRA_REGIME_CHOICES, blank=True)
     alegra_sync_policy = models.CharField(

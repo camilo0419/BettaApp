@@ -30,6 +30,7 @@ from .alegra_bidirectional_clients import BidirectionalClientSync
 from .alegra_client import AlegraConfigurationError, AlegraError, AlegraReadOnlyClient, extract_rows
 from .alegra_contact_import import normalize_identity
 from .alegra_normalization import extract_identification_context
+from .geografia import alegra_location
 from .database_lock import DatabaseLockUnavailable, advisory_lock
 
 
@@ -300,9 +301,13 @@ def build_contact_payload(client: Cliente, *, colombia_profile: Mapping[str, Any
         value = str(getattr(client, local, "") or "").strip()
         if value:
             payload[external] = value
+    location = alegra_location(getattr(client, "divipola_municipio", None))
     address = {
-        "address": client.direccion, "city": client.ciudad, "department": client.departamento,
-        "country": client.pais, "zipCode": client.codigo_postal,
+        "address": client.direccion,
+        "city": location.get("city", client.ciudad),
+        "department": location.get("department", client.departamento),
+        "country": location.get("country", client.pais),
+        "zipCode": client.codigo_postal,
     }
     address = {key: str(value).strip() for key, value in address.items() if str(value or "").strip()}
     if address:
@@ -470,8 +475,15 @@ class AlegraContactWriteService:
         address_fields = {"direccion": "address", "ciudad": "city", "departamento": "department",
                           "pais": "country", "codigo_postal": "zipCode"}
         if any(field in address_fields for field in fields):
-            address = {key: str(getattr(client, field, "") or "").strip()
-                       for field, key in address_fields.items()}
+            location = alegra_location(getattr(client, "divipola_municipio", None))
+            address = {
+                "address": str(getattr(client, "direccion", "") or "").strip(),
+                "city": location.get("city", str(getattr(client, "ciudad", "") or "").strip()),
+                "department": location.get("department", str(getattr(client, "departamento", "") or "").strip()),
+                "country": location.get("country", str(getattr(client, "pais", "") or "").strip()),
+                "zipCode": str(getattr(client, "codigo_postal", "") or "").strip(),
+            }
+            address = {key: value for key, value in address.items() if value}
             payload["address"] = {key: value for key, value in address.items() if value}
         return payload
 
@@ -661,9 +673,15 @@ class AlegraContactWriteService:
                 status=ExternalObjectMap.STATUS_ACTIVE,
             ).first()
             if mapping:
+                synced = BidirectionalClientSync().build_betta_payload(operation.client)
+                previous_confirmed = mapping.metadata.get("last_confirmed", {}) if isinstance(mapping.metadata, dict) else {}
                 mapping.metadata = {
                     **(mapping.metadata or {}),
-                    "last_synced_fields": BidirectionalClientSync().build_betta_payload(operation.client),
+                    "last_synced_fields": synced,
+                    # Conserva los campos protegidos confirmados y actualiza
+                    # únicamente la fotografía compartida que acaba de
+                    # confirmarse mediante PUT + GET.
+                    "last_confirmed": {**previous_confirmed, **synced},
                 }
                 mapping.last_synced_at = timezone.now()
                 mapping.save(update_fields=["metadata", "last_synced_at"])

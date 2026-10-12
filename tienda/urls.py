@@ -67,6 +67,7 @@ urlpatterns = [
     path("panel/ajax/clientes/<int:cliente_id>/cotizaciones/", views.panel_ajax_cliente_cotizaciones, name="panel_ajax_cliente_cotizaciones"),
     path("panel/ajax/clientes/<int:cliente_id>/puntos-venta/", views.panel_ajax_cliente_puntos_venta, name="panel_ajax_cliente_puntos_venta"),
     path("panel/ajax/clientes/<int:cliente_id>/solicitudes/", views.panel_ajax_cliente_solicitudes, name="panel_ajax_cliente_solicitudes"),
+    path("panel/ajax/divipola/", views.panel_ajax_divipola, name="panel_ajax_divipola"),
     path("panel/ajax/proyectos/<int:proyecto_id>/solicitudes/", views.panel_ajax_proyecto_solicitudes, name="panel_ajax_proyecto_solicitudes"),
 
     path("panel/empleados/", views.empleados_lista, name="panel_empleados"),
@@ -80,6 +81,7 @@ urlpatterns = [
     path("panel/clientes/<int:cliente_id>/editar/", views.cliente_editar, name="panel_cliente_editar"),
     path("panel/clientes/<int:cliente_id>/alegra/preparar/", views.cliente_alegra_preparar, name="panel_cliente_alegra_preparar"),
     path("panel/clientes/<int:cliente_id>/alegra/operaciones/<int:operation_id>/estado/", views.cliente_alegra_operacion_estado, name="panel_cliente_alegra_operacion_estado"),
+    path("panel/clientes/<int:cliente_id>/alegra/operaciones/<int:operation_id>/procesar/", views.cliente_alegra_operacion_procesar, name="panel_cliente_alegra_operacion_procesar"),
     path("panel/clientes/<int:cliente_id>/alegra/preparar-actualizacion/", views.cliente_alegra_preparar_actualizacion, name="panel_cliente_alegra_preparar_actualizacion"),
     path("panel/clientes/<int:cliente_id>/alegra/revisar-cambios/", views.cliente_alegra_revisar_cambios, name="panel_cliente_alegra_revisar_cambios"),
     path("panel/clientes/<int:cliente_id>/alegra/aplicar-cambios/", views.cliente_alegra_aplicar_cambios, name="panel_cliente_alegra_aplicar_cambios"),

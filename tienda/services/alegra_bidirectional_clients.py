@@ -15,6 +15,7 @@ from typing import Any, Iterable, Mapping
 
 from .alegra_contact_import import normalize_identity, normalize_name
 from .alegra_normalization import extract_identification_context
+from .geografia import normalize_location
 
 
 PENDING = "PENDING"
@@ -313,12 +314,17 @@ class BidirectionalClientSync:
                 "conflict_fields": changed,
                 "reason": "Sin cambios observables." if not changed else "No existe baseline confirmado para resolver cambios.",
             }
-        normalized_baseline = {key: str(value or "").strip() for key, value in baseline.items()}
+        geographic_fields = {"ciudad", "departamento", "pais"}
+        def comparable(field, value):
+            value = str(value or "").strip()
+            return normalize_location(value) if field in geographic_fields else value
+
+        normalized_baseline = {key: comparable(key, value) for key, value in baseline.items()}
         remote_fields, local_fields, conflict_fields = [], [], []
         for field in external:
             base = normalized_baseline.get(field, "")
-            remote = external[field]
-            current = local.get(field, "")
+            remote = comparable(field, external[field])
+            current = comparable(field, local.get(field, ""))
             if not remote and current:
                 continue  # Nunca sustituir un dato local válido por vacío externo.
             remote_changed = remote != base

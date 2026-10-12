@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils import timezone
 
 from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap, ExternalSystem, SyncAuditLog
@@ -28,7 +29,9 @@ from tienda.services.alegra_write import (
 from tienda.services.alegra_bidirectional_clients import BidirectionalClientSync
 from tienda.services.alegra_contact_import import normalize_identity
 from tienda.services.alegra_inbound_sync import InboundClientSyncService
+from tienda.services.database_lock import DatabaseLockUnavailable, advisory_lock
 
+OUTBOUND_PROCESS_LOCK = "bettaapp:alegra:outbound:contacts"
 
 def _assert_remote_create_is_safe(client: Cliente, *, timeout=None, transport=None) -> None:
     """Bloquea altas si Alegra no puede confirmar que no existe un candidato.
@@ -110,7 +113,7 @@ def _persist_create_validation_block(client: Cliente, exc: ValidationError, *, a
     return operation
 
 
-def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteOperation | None:
+def enqueue_create(client: Cliente, *, actor=None, timeout=None, defer_remote_check=False) -> AlegraWriteOperation | None:
     """Persiste la intención antes del GET preventivo.
 
     La comprobación remota sigue siendo obligatoria para autorizar el POST,
@@ -168,6 +171,8 @@ def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteO
     )
     if operation.state != AlegraWriteOperation.STATE_PENDING:
         return operation
+    if defer_remote_check:
+        return operation
     try:
         _assert_remote_create_is_safe(client, timeout=timeout)
     except WriteConflict as exc:
@@ -205,7 +210,7 @@ def enqueue_create(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteO
     return operation
 
 
-def enqueue_update_if_changed(client: Cliente, *, actor=None, timeout=None) -> AlegraWriteOperation | None:
+def enqueue_update_if_changed(client: Cliente, *, actor=None, timeout=None, defer_remote_check=False) -> AlegraWriteOperation | None:
     """Prepara una actualización tras un guardado local, sin ejecutar PUT.
 
     La consulta remota se hace fuera de una transacción de negocio y cualquier
@@ -229,6 +234,63 @@ def enqueue_update_if_changed(client: Cliente, *, actor=None, timeout=None) -> A
             metadata={"client_id": client.pk, "state": f"blocked_{baseline_state}_baseline"},
         )
         return None
+    if defer_remote_check:
+        local_snapshot = BidirectionalClientSync().build_betta_payload(client)
+        changed = [
+            field for field, value in local_snapshot.items()
+            if str(value or "") != str(baseline.get(field, "") or "")
+        ]
+        if not changed:
+            SyncAuditLog.objects.create(
+                system=mapping.system, operation="enqueue_contact_update", resource="contacts",
+                external_id=mapping.external_id, actor=actor, result=SyncAuditLog.RESULT_SUCCESS,
+                detail="No se detectaron cambios locales frente al baseline; no se creó operación.",
+                metadata={"client_id": client.pk, "state": "no_changes"},
+            )
+            return None
+        key = BidirectionalClientSync.idempotency_key(
+            "betta_to_alegra_update_intent", str(mapping.external_id), local_snapshot,
+        )
+        metadata_value = {
+            **metadata,
+            "deferred_prepare": True,
+            "local_snapshot": local_snapshot,
+            "baseline": baseline,
+        }
+        try:
+            with advisory_lock(f"bettaapp:alegra:queue:contact:{client.pk}"):
+                with transaction.atomic():
+                    existing = AlegraWriteOperation.objects.select_for_update().filter(
+                        system=mapping.system, client=client, operation=AlegraWriteOperation.OP_UPDATE,
+                        state__in=[AlegraWriteOperation.STATE_PENDING, AlegraWriteOperation.STATE_SENT,
+                                   AlegraWriteOperation.STATE_NEEDS_RECONCILIATION],
+                    ).order_by("-id").first()
+                    if existing:
+                        existing_metadata = existing.result_metadata if isinstance(existing.result_metadata, dict) else {}
+                        if existing.state == AlegraWriteOperation.STATE_PENDING and existing_metadata.get("deferred_prepare"):
+                            existing.idempotency_key = key
+                            existing.external_id = str(mapping.external_id)
+                            existing.result_metadata = metadata_value
+                            existing.save(update_fields=["idempotency_key", "external_id", "result_metadata", "updated_at"])
+                        return existing
+                    operation, _ = AlegraWriteOperation.objects.get_or_create(
+                        system=mapping.system, client=client, operation=AlegraWriteOperation.OP_UPDATE,
+                        idempotency_key=key,
+                        defaults={
+                            "external_id": str(mapping.external_id),
+                            "state": AlegraWriteOperation.STATE_PENDING,
+                            "result_metadata": metadata_value,
+                        },
+                    )
+                    return operation
+        except DatabaseLockUnavailable as exc:
+            SyncAuditLog.objects.create(
+                system=mapping.system, operation="enqueue_contact_update", resource="contacts",
+                external_id=mapping.external_id, actor=actor, result=SyncAuditLog.RESULT_PARTIAL,
+                detail="Actualización local conservada; otra operación está preparando la sincronización.",
+                metadata={"client_id": client.pk, "state": "queue_busy"},
+            )
+            return None
     try:
         transport = AlegraWriteClient(timeout=timeout)
         remote = transport.get_contact(mapping.external_id)
@@ -251,6 +313,59 @@ def enqueue_update_if_changed(client: Cliente, *, actor=None, timeout=None) -> A
             metadata={"client_id": client.pk, "state": "blocked"},
         )
         return None
+
+
+def _materialize_deferred_update(operation, service: AlegraContactWriteService):
+    """Completa una intención de actualización usando GET solo en el procesador."""
+    metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
+    if not metadata.get("deferred_prepare"):
+        return operation
+    mapping = ExternalObjectMap.objects.filter(
+        system=operation.system, resource_type="contacts",
+        external_id=operation.external_id,
+        content_type=ContentType.objects.get_for_model(Cliente), object_id=operation.client_id,
+        status=ExternalObjectMap.STATUS_ACTIVE,
+    ).first()
+    if not mapping:
+        operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+        operation.error_code = "invalid_mapping"
+        operation.reconciliation_reason = "La actualización requiere un mapeo activo válido."
+        operation.save(update_fields=["state", "error_code", "reconciliation_reason", "updated_at"])
+        return operation
+    remote = service.transport.get_contact(operation.external_id)
+    baseline = metadata.get("baseline")
+    if not isinstance(baseline, dict):
+        raise ValidationError("La intención de actualización no contiene un baseline válido.")
+    comparison = BidirectionalClientSync().compare_linked_client(
+        operation.client, remote, baseline,
+    )
+    if comparison["conflict_fields"]:
+        operation.state = AlegraWriteOperation.STATE_CONFLICT
+        operation.error_code = "conflict"
+        operation.reconciliation_reason = "Existen cambios simultáneos; se requiere revisión manual."
+        operation.save(update_fields=["state", "error_code", "reconciliation_reason", "updated_at"])
+        return operation
+    local_fields = [
+        field for field in comparison["local_fields"]
+        if field not in AlegraContactWriteService.PROTECTED_UPDATE_FIELDS
+    ]
+    if not local_fields:
+        operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+        operation.error_code = "protected_change"
+        operation.reconciliation_reason = "Los cambios detectados son tributarios o de identidad y requieren revisión manual."
+        operation.save(update_fields=["state", "error_code", "reconciliation_reason", "updated_at"])
+        return operation
+    context = service._build_update_context(remote)
+    payload = service._build_update_payload(operation.client, local_fields, external_context=context)
+    operation.result_metadata = {
+        **metadata,
+        "deferred_prepare": False,
+        "fields": local_fields,
+        "prepared_payload": payload,
+        "external_context": context,
+    }
+    operation.save(update_fields=["result_metadata", "updated_at"])
+    return operation
 
 
 def linked_client_update_candidates(*, limit=100, timeout=None, actor=None, persist=False):
@@ -357,12 +472,14 @@ def enqueue_missing_creates(*, limit=100, actor=None, timeout=None):
     return queued
 
 
-def process_pending_operations(*, limit=50, timeout=None, execute=False, actor=None):
+def process_pending_operations(*, limit=50, timeout=None, execute=False, actor=None, operation_id=None):
     """Procesa exclusivamente pendientes seguros; nunca reintenta inciertos."""
     candidates = AlegraWriteOperation.objects.filter(
         state=AlegraWriteOperation.STATE_PENDING,
         operation__in=[AlegraWriteOperation.OP_CREATE, AlegraWriteOperation.OP_UPDATE],
     ).select_related("client").order_by("created_at", "pk")
+    if operation_id is not None:
+        candidates = candidates.filter(pk=operation_id)
     operations = []
     now = timezone.now()
     for candidate in candidates:
@@ -391,6 +508,11 @@ def process_pending_operations(*, limit=50, timeout=None, execute=False, actor=N
             environment="production", confirmed=True,
         )
         try:
+            if operation.operation == AlegraWriteOperation.OP_UPDATE:
+                operation = _materialize_deferred_update(operation, service)
+                if operation.state != AlegraWriteOperation.STATE_PENDING:
+                    results.append({"id": operation.pk, "state": operation.state, "attempts": operation.attempts})
+                    continue
             if operation.operation == AlegraWriteOperation.OP_CREATE:
                 result = service.execute_create(operation.pk, authorization=authorization)
             else:

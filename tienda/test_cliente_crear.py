@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from tienda.models import AlegraWriteOperation, Cliente, ExternalSystem
@@ -10,8 +10,8 @@ from tienda.services.alegra_write import build_contact_payload
 
 class ClienteCrearViewTests(TestCase):
     def setUp(self):
-        staff = User.objects.create_user(username="staff-create-client", password="Test123!", is_staff=True)
-        self.client.force_login(staff)
+        self.staff = User.objects.create_user(username="staff-create-client", password="Test123!", is_staff=True)
+        self.client.force_login(self.staff)
         self.url = reverse("panel_cliente_crear")
 
     def test_post_invalido_muestra_errores_y_no_crea_cliente(self):
@@ -22,7 +22,7 @@ class ClienteCrearViewTests(TestCase):
         self.assertContains(response, "No se pudo guardar el cliente")
         self.assertContains(response, "El nombre completo es obligatorio para una persona.")
 
-    def test_post_valido_crea_un_cliente_redirige_y_no_llama_alegra(self):
+    def test_post_valido_crea_un_cliente_y_no_consulta_alegra_en_el_guardado(self):
         data = {
             "tipo_cliente": Cliente.TIPO_PERSONA,
             "nombre": "Cliente Formulario QA",
@@ -35,16 +35,17 @@ class ClienteCrearViewTests(TestCase):
         }
         with patch("tienda.views.AlegraWriteClient") as transport, \
              patch("tienda.services.alegra_operation_queue.AlegraWriteClient") as queue_transport:
-            queue_transport.return_value.find_candidates.return_value = []
             response = self.client.post(self.url, data)
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Cliente.objects.count(), 1)
         self.assertEqual(Cliente.objects.get().nombre, "Cliente Formulario")
         transport.assert_not_called()
-        queue_transport.return_value.find_candidates.assert_called_once()
+        operation = AlegraWriteOperation.objects.get()
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
+        queue_transport.return_value.find_candidates.assert_not_called()
 
-    def test_post_valido_con_candidato_remoto_persiste_revision(self):
+    def test_post_valido_deja_candidato_para_revision_del_procesador(self):
         data = {
             "tipo_cliente": Cliente.TIPO_PERSONA,
             "nombre": "Cliente Duplicado QA",
@@ -56,14 +57,14 @@ class ClienteCrearViewTests(TestCase):
             "activo": "on",
         }
         with patch("tienda.services.alegra_operation_queue.AlegraWriteClient") as queue_transport:
-            queue_transport.return_value.find_candidates.return_value = [{"id": "A-EXISTING"}]
             response = self.client.post(self.url, data)
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Cliente.objects.count(), 1)
         from tienda.models import AlegraWriteOperation
         operation = AlegraWriteOperation.objects.get()
-        self.assertEqual(operation.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
+        queue_transport.return_value.find_candidates.assert_not_called()
 
     def test_nombres_separados_construyen_nombre_local(self):
         data = {
@@ -111,7 +112,7 @@ class ClienteCrearViewTests(TestCase):
         operation = AlegraWriteOperation.objects.get(client=cliente)
         self.assertEqual(operation.operation, AlegraWriteOperation.OP_CREATE)
         self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
-        queue_transport.return_value.find_candidates.assert_called_once()
+        queue_transport.return_value.find_candidates.assert_not_called()
 
         response = self.client.post(reverse("panel_cliente_editar", args=[cliente.pk]), data)
 
@@ -176,6 +177,54 @@ class ClienteCrearViewTests(TestCase):
         self.assertNotIn("Estado operación", response.content.decode())
         forbidden = self.client.get(reverse("panel_cliente_alegra_operacion_estado", args=[other.pk, operation.pk]))
         self.assertEqual(forbidden.status_code, 404)
+
+    @patch("tienda.views.process_pending_operations")
+    def test_endpoint_procesa_unicamente_la_operacion_del_cliente(self, process):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_EMPRESA,
+            nombre="Procesamiento acotado",
+            razon_social="Procesamiento acotado S.A.S.",
+            identificacion="900123458",
+            tipo_identificacion=Cliente.ID_NIT,
+            regimen_tributario="COMMON_REGIME",
+        )
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="process-operation-key", state=AlegraWriteOperation.STATE_PENDING,
+        )
+        process.return_value = {"results": [{"id": operation.pk, "state": "synced"}]}
+        response = self.client.post(reverse("panel_cliente_alegra_operacion_procesar", args=[cliente.pk, operation.pk]))
+        self.assertEqual(response.status_code, 200)
+        process.assert_called_once_with(
+            limit=1, timeout=15, execute=True, actor=self.staff,
+            operation_id=operation.pk,
+        )
+
+    def test_endpoint_no_reprocesa_operacion_terminal(self):
+        cliente = Cliente.objects.create(nombre="Ya sincronizado")
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="already-synced-key", state=AlegraWriteOperation.STATE_SYNCED,
+        )
+        with patch("tienda.views.process_pending_operations") as process:
+            response = self.client.post(reverse("panel_cliente_alegra_operacion_procesar", args=[cliente.pk, operation.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["started"])
+        process.assert_not_called()
+
+    def test_endpoint_exige_csrf(self):
+        cliente = Cliente.objects.create(nombre="CSRF")
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="csrf-operation-key", state=AlegraWriteOperation.STATE_PENDING,
+        )
+        csrf_client = Client(enforce_csrf_checks=True)
+        csrf_client.force_login(self.staff)
+        response = csrf_client.post(reverse("panel_cliente_alegra_operacion_procesar", args=[cliente.pk, operation.pk]))
+        self.assertEqual(response.status_code, 403)
 
     def test_crear_cliente_auto_con_datos_fiscales_incompletos_persiste_bloqueo(self):
         data = {

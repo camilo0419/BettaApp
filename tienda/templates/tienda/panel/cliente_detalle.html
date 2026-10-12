@@ -329,13 +329,13 @@
 </div>
 </div>
 {% if sync_operation_id %}
-<div class="modal-shell client-sync-modal is-open" data-client-operation-modal data-operation-status-url="{{ sync_operation_status_url }}" role="status" aria-live="polite" aria-busy="true">
+<div class="modal-shell client-sync-modal is-open" data-client-operation-modal data-operation-status-url="{{ sync_operation_status_url }}" data-operation-process-url="{{ sync_operation_process_url }}" data-csrf-token="{{ csrf_token }}" role="status" aria-live="polite" aria-busy="true">
   <div class="modal-panel">
     <span class="eyebrow">Alegra</span>
     <h2 data-operation-title>Sincronizando</h2>
     <p data-operation-message>Estamos consultando el estado real de la operación.</p>
     <div class="client-sync-spinner" data-operation-spinner aria-hidden="true"></div>
-    <p class="muted" data-operation-attempts>La operación continúa bajo control del cron.</p>
+    <p class="muted" data-operation-attempts>La operación se está procesando de forma segura.</p>
     <div class="modal-actions">
       <button type="button" class="btn btn-outline" data-operation-continue hidden>Continuar</button>
       <a class="btn btn-primary" href="{% url 'panel_cliente_detalle' cliente.id %}" data-operation-view hidden>Ver estado</a>
@@ -358,8 +358,8 @@ document.addEventListener("DOMContentLoaded", function () {
     stopped = true;
     modal.setAttribute("aria-busy", "false");
     title.textContent = timedOut ? "Pendiente de sincronización" : (data.label || "Estado de sincronización");
-    message.textContent = timedOut ? "El cliente se guardó en BettaApp. Alegra aún no ha confirmado la operación y el cron continuará procesándola." : (data.message || "Consulta el estado desde la ficha del cliente.");
-    attempts.textContent = data.attempts ? "Intentos registrados: " + data.attempts : "La operación continúa bajo control del cron.";
+    message.textContent = timedOut ? "El cliente se guardó en BettaApp. Alegra aún no ha confirmado la operación; puedes consultar su estado posteriormente." : (data.message || "Consulta el estado desde la ficha del cliente.");
+    attempts.textContent = data.attempts ? "Intentos registrados: " + data.attempts : "La operación continúa pendiente de confirmación.";
     spinner.hidden = true;
     continueButton.hidden = false;
     viewLink.hidden = false;
@@ -379,6 +379,22 @@ document.addEventListener("DOMContentLoaded", function () {
       });
   }
   continueButton.addEventListener("click", function () { modal.classList.remove("is-open"); modal.hidden = true; });
+  let processStarted = false;
+  function startProcessing() {
+    if (processStarted) return;
+    processStarted = true;
+    fetch(modal.getAttribute("data-operation-process-url"), {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Accept": "application/json",
+        "X-CSRFToken": modal.getAttribute("data-csrf-token")
+      }
+    }).catch(function () {
+      // La operación queda persistida; el estado seguirá siendo consultable.
+    });
+  }
+  startProcessing();
   poll();
 });
 </script>

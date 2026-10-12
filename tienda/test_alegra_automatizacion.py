@@ -2,6 +2,7 @@ from io import StringIO
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
@@ -71,6 +72,79 @@ class AutomationTests(TestCase):
         self.assertEqual(AlegraWriteOperation.objects.filter(client=client).count(), 1)
         self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
         transport_class.return_value.find_candidates.assert_called_once_with(identification="123456789")
+
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_form_create_persists_without_remote_get(self, transport_class):
+        staff = get_user_model().objects.create_user(
+            username="staff-fast-create", password="Test123!", is_staff=True,
+        )
+        self.client.force_login(staff)
+        response = self.client.post(
+            "/panel/clientes/crear/",
+            {
+                "tipo_cliente": Cliente.TIPO_PERSONA,
+                "nombre": "Cliente rápido",
+                "tipo_identificacion": Cliente.ID_CC,
+                "identificacion": "991001001",
+                "regimen_tributario": "COMMON_REGIME",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(AlegraWriteOperation.objects.count(), 1)
+        transport_class.return_value.find_candidates.assert_not_called()
+
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_form_edit_persists_without_remote_get(self, transport_class):
+        client = self._linked_client("Cliente editable", "991001002")
+        baseline = {"nombre": client.nombre, "identificacion": client.identificacion, "tipo_identificacion": client.tipo_identificacion, "email": client.email}
+        self._contact_map(client, "C-fast", {"source": "alegra_write", "last_synced_fields": baseline})
+        staff = get_user_model().objects.create_user(
+            username="staff-fast-edit", password="Test123!", is_staff=True,
+        )
+        self.client.force_login(staff)
+        response = self.client.post(
+            f"/panel/clientes/{client.pk}/editar/",
+            {
+                "tipo_cliente": Cliente.TIPO_PERSONA,
+                "nombre": "Cliente editable actualizado",
+                "primer_nombre": "Ana",
+                "primer_apellido": "Cliente",
+                "tipo_identificacion": Cliente.ID_CC,
+                "identificacion": client.identificacion,
+                "regimen_tributario": "COMMON_REGIME",
+                "email": "nuevo@example.test",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        operation = AlegraWriteOperation.objects.get(client=client)
+        self.assertTrue(operation.result_metadata.get("deferred_prepare"))
+        transport_class.return_value.get_contact.assert_not_called()
+
+    @patch.dict("os.environ", {"ALEGRA_AUTOMATION_WRITES_ENABLED": "true", "ALEGRA_EXTERNAL_WRITES_ENABLED": "true"}, clear=False)
+    @patch("tienda.services.alegra_operation_queue.AlegraContactWriteService.execute_update")
+    @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
+    def test_processor_materializes_deferred_update_after_local_save(self, transport_class, execute_update):
+        client = self._linked_client("Cliente diferido", "991001003")
+        system = alegra_system()
+        baseline = {"nombre": client.nombre, "identificacion": client.identificacion, "tipo_identificacion": client.tipo_identificacion, "email": "old@example.test"}
+        self._contact_map(client, "C-deferred", {"source": "alegra_write", "last_synced_fields": baseline})
+        client.email = "new@example.test"
+        client.save(update_fields=["email"])
+        operation = enqueue_update_if_changed(client, defer_remote_check=True)
+        self.assertIsNotNone(operation)
+        self.assertTrue(operation.result_metadata.get("deferred_prepare"))
+        transport_class.return_value.get_contact.return_value = {
+            "id": "C-deferred", "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "email": "old@example.test", "type": ["client"], "status": "active",
+        }
+        execute_update.side_effect = lambda operation_id, authorization: AlegraWriteOperation.objects.get(pk=operation_id)
+        result = process_pending_operations(limit=1, execute=True)
+        operation.refresh_from_db()
+        self.assertEqual(result["pending"], 1)
+        self.assertFalse(operation.result_metadata.get("deferred_prepare"))
+        transport_class.return_value.get_contact.assert_called_once_with("C-deferred")
 
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
     def test_new_client_with_remote_candidate_is_not_queued(self, transport_class):

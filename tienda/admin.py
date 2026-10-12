@@ -5,6 +5,7 @@ from .models import (
     CampoMaestroOpcion,
     CampoOpcion,
     Cliente,
+    ColombiaMunicipio,
     ClienteContacto,
     ClientePuntoVenta,
     ClienteUsuario,
@@ -34,6 +35,13 @@ from .models import (
 admin.site.site_header = "Admin Productos | Betta Diseño"
 admin.site.site_title = "Admin Productos"
 admin.site.index_title = "Gestión técnica"
+
+
+@admin.register(ColombiaMunicipio)
+class ColombiaMunicipioAdmin(admin.ModelAdmin):
+    list_display = ("codigo", "nombre", "departamento", "version", "activo")
+    list_filter = ("version", "activo", "departamento")
+    search_fields = ("codigo", "nombre", "departamento")
 
 
 @admin.register(UNSPSCCode)

@@ -15,7 +15,7 @@
 </div>
 
 <div class="panel-card cliente-form-shell">
-  <form method="post" class="dynamic-form admin-form cliente-form" data-client-sync-form>
+  <form method="post" class="dynamic-form admin-form cliente-form" data-client-sync-form data-divipola-endpoint="{% url 'panel_ajax_divipola' %}">
     {% csrf_token %}
     {% if form.non_field_errors %}
       <div class="message error" role="alert">{{ form.non_field_errors }}</div>
@@ -134,6 +134,60 @@ document.addEventListener("DOMContentLoaded", function () {
 
   tipo.addEventListener("change", actualizarAyudaCliente);
   actualizarAyudaCliente();
+
+  const locationInput = document.getElementById("id_municipio_departamento");
+  const locationCode = document.getElementById("id_divipola_code");
+  if (locationInput && locationCode) {
+    const locationField = locationInput.closest(".field");
+    const results = document.createElement("div");
+    results.className = "internal-picker-results divipola-results";
+    results.setAttribute("role", "listbox");
+    results.hidden = true;
+    locationField.appendChild(results);
+    let timer;
+    let activeIndex = -1;
+    function closeLocations() { results.hidden = true; activeIndex = -1; }
+    function renderLocations(items) {
+      results.innerHTML = "";
+      activeIndex = -1;
+      if (!items.length) {
+        results.innerHTML = '<div class="internal-picker-empty">No hay municipios coincidentes.</div>';
+        results.hidden = false;
+        return;
+      }
+      items.forEach(function (item, index) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "internal-picker-option";
+        button.setAttribute("role", "option");
+        button.dataset.index = String(index);
+        button.textContent = item.label;
+        button.addEventListener("click", function () {
+          locationInput.value = item.label;
+          locationCode.value = item.id;
+          closeLocations();
+        });
+        results.appendChild(button);
+      });
+      results.hidden = false;
+    }
+    function searchLocations() {
+      const query = locationInput.value.trim();
+      if (query.length < 2) { closeLocations(); return; }
+      fetch(document.querySelector("[data-client-sync-form]").dataset.divipolaEndpoint + "?q=" + encodeURIComponent(query), {headers: {"Accept": "application/json"}, credentials: "same-origin"})
+        .then(function (response) { if (!response.ok) throw new Error("search"); return response.json(); })
+        .then(function (data) { renderLocations(data.results || []); })
+        .catch(function () { results.innerHTML = '<div class="internal-picker-empty">No fue posible consultar el catálogo local.</div>'; results.hidden = false; });
+    }
+    locationInput.addEventListener("input", function () { locationCode.value = ""; window.clearTimeout(timer); timer = window.setTimeout(searchLocations, 180); });
+    locationInput.addEventListener("keydown", function (event) {
+      const options = Array.from(results.querySelectorAll("button"));
+      if (event.key === "ArrowDown" && options.length) { event.preventDefault(); activeIndex = Math.min(activeIndex + 1, options.length - 1); options[activeIndex].focus(); }
+      if (event.key === "ArrowUp" && options.length) { event.preventDefault(); activeIndex = Math.max(activeIndex - 1, 0); options[activeIndex].focus(); }
+      if (event.key === "Escape") closeLocations();
+    });
+    document.addEventListener("click", function (event) { if (!locationField.contains(event.target)) closeLocations(); });
+  }
 
   const rows = document.querySelector("[data-client-point-rows]");
   const template = document.querySelector("[data-client-point-empty]");

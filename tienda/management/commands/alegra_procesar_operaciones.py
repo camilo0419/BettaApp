@@ -9,12 +9,13 @@ from tienda.models import AlegraWriteOperation
 from tienda.services.alegra_operation_queue import (
     enqueue_missing_creates,
     linked_client_update_candidates,
+    OUTBOUND_PROCESS_LOCK,
     process_pending_operations,
 )
 from tienda.services.database_lock import DatabaseLockUnavailable, advisory_lock
 
 
-PROCESS_LOCK = "bettaapp:alegra:outbound:contacts"
+PROCESS_LOCK = OUTBOUND_PROCESS_LOCK
 
 
 class Command(BaseCommand):

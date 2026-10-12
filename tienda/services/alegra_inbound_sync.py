@@ -14,6 +14,7 @@ from django.utils import timezone
 from tienda.models import Cliente, ExternalObjectMap, SyncAuditLog
 from .alegra_bidirectional_clients import BidirectionalClientSync, CONFLICT, PENDING, SYNCED
 from .alegra_normalization import extract_identification_context
+from .geografia import normalize_location
 
 LOCAL_ONLY = "local_only"
 
@@ -91,6 +92,9 @@ class InboundClientSyncService:
             local_value = local_values.get(field, "")
             if not remote_value and not local_value:
                 continue
+            if field in {"ciudad", "departamento", "pais"}:
+                remote_value = normalize_location(remote_value)
+                local_value = normalize_location(local_value)
             if remote_value != local_value:
                 differences.append(field)
         if differences:
