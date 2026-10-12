@@ -59,8 +59,8 @@
         <div class="alegra-client-sync-head"><strong>Estado de sincronización</strong><span class="alegra-status-badge">{{ alegra_sync_status.label }}</span></div>
         <p>{{ alegra_sync_status.detail }}</p>
         {% if alegra_sync_at %}<p class="muted">Última actualización: {{ alegra_sync_at|date:'Y-m-d H:i' }}</p>{% endif %}
-        {% if alegra_map %}<p>Vinculación activa con Alegra ({{ alegra_map.external_id }}). No se puede preparar otra creación.</p>{% endif %}
-        {% for operation in alegra_operations %}<p>{{ operation.get_operation_display }} · {{ operation.get_state_display }} · intentos: {{ operation.attempts }}{% if operation.error_message %} · {{ operation.error_message }}{% endif %}</p>{% empty %}<p>Sin operaciones de sincronización registradas.</p>{% endfor %}
+        {% if alegra_map %}<p>Vinculación activa con Alegra. No se puede preparar otra creación.</p>{% endif %}
+        {% if user.is_staff %}<details class="alegra-sync-technical"><summary>Ver historial técnico</summary>{% for operation in alegra_operations %}<p>{{ operation.get_operation_display }} · {{ operation.get_state_display }} · {{ operation.updated_at|date:'Y-m-d H:i' }}{% if operation.error_message %} · {{ operation.error_message }}{% endif %}</p>{% empty %}<p>Sin operaciones de sincronización registradas.</p>{% endfor %}</details>{% endif %}
       </div>
       {% if cliente.notas %}<p>{{ cliente.notas }}</p>{% endif %}
     </div>

@@ -504,7 +504,7 @@ class ClienteFormSemanticsTests(TestCase):
     def test_persona_usa_nombre_completo_y_se_guarda(self):
         response = self.client.post(
             reverse("panel_cliente_crear"),
-            {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Ana María Rodríguez"},
+            {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Ana María Rodríguez", "direccion": "Calle 1"},
         )
 
         self.assertEqual(response.status_code, 302)
@@ -523,6 +523,7 @@ class ClienteFormSemanticsTests(TestCase):
                 "segundo_apellido": "López",
                 "tipo_identificacion": Cliente.ID_CC,
                 "identificacion": "100200300",
+                "direccion": "Calle 2",
             },
         )
 
@@ -550,6 +551,7 @@ class ClienteFormSemanticsTests(TestCase):
                 "nombre": "",
                 "razon_social": "Rodriguez G Inversiones SAS",
                 "nombre_comercial": "Los Perritos Los Colores",
+                "direccion": "Calle 3",
             },
         )
 
@@ -589,6 +591,7 @@ class ClienteFormSemanticsTests(TestCase):
                 "nombre": "Referencia actualizada",
                 "razon_social": "Razón actualizada SAS",
                 "nombre_comercial": "Marca actualizada",
+                "direccion": "Calle 4",
             },
         )
 
@@ -619,7 +622,7 @@ class ClienteFormSemanticsTests(TestCase):
     def test_crear_cliente_sin_puntos_de_venta(self):
         response = self.client.post(
             reverse("panel_cliente_crear"),
-            {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente sin sede"},
+            {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente sin sede", "direccion": "Calle 5"},
         )
 
         self.assertEqual(response.status_code, 302)
@@ -627,7 +630,7 @@ class ClienteFormSemanticsTests(TestCase):
         self.assertFalse(ClientePuntoVenta.objects.filter(cliente=cliente).exists())
 
     def test_crear_cliente_con_varios_puntos_en_transaccion(self):
-        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente con sedes"}
+        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente con sedes", "direccion": "Calle 6"}
         data.update(self.punto_formset_data(["Sede Norte", "Sede Sur"]))
 
         response = self.client.post(reverse("panel_cliente_crear"), data)
@@ -640,7 +643,7 @@ class ClienteFormSemanticsTests(TestCase):
         )
 
     def test_puntos_duplicados_no_crean_cliente_ni_registros_parciales(self):
-        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente inválido"}
+        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente inválido", "direccion": "Calle 7"}
         data.update(self.punto_formset_data(["Sede", "sede"]))
 
         response = self.client.post(reverse("panel_cliente_crear"), data)
@@ -653,7 +656,7 @@ class ClienteFormSemanticsTests(TestCase):
     def test_editar_cliente_agrega_punto_sin_reemplazar_los_existentes(self):
         cliente = Cliente.objects.create(nombre="Cliente editable")
         existente = ClientePuntoVenta.objects.create(cliente=cliente, nombre="Sede original")
-        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente editable"}
+        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente editable", "direccion": "Calle 8"}
         data.update(self.punto_formset_data(["Sede nueva"]))
 
         response = self.client.post(reverse("panel_cliente_editar", args=[cliente.id]), data)
@@ -685,7 +688,7 @@ class ClienteFormSemanticsTests(TestCase):
         self.assertContains(response, 'name="agregar_puntos_venta"')
         self.assertContains(response, 'data-client-points-entry hidden')
 
-        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente sin activar puntos", "agregar_puntos_venta": ""}
+        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente sin activar puntos", "direccion": "Calle 9", "agregar_puntos_venta": ""}
         data.update(self.punto_formset_data(["Fila oculta"]))
         response = self.client.post(reverse("panel_cliente_crear"), data)
 
@@ -694,7 +697,7 @@ class ClienteFormSemanticsTests(TestCase):
         self.assertFalse(cliente.puntos_venta.exists())
 
     def test_switch_activo_permite_guardar_puntos_y_muestra_codigo(self):
-        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente con switch", "agregar_puntos_venta": "on"}
+        data = {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": "Cliente con switch", "direccion": "Calle 11", "agregar_puntos_venta": "on"}
         data.update(self.punto_formset_data(["Sede activa"]))
         response = self.client.post(reverse("panel_cliente_crear"), data)
 

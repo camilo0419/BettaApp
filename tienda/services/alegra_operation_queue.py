@@ -460,7 +460,12 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
         operation.state = AlegraWriteOperation.STATE_CONFLICT
         operation.error_code = "conflict"
         operation.reconciliation_reason = "Existen cambios simultáneos; se requiere revisión manual."
-        operation.save(update_fields=["state", "error_code", "reconciliation_reason", "updated_at"])
+        operation.result_metadata = {
+            **metadata,
+            "fields": sorted(set(comparison["local_fields"])),
+            "remote_confirmation": {"status": "conflict", "fields": sorted(set(comparison["conflict_fields"]))},
+        }
+        operation.save(update_fields=["state", "error_code", "reconciliation_reason", "result_metadata", "updated_at"])
         return operation
     all_local_fields = list(comparison["local_fields"])
     local_fields = [
@@ -471,7 +476,12 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
         operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
         operation.error_code = "remote_change"
         operation.reconciliation_reason = "Alegra tiene cambios no reflejados localmente; requiere revisión manual."
-        operation.save(update_fields=["state", "error_code", "reconciliation_reason", "updated_at"])
+        operation.result_metadata = {
+            **metadata,
+            "fields": sorted(set(all_local_fields)),
+            "remote_confirmation": {"status": "remote_change", "fields": sorted(set(comparison["remote_fields"]))},
+        }
+        operation.save(update_fields=["state", "error_code", "reconciliation_reason", "result_metadata", "updated_at"])
         return operation
     if not local_fields and not comparison["changed_fields"]:
         if unverified_fields:
@@ -480,6 +490,7 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
             operation.reconciliation_reason = "El GET no confirmó todos los campos de la intención; requiere revisión."
             operation.result_metadata = {
                 **metadata,
+                "fields": sorted(set(local_fields or all_local_fields)),
                 "remote_confirmation": {"status": "incomplete", "fields": sorted(set(unverified_fields))},
             }
             operation.save(update_fields=["state", "error_code", "reconciliation_reason", "result_metadata", "updated_at"])
@@ -490,6 +501,7 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
             operation.reconciliation_reason = "El GET no coincide con el snapshot local; no se confirma la operación."
             operation.result_metadata = {
                 **metadata,
+                "fields": sorted(set(local_fields or all_local_fields)),
                 "remote_confirmation": {"status": "mismatch", "fields": sorted(set(mismatched_fields))},
             }
             operation.save(update_fields=["state", "error_code", "reconciliation_reason", "result_metadata", "updated_at"])
@@ -697,8 +709,10 @@ def process_pending_operations(*, limit=50, timeout=None, execute=False, actor=N
         except (AlegraError, TimeoutError, OSError) as exc:
             retry_count = int((operation.result_metadata or {}).get("retry_count", 0)) + 1
             delay = min(3600, 60 * (2 ** min(retry_count - 1, 5)))
+            retry_metadata = dict(operation.result_metadata or {})
+            retry_metadata.setdefault("fields", sorted((retry_metadata.get("local_snapshot") or {}).keys()))
             operation.result_metadata = {
-                **(operation.result_metadata or {}),
+                **retry_metadata,
                 "retry_count": retry_count,
                 "retry_at": (timezone.now() + timedelta(seconds=delay)).isoformat(),
                 "last_transient_error": exc.__class__.__name__,
@@ -727,8 +741,11 @@ def process_pending_operations(*, limit=50, timeout=None, execute=False, actor=N
                 "La actualización no pudo validarse con la información remota "
                 "disponible; requiere revisión antes de continuar."
             )
+            validation_metadata = dict(operation.result_metadata or {})
+            validation_metadata.setdefault("fields", sorted((validation_metadata.get("local_snapshot") or {}).keys()))
+            operation.result_metadata = validation_metadata
             operation.save(update_fields=[
-                "state", "error_code", "error_message", "reconciliation_reason", "updated_at",
+                "state", "error_code", "error_message", "reconciliation_reason", "result_metadata", "updated_at",
             ])
             SyncAuditLog.objects.create(
                 system=operation.system, operation="process_outbound_contact", resource="contacts",

@@ -31,6 +31,7 @@ class ClienteCrearViewTests(TestCase):
             "tipo_identificacion": Cliente.ID_CC,
             "identificacion": "1019059653",
             "regimen_tributario": "SIMPLIFIED_REGIME",
+            "direccion": "Calle 10 # 20-30",
             "activo": "on",
         }
         with patch("tienda.views.AlegraWriteClient") as transport, \
@@ -54,6 +55,7 @@ class ClienteCrearViewTests(TestCase):
             "tipo_identificacion": Cliente.ID_CC,
             "identificacion": "1019059655",
             "regimen_tributario": "SIMPLIFIED_REGIME",
+            "direccion": "Calle 10 # 20-30",
             "activo": "on",
         }
         with patch("tienda.services.alegra_operation_queue.AlegraWriteClient") as queue_transport:
@@ -77,6 +79,7 @@ class ClienteCrearViewTests(TestCase):
             "tipo_identificacion": Cliente.ID_CC,
             "identificacion": "1019059654",
             "regimen_tributario": "SIMPLIFIED_REGIME",
+            "direccion": "Calle 10 # 20-30",
             "activo": "on",
         }
         response = self.client.post(self.url, data)
@@ -94,6 +97,7 @@ class ClienteCrearViewTests(TestCase):
             identificacion="902079339",
             tipo_identificacion=Cliente.ID_NIT,
             regimen_tributario="COMMON_REGIME",
+            direccion="Calle 10 # 20-30",
         )
         data = {
             "tipo_cliente": Cliente.TIPO_EMPRESA,
@@ -102,6 +106,7 @@ class ClienteCrearViewTests(TestCase):
             "identificacion": "902079339",
             "tipo_identificacion": Cliente.ID_NIT,
             "regimen_tributario": "COMMON_REGIME",
+            "direccion": "Calle 10 # 20-30",
             "activo": "on",
         }
         with patch("tienda.services.alegra_operation_queue.AlegraWriteClient") as queue_transport:
@@ -125,11 +130,13 @@ class ClienteCrearViewTests(TestCase):
             nombre="Histórico",
             razon_social="Histórico S.A.S.",
             alegra_sync_policy=Cliente.ALEGRA_SYNC_HISTORICAL_PENDING,
+            direccion="Calle 10 # 20-30",
         )
         data = {
             "tipo_cliente": Cliente.TIPO_EMPRESA,
             "nombre": "Histórico",
             "razon_social": "Histórico S.A.S.",
+            "direccion": "Calle 10 # 20-30",
             "activo": "on",
         }
 
@@ -234,6 +241,7 @@ class ClienteCrearViewTests(TestCase):
             "primer_apellido": "Incompleto",
             "tipo_identificacion": Cliente.ID_CC,
             "identificacion": "1017166214",
+            "direccion": "Calle 10 # 20-30",
             "activo": "on",
         }
         response = self.client.post(self.url, data)
@@ -262,6 +270,7 @@ class ClienteCrearViewTests(TestCase):
                 "primer_apellido": "Incompleto",
                 "tipo_identificacion": Cliente.ID_CC,
                 "identificacion": "111111111",
+                "direccion": "Calle 10 # 20-30",
                 "activo": "on",
             },
         )
@@ -282,6 +291,7 @@ class ClienteCrearViewTests(TestCase):
                     "tipo_identificacion": Cliente.ID_CC,
                     "identificacion": "111111111",
                     "regimen_tributario": "COMMON_REGIME",
+                    "direccion": "Calle 10 # 20-30",
                     "activo": "on",
                 },
             )

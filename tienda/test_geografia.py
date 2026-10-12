@@ -29,6 +29,7 @@ class GeografiaColombianaTests(TestCase):
             "tipo_identificacion": "cc", "identificacion": "1017175766",
             "regimen_tributario": "COMMON_REGIME", "municipio_departamento": "Medellín, Antioquia",
             "divipola_code": "05001",
+            "direccion": "Calle 10 # 20-30",
         })
         self.assertTrue(form.is_valid(), form.errors)
         cliente = form.save()
@@ -63,11 +64,13 @@ class GeografiaColombianaTests(TestCase):
     def test_edit_without_location_selection_preserves_legacy_location(self):
         cliente = Cliente.objects.create(
             nombre="Cliente histórico", ciudad="Cali", departamento="Valle del Cauca", pais="Colombia",
+            direccion="Calle 10 # 20-30",
         )
         form = ClienteForm(data={
             "tipo_cliente": "persona", "nombre": "Cliente histórico", "primer_nombre": "Cliente",
             "primer_apellido": "histórico", "tipo_identificacion": "cc", "identificacion": "100",
             "regimen_tributario": "COMMON_REGIME", "municipio_departamento": "", "divipola_code": "",
+            "direccion": "Calle 10 # 20-30",
         }, instance=cliente)
         self.assertTrue(form.is_valid(), form.errors)
         saved = form.save()

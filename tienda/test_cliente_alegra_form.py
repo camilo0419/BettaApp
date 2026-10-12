@@ -26,7 +26,7 @@ class ClienteAlegraFormTests(TestCase):
             "telefono_secundario": "",
             "celular": "",
             "whatsapp": "",
-            "direccion": "",
+            "direccion": "Calle 10 # 20-30",
             "ciudad": "",
             "departamento": "",
             "pais": "",
@@ -87,4 +87,11 @@ class ClienteAlegraFormTests(TestCase):
         with self.assertRaises(ValidationError):
             build_contact_payload(client)
         self.assertIsNone(client.pk)
+
+    def test_form_rechaza_direccion_vacia_o_con_espacios(self):
+        form = ClienteForm(data=self.natural_data(direccion="   "))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("direccion", form.errors)
+        self.assertIn("La dirección física es obligatoria", str(form.errors["direccion"]))
 

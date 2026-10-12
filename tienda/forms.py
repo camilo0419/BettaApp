@@ -457,6 +457,8 @@ class ClienteForm(forms.ModelForm):
         self.fields["primer_nombre"].help_text = "Requerido para sincronizar una persona natural con Alegra."
         self.fields["primer_apellido"].help_text = "Requerido para sincronizar una persona natural con Alegra."
         self.fields["regimen_tributario"].help_text = "Debe confirmarse antes de preparar una sincronización con Alegra."
+        self.fields["direccion"].required = True
+        self.fields["direccion"].help_text = "La dirección física es obligatoria."
 
     def clean(self):
         cleaned_data = super().clean()
@@ -473,6 +475,10 @@ class ClienteForm(forms.ModelForm):
                     "La ubicación no coincide con el código DIVIPOLA seleccionado.",
                 )
         tipo = cleaned_data.get("tipo_cliente")
+        direccion = str(cleaned_data.get("direccion") or "").strip()
+        cleaned_data["direccion"] = direccion
+        if not direccion:
+            self.add_error("direccion", "La dirección física es obligatoria")
         nombre = (cleaned_data.get("nombre") or "").strip()
         razon_social = (cleaned_data.get("razon_social") or "").strip()
         nombre_comercial = (cleaned_data.get("nombre_comercial") or "").strip()

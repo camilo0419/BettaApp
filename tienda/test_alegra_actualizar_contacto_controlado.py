@@ -30,6 +30,7 @@ class ControlledContactUpdateTests(TestCase):
             identificacion="1212121212",
             tipo_identificacion=Cliente.ID_CC,
             regimen_tributario="COMMON_REGIME",
+            direccion="Calle 10 # 20-30",
             email="test@gmail.com",
             telefono="5555555",
             telefono_secundario="3334455",
@@ -84,6 +85,7 @@ class ControlledContactUpdateTests(TestCase):
         client_class.return_value.update_contact.assert_called_once()
         payload = client_class.return_value.update_contact.call_args.args[1]
         self.assertIn("nameObject", payload)
+        self.assertEqual(payload["address"]["address"], "Calle 10 # 20-30")
         self.assertEqual(SyncAuditLog.objects.get().result, SyncAuditLog.RESULT_SUCCESS)
 
     @patch("tienda.management.commands.alegra_actualizar_contacto_controlado.AlegraWriteClient")

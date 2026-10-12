@@ -260,7 +260,12 @@ class AlegraWriteAdapterTests(TestCase):
         baseline = {"nombre": "Cliente local", "identificacion": "900123456", "email": "old@example.test", "telefono": "3000000000"}
         self.client.email = "new@example.test"
         self.client.save(update_fields=["email"])
-        transport = FakeTransport(detail={"id": "A-1", "name": "Cliente local"})
+        transport = FakeTransport(detail={
+            "id": "A-1", "name": "Cliente local", "identification": "900123456",
+            "identificationObject": {"type": "NIT", "number": "900123456", "dv": "1"},
+            "kindOfPerson": "LEGAL_ENTITY", "regime": "COMMON_REGIME", "type": ["client"],
+            "status": "active", "email": "new@example.test", "phonePrimary": "3000000000",
+        })
         service = AlegraContactWriteService(transport=transport)
         operation, payload = service.prepare_update(self.client, self.system, external_id="A-1", remote_row=remote, baseline=baseline)
         self.assertEqual(payload, {

@@ -88,6 +88,7 @@ class AutomationTests(TestCase):
                 "tipo_identificacion": Cliente.ID_CC,
                 "identificacion": "991001001",
                 "regimen_tributario": "COMMON_REGIME",
+                "direccion": "Calle 10 # 20-30",
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -114,6 +115,7 @@ class AutomationTests(TestCase):
                 "identificacion": client.identificacion,
                 "regimen_tributario": "COMMON_REGIME",
                 "email": "nuevo@example.test",
+                "direccion": "Calle 10 # 20-30",
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -217,6 +219,7 @@ class AutomationTests(TestCase):
     def test_explicit_empty_remote_fields_are_not_classified_as_new_noop(self, transport_class, execute_update):
         """Reproduce la operación 13: Alegra devuelve las claves, pero vacías."""
         client = self._linked_client("Persona de Prueba Test", "1212121212")
+        client.direccion = "Calle 10 # 20-30"
         client.email = "test@gmail.com"
         client.telefono = "2222222"
         client.telefono_secundario = "3334455"
@@ -224,7 +227,7 @@ class AutomationTests(TestCase):
         client.departamento = "ANTIOQUIA"
         client.pais = "Colombia"
         client.save(update_fields=[
-            "email", "telefono", "telefono_secundario", "ciudad", "departamento", "pais", "fecha_actualizacion",
+            "email", "telefono", "telefono_secundario", "ciudad", "departamento", "pais", "direccion", "fecha_actualizacion",
         ])
         mapping = self._contact_map(client, "678", {
             "source": "alegra_write",
@@ -238,6 +241,7 @@ class AutomationTests(TestCase):
                 "ciudad": "",
                 "departamento": "",
                 "pais": "",
+                "direccion": "Calle 10 # 20-30",
             },
         })
         operation = enqueue_update_if_changed(client, defer_remote_check=True)
@@ -252,7 +256,7 @@ class AutomationTests(TestCase):
             "phonePrimary": "",
             "phoneSecondary": "",
             "mobile": "",
-            "address": {"address": "", "city": "", "department": "", "country": ""},
+            "address": {"address": "Calle 10 # 20-30", "city": "", "department": "", "country": ""},
             "type": ["client"],
             "status": "active",
         }
@@ -299,15 +303,17 @@ class AutomationTests(TestCase):
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")
     def test_local_geographic_change_remains_authorizable(self, transport_class, execute_update):
         client = self._linked_client("Cliente ubicación", "991001007")
+        client.direccion = "Calle 10 # 20-30"
         client.ciudad = "Cali"
         client.departamento = "Valle del Cauca"
         client.pais = "Colombia"
-        client.save(update_fields=["ciudad", "departamento", "pais", "fecha_actualizacion"])
+        client.save(update_fields=["ciudad", "departamento", "pais", "direccion", "fecha_actualizacion"])
         self._contact_map(client, "C-location", {
             "source": "alegra_write",
             "last_synced_fields": {"nombre": client.nombre, "identificacion": client.identificacion,
                                     "tipo_identificacion": client.tipo_identificacion,
                                     "email": client.email,
+                                    "direccion": "Calle 10 # 20-30",
                                     "ciudad": "Medellín", "departamento": "Antioquia", "pais": "Colombia"},
         })
         operation = enqueue_update_if_changed(client, defer_remote_check=True)
@@ -315,7 +321,7 @@ class AutomationTests(TestCase):
             "id": "C-location", "name": client.nombre,
             "identificationObject": {"type": "CC", "number": client.identificacion},
             "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
-            "address": {"city": "Medellín", "department": "Antioquia", "country": "Colombia"},
+            "address": {"address": "Calle 10 # 20-30", "city": "Medellín", "department": "Antioquia", "country": "Colombia"},
             "type": ["client"], "status": "active",
         }
         execute_update.side_effect = lambda operation_id, authorization: AlegraWriteOperation.objects.get(pk=operation_id)

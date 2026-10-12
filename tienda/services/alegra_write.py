@@ -482,6 +482,8 @@ class AlegraContactWriteService:
         address_fields = {"direccion": "address", "ciudad": "city", "departamento": "department",
                           "pais": "country", "codigo_postal": "zipCode"}
         if any(field in address_fields for field in fields):
+            if not str(getattr(client, "direccion", "") or "").strip():
+                raise ValidationError("La dirección física es obligatoria.")
             location = alegra_location(getattr(client, "divipola_municipio", None))
             address = {
                 "address": str(getattr(client, "direccion", "") or "").strip(),
