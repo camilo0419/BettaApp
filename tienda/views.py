@@ -2672,9 +2672,33 @@ def cliente_alegra_aplicar_cambios(request, cliente_id):
             messages.info(request, "No hay cambios externos pendientes; no se modificó el cliente.")
         else:
             messages.success(request, f"Cambios de Alegra aplicados localmente: {', '.join(result['updated_fields'])}.")
-    except (AlegraError, InboundSyncConflict, ValidationError, TypeError, ValueError) as exc:
+    except (AlegraError, InboundSyncConflict, DatabaseLockUnavailable, ValidationError, TypeError, ValueError) as exc:
         messages.error(request, f"No se aplicaron cambios de Alegra: {exc}")
     return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+
+
+@panel_staff_required
+@require_POST
+def cliente_alegra_resolver_nombre(request, cliente_id):
+    """Aplica una decisión explícita sobre un conflicto exclusivo de nombre."""
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    token = request.POST.get("review_token", "")
+    decision = request.POST.get("decision", "")
+    try:
+        review = signing.loads(token, salt="tienda.alegra_inbound_review", max_age=900)
+        if int(review.get("local_id")) != cliente.pk:
+            raise InboundSyncConflict("La revisión no corresponde al cliente solicitado.")
+        result = InboundClientSyncService(AlegraWriteClient()).resolve_name_conflict(
+            cliente.pk, int(review["mapping_id"]), review, decision, actor=request.user,
+        )
+        if result["status"] == "remote_kept":
+            messages.success(request, "Se conservó el nombre de Alegra y se actualizó el baseline local.")
+            return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+        messages.success(request, f"Se autorizó la actualización del nombre (operación {result['operation_id']}).")
+        return redirect(f"{reverse('panel_cliente_detalle', kwargs={'cliente_id': cliente.pk})}?sync_operation={result['operation_id']}")
+    except (AlegraError, InboundSyncConflict, DatabaseLockUnavailable, ValidationError, TypeError, ValueError) as exc:
+        messages.error(request, f"No se resolvió el conflicto de nombre: {exc}")
+        return redirect("panel_cliente_alegra_revisar_cambios", cliente_id=cliente.pk)
 
 
 @panel_staff_required

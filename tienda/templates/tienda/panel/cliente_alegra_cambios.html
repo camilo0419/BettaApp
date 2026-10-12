@@ -46,6 +46,18 @@
     </div>
     {% if review.state == 'pending' %}<button class="btn btn-primary" type="submit">Aplicar cambios de Alegra</button>{% endif %}
   </form>
+  {% if review.state == 'conflict' and review.conflict_fields|length == 1 and review.conflict_fields.0 == 'nombre' and not review.protected_fields %}
+  <div class="info-box">
+    <strong>Conflicto exclusivo de nombre</strong>
+    <p>Elige explícitamente qué sistema debe conservar el nombre. La decisión se volverá a validar mediante GET antes de aplicarse.</p>
+    <form method="post" action="{% url 'panel_cliente_alegra_resolver_nombre' cliente.id %}" class="inline-form">
+      {% csrf_token %}<input type="hidden" name="review_token" value="{{ review_token }}"><input type="hidden" name="decision" value="keep_remote"><button class="btn btn-outline" type="submit">Conservar nombre de Alegra</button>
+    </form>
+    <form method="post" action="{% url 'panel_cliente_alegra_resolver_nombre' cliente.id %}" class="inline-form">
+      {% csrf_token %}<input type="hidden" name="review_token" value="{{ review_token }}"><input type="hidden" name="decision" value="apply_local"><button class="btn btn-primary" type="submit">Aplicar nombre de BettaApp</button>
+    </form>
+  </div>
+  {% endif %}
   {% else %}
     <p>No se detectaron cambios externos aplicables.</p>
   {% endif %}

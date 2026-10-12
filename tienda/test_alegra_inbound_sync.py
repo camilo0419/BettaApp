@@ -1,12 +1,15 @@
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import Client as DjangoClient, TestCase
+from django.urls import reverse
 
-from tienda.models import Cliente, ExternalObjectMap, SyncAuditLog
+from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap, SyncAuditLog
 from tienda.services.alegra_import import get_alegra_system
 from tienda.services.alegra_client import AlegraError
 from tienda.services.alegra_bidirectional_clients import CONFLICT, PENDING, SYNCED
 from tienda.services.alegra_inbound_sync import InboundClientSyncService, InboundSyncConflict
+from tienda.services.alegra_operation_queue import _materialize_deferred_update
+from tienda.services.alegra_write import AlegraContactWriteService
 
 
 class ReadOnlyTransport:
@@ -170,3 +173,98 @@ class InboundAlegraSyncTests(TestCase):
             InboundClientSyncService(ErrorTransport()).apply(
                 self.client.pk, self.mapping.pk, {}, ["email"],
             )
+
+    def _name_conflict(self, *, remote_name="Nombre remoto", transport=None):
+        self.client.razon_social = "Nombre local"
+        self.client.nombre = "Nombre local"
+        self.client.save(update_fields=["razon_social", "nombre", "fecha_actualizacion"])
+        row = {
+            **self.remote,
+            "name": remote_name,
+            "nameObject": None,
+        }
+        service = InboundClientSyncService(transport or ReadOnlyTransport(row))
+        review = service.review(self.client, self.mapping, row)
+        self.assertEqual(review["state"], CONFLICT)
+        self.assertEqual(review["conflict_fields"], ["nombre"])
+        return service, review, row
+
+    def test_keep_remote_name_updates_local_and_baseline_after_fresh_get(self):
+        service, review, row = self._name_conflict(remote_name="Nombre remoto")
+        result = service.resolve_name_conflict(self.client.pk, self.mapping.pk, review, "keep_remote")
+        self.assertEqual(result["status"], "remote_kept")
+        self.client.refresh_from_db()
+        self.mapping.refresh_from_db()
+        self.assertEqual(self.client.razon_social, "Nombre remoto")
+        self.assertEqual(self.mapping.metadata["last_confirmed"]["nombre"], "Nombre remoto")
+        self.assertEqual(self.mapping.metadata["last_synced_fields"]["nombre"], "Nombre remoto")
+        self.assertEqual(SyncAuditLog.objects.filter(operation="resolve_alegra_name_conflict").count(), 1)
+
+    def test_apply_local_name_creates_one_authorized_operation_idempotently(self):
+        service, review, _row = self._name_conflict(remote_name="Nombre remoto")
+        first = service.resolve_name_conflict(self.client.pk, self.mapping.pk, review, "apply_local")
+        second = service.resolve_name_conflict(self.client.pk, self.mapping.pk, review, "apply_local")
+        self.assertEqual(first["status"], "local_queued")
+        self.assertEqual(second["operation_id"], first["operation_id"])
+        operations = AlegraWriteOperation.objects.filter(
+            client=self.client, operation=AlegraWriteOperation.OP_UPDATE,
+        )
+        self.assertEqual(operations.count(), 1)
+        operation = operations.get()
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
+        self.assertEqual(operation.result_metadata["authorized_conflict_fields"], ["nombre"])
+        self.assertEqual(operation.result_metadata["local_snapshot"]["nombre"], "Nombre local")
+
+    def test_remote_name_change_during_resolution_invalidates_decision(self):
+        first_row = {**self.remote, "name": "Nombre remoto", "nameObject": None}
+        changed_row = {**self.remote, "name": "Otro nombre remoto", "nameObject": None}
+
+        class SequenceTransport:
+            def __init__(self):
+                self.rows = [first_row, changed_row]
+
+            def get_contact(self, external_id):
+                return dict(self.rows.pop(0))
+
+        transport = SequenceTransport()
+        service = InboundClientSyncService(transport)
+        self.client.razon_social = "Nombre local"
+        self.client.nombre = "Nombre local"
+        self.client.save(update_fields=["razon_social", "nombre", "fecha_actualizacion"])
+        review = service.review(self.client, self.mapping, first_row)
+        with self.assertRaises(InboundSyncConflict):
+            service.resolve_name_conflict(self.client.pk, self.mapping.pk, review, "keep_remote")
+        self.assertFalse(AlegraWriteOperation.objects.filter(client=self.client).exists())
+
+    def test_authorized_name_update_materializes_without_repeating_review_conflict(self):
+        service, review, row = self._name_conflict(remote_name="Nombre remoto")
+        result = service.resolve_name_conflict(self.client.pk, self.mapping.pk, review, "apply_local")
+        operation = AlegraWriteOperation.objects.get(pk=result["operation_id"])
+        materialized = _materialize_deferred_update(
+            operation,
+            AlegraContactWriteService(transport=ReadOnlyTransport(row)),
+        )
+        self.assertEqual(materialized.state, AlegraWriteOperation.STATE_PENDING)
+        materialized.refresh_from_db()
+        self.assertEqual(materialized.result_metadata["fields"], ["nombre"])
+        self.assertNotEqual(materialized.state, AlegraWriteOperation.STATE_CONFLICT)
+
+    def test_authorized_name_update_is_invalidated_if_remote_changes_before_processing(self):
+        service, review, row = self._name_conflict(remote_name="Nombre remoto")
+        result = service.resolve_name_conflict(self.client.pk, self.mapping.pk, review, "apply_local")
+        operation = AlegraWriteOperation.objects.get(pk=result["operation_id"])
+        changed = {**row, "name": "Otro nombre remoto"}
+        materialized = _materialize_deferred_update(
+            operation,
+            AlegraContactWriteService(transport=ReadOnlyTransport(changed)),
+        )
+        self.assertEqual(materialized.state, AlegraWriteOperation.STATE_CONFLICT)
+        self.assertEqual(materialized.error_code, "stale_conflict_review")
+
+    def test_name_resolution_requires_authenticated_staff_panel_access(self):
+        response = DjangoClient().post(
+            reverse("panel_cliente_alegra_resolver_nombre", kwargs={"cliente_id": self.client.pk}),
+            {"decision": "keep_remote", "review_token": "invalid"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/panel/login/", response.url)

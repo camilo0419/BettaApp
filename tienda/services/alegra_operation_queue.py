@@ -244,6 +244,8 @@ def enqueue_update_if_changed(client: Cliente, *, actor=None, timeout=None, defe
     ).select_related("system").first()
     if not mapping:
         return None
+
+
     metadata = mapping.metadata if isinstance(mapping.metadata, dict) else {}
     baseline_state, baseline = InboundClientSyncService.baseline_info(metadata)
     if baseline_state != "confirmed":
@@ -335,6 +337,44 @@ def enqueue_update_if_changed(client: Cliente, *, actor=None, timeout=None, defe
             metadata={"client_id": client.pk, "state": "blocked"},
         )
         return None
+
+
+def enqueue_authorized_name_conflict_update(
+    client: Cliente, mapping: ExternalObjectMap, baseline: dict, remote_hash: str, *, actor=None,
+) -> AlegraWriteOperation:
+    """Crea una única actualización de nombre autorizada tras una revisión fresca."""
+    local_snapshot = {"nombre": client.nombre_mostrado}
+    key = BidirectionalClientSync.idempotency_key(
+        "betta_to_alegra_name_conflict_resolution", str(mapping.external_id),
+        {"nombre": local_snapshot["nombre"], "remote_hash": remote_hash},
+    )
+    metadata = {
+        "deferred_prepare": True,
+        "local_snapshot": local_snapshot,
+        "baseline": {"nombre": baseline.get("nombre", "")},
+        "authorized_conflict_fields": ["nombre"],
+        "authorized_remote_hash": remote_hash,
+        "resolution_actor_id": getattr(actor, "pk", None),
+    }
+    with advisory_lock(f"bettaapp:alegra:queue:contact:{client.pk}"):
+        with transaction.atomic():
+            content_type = ContentType.objects.get_for_model(Cliente)
+            active_maps = ExternalObjectMap.objects.filter(
+                system=mapping.system, resource_type="contacts", content_type=content_type,
+                object_id=client.pk, status=ExternalObjectMap.STATUS_ACTIVE,
+            )
+            if mapping.object_id != client.pk or mapping.status != ExternalObjectMap.STATUS_ACTIVE or active_maps.count() != 1:
+                raise ValidationError("El cliente no tiene un único vínculo activo válido para conciliar.")
+            operation, _ = AlegraWriteOperation.objects.get_or_create(
+                system=mapping.system, client=client, operation=AlegraWriteOperation.OP_UPDATE,
+                idempotency_key=key,
+                defaults={
+                    "external_id": str(mapping.external_id),
+                    "state": AlegraWriteOperation.STATE_PENDING,
+                    "result_metadata": metadata,
+                },
+            )
+            return operation
 
 
 def _materialize_deferred_update(operation, service: AlegraContactWriteService):
@@ -474,6 +514,35 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
     else:
         # Una intención sin fotografía local no puede demostrar igualdad.
         unverified_fields.append("local_snapshot")
+    authorized_fields = set(metadata.get("authorized_conflict_fields") or [])
+    authorized_remote_hash = metadata.get("authorized_remote_hash")
+    if authorized_fields:
+        current_remote_hash = InboundClientSyncService._stable_hash(remote)
+        if current_remote_hash != authorized_remote_hash:
+            operation.state = AlegraWriteOperation.STATE_CONFLICT
+            operation.error_code = "stale_conflict_review"
+            operation.reconciliation_reason = "El contacto remoto cambió después de la revisión; se requiere una nueva conciliación."
+            operation.result_metadata = {
+                **metadata,
+                "remote_confirmation": {"status": "stale_review"},
+            }
+            operation.save(update_fields=["state", "error_code", "reconciliation_reason", "result_metadata", "updated_at"])
+            return operation
+        unauthorized_conflicts = set(comparison["conflict_fields"]) - authorized_fields
+        if unauthorized_conflicts or not set(comparison["conflict_fields"]).issubset(authorized_fields):
+            authorized_fields = set()
+        else:
+            comparison["conflict_fields"] = []
+            # La comparación de tres vías clasifica un conflicto en
+            # ``conflict_fields`` y no en ``local_fields``. Una autorización
+            # explícita convierte únicamente esos campos revisados en cambios
+            # locales ejecutables; los demás campos conservan su clasificación.
+            for field in sorted(authorized_fields):
+                if isinstance(local_snapshot, dict) and field in local_snapshot:
+                    if field not in comparison["local_fields"]:
+                        comparison["local_fields"].append(field)
+                    if field not in comparison["changed_fields"]:
+                        comparison["changed_fields"].append(field)
     if comparison["conflict_fields"]:
         operation.state = AlegraWriteOperation.STATE_CONFLICT
         operation.error_code = "conflict"

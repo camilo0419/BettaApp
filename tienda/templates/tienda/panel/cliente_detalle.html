@@ -59,7 +59,7 @@
         <div class="alegra-client-sync-head"><strong>Estado de sincronización</strong><span class="alegra-status-badge" data-sync-status-label>{{ alegra_sync_status.label }}</span></div>
         <p data-sync-status-detail>{{ alegra_sync_status.detail }}</p>
         <p class="muted" data-sync-status-at{% if not alegra_sync_at %} hidden{% endif %}>{% if alegra_sync_at %}Última actualización: {{ alegra_sync_at|date:'Y-m-d H:i' }}{% endif %}</p>
-        {% if alegra_map %}<p>Vinculación activa con Alegra. No se puede preparar otra creación.</p>{% endif %}
+        {% if alegra_map %}<p>Vinculación activa con Alegra. Las nuevas sincronizaciones utilizarán actualizaciones del contacto existente.</p>{% endif %}
         {% if user.is_staff %}<details class="alegra-sync-technical"><summary>Ver historial técnico</summary>{% for operation in alegra_operations %}<p>{{ operation.get_operation_display }} · {{ operation.get_state_display }} · {{ operation.updated_at|date:'Y-m-d H:i' }}{% if operation.error_message %} · {{ operation.error_message }}{% endif %}</p>{% empty %}<p>Sin operaciones de sincronización registradas.</p>{% endfor %}</details>{% endif %}
       </div>
       {% if cliente.notas %}<p>{{ cliente.notas }}</p>{% endif %}

@@ -15,6 +15,7 @@ from tienda.models import Cliente, ExternalObjectMap, SyncAuditLog
 from .alegra_bidirectional_clients import BidirectionalClientSync, CONFLICT, PENDING, SYNCED
 from .alegra_normalization import extract_identification_context
 from .geografia import normalize_location
+from .database_lock import advisory_lock
 
 LOCAL_ONLY = "local_only"
 
@@ -276,6 +277,7 @@ class InboundClientSyncService:
             "local_fields": comparison.get("local_fields", []),
             "conflict_fields": conflicts,
             "protected_fields": protected,
+            "baseline": dict(baseline),
             "changes": changes,
             "local_version": self._local_version(client),
             # La marca auto_now no es suficiente como detector de concurrencia:
@@ -342,3 +344,92 @@ class InboundClientSyncService:
                 metadata={"fields": sorted(approved), "direction": "alegra_to_betta"},
             )
         return {"status": "updated", "updated_fields": sorted(approved)}
+
+    def resolve_name_conflict(self, client_id: int, mapping_id: int, review: Mapping[str, Any], decision: str, *, actor=None) -> dict[str, Any]:
+        """Resuelve exclusivamente un conflicto de nombre después de un GET fresco."""
+        if decision not in {"keep_remote", "apply_local"}:
+            raise ValidationError("La decisión de conciliación no es válida.")
+        client = Cliente.objects.get(pk=client_id)
+        mapping = ExternalObjectMap.objects.select_related("system").get(pk=mapping_id)
+        remote = self.transport.get_contact(mapping.external_id)
+        current_review = self.review(client, mapping, remote)
+        for key in ("external_id", "local_id", "local_hash", "baseline_hash", "remote_hash"):
+            if str(current_review.get(key)) != str(review.get(key)):
+                raise InboundSyncConflict("La revisión quedó obsoleta; vuelva a consultar Alegra.")
+        if current_review["state"] != CONFLICT or current_review["conflict_fields"] != ["nombre"] or current_review["protected_fields"]:
+            raise InboundSyncConflict("El caso ya no es un conflicto exclusivo de nombre.")
+
+        content_type = ContentType.objects.get_for_model(Cliente)
+        mapping_qs = ExternalObjectMap.objects.filter(
+            system=mapping.system,
+            resource_type="contacts",
+            content_type=content_type,
+            object_id=client.pk,
+            status=ExternalObjectMap.STATUS_ACTIVE,
+        )
+        if mapping.object_id != client.pk or mapping.status != ExternalObjectMap.STATUS_ACTIVE or mapping_qs.count() != 1:
+            raise InboundSyncConflict("El cliente no tiene un único vínculo activo válido para conciliar.")
+
+        if decision == "apply_local":
+            # El encolador adquiere el mismo bloqueo de contacto. No lo
+            # invoquemos dentro del bloqueo usado para la decisión remota:
+            # MariaDB GET_LOCK no debe anidarse sobre la misma conexión.
+            from .alegra_operation_queue import enqueue_authorized_name_conflict_update
+            operation = enqueue_authorized_name_conflict_update(
+                client, mapping, current_review.get("baseline") or {}, current_review["remote_hash"], actor=actor,
+            )
+            SyncAuditLog.objects.create(
+                system=mapping.system, operation="resolve_alegra_name_conflict", resource="contacts",
+                external_id=mapping.external_id, actor=actor, result=SyncAuditLog.RESULT_SUCCESS,
+                detail="Se autorizó una actualización pendiente exclusivamente del nombre.",
+                metadata={"client_id": client.pk, "mapping_id": mapping.pk, "decision": decision, "fields": ["nombre"], "operation_id": operation.pk},
+            )
+            return {"status": "local_queued", "operation_id": operation.pk, "updated_fields": ["nombre"]}
+
+        with advisory_lock(f"bettaapp:alegra:queue:contact:{client.pk}"):
+            with transaction.atomic():
+                mapping = ExternalObjectMap.objects.select_for_update().get(pk=mapping_id)
+                client = Cliente.objects.select_for_update().get(pk=client_id)
+                if ExternalObjectMap.objects.filter(
+                    system=mapping.system, resource_type="contacts", content_type=content_type,
+                    object_id=client.pk, status=ExternalObjectMap.STATUS_ACTIVE,
+                ).count() != 1:
+                    raise InboundSyncConflict("El cliente no tiene un único vínculo activo válido para conciliar.")
+                locked_remote = self.transport.get_contact(mapping.external_id)
+                if self._stable_hash(locked_remote) != current_review["remote_hash"]:
+                    raise InboundSyncConflict("El contacto remoto cambió durante la conciliación; vuelva a consultar Alegra.")
+                if decision == "keep_remote":
+                    values = self.sync._external_values(locked_remote)
+                    name_object = locked_remote.get("nameObject") if isinstance(locked_remote.get("nameObject"), Mapping) else None
+                    update_fields = []
+                    if client.tipo_cliente == Cliente.TIPO_PERSONA and name_object is not None:
+                        for source, target in (("firstName", "primer_nombre"), ("secondName", "segundo_nombre"), ("lastName", "primer_apellido"), ("secondLastName", "segundo_apellido")):
+                            setattr(client, target, str(name_object.get(source) or "").strip())
+                            update_fields.append(target)
+                    client.nombre = values.get("nombre", "")
+                    update_fields.append("nombre")
+                    if client.tipo_cliente == Cliente.TIPO_EMPRESA:
+                        client.razon_social = values.get("nombre", "")
+                        update_fields.append("razon_social")
+                    client.full_clean()
+                    client.save(update_fields=sorted(set(update_fields + ["fecha_actualizacion"])))
+                    metadata = dict(mapping.metadata or {})
+                    confirmed = dict(metadata.get("last_confirmed") or {})
+                    synced = dict(metadata.get("last_synced_fields") or {})
+                    confirmed["nombre"] = values.get("nombre", "")
+                    synced["nombre"] = values.get("nombre", "")
+                    metadata.update({
+                        "last_confirmed": confirmed,
+                        "last_synced_fields": synced,
+                        "baseline_source": "alegra_conflict_resolution_get",
+                    })
+                    mapping.metadata = metadata
+                    mapping.last_synced_at = timezone.now()
+                    mapping.save(update_fields=["metadata", "last_synced_at", "updated_at"])
+                    SyncAuditLog.objects.create(
+                        system=mapping.system, operation="resolve_alegra_name_conflict", resource="contacts",
+                        external_id=mapping.external_id, actor=actor, result=SyncAuditLog.RESULT_SUCCESS,
+                        detail="Se conservó el nombre remoto después de una revisión fresca.",
+                        metadata={"client_id": client.pk, "mapping_id": mapping.pk, "decision": decision, "fields": ["nombre"]},
+                    )
+                    return {"status": "remote_kept", "updated_fields": ["nombre"]}
