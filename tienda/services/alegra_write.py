@@ -449,22 +449,29 @@ class AlegraContactWriteService:
             if not client.nombre_mostrado:
                 raise ValidationError("La actualización requiere un nombre de contacto.")
             payload["name"] = client.nombre_mostrado
+            # Alegra Colombia valida nameObject también en PUT, aunque el
+            # cambio solicitado sea únicamente comercial (por ejemplo,
+            # teléfono). Mantener el nombre estructurado evita enviar un
+            # payload parcial que Alegra rechaza con el código 2110.
+            first_name = str(client.primer_nombre or "").strip()
+            last_name = str(client.primer_apellido or "").strip()
+            if not first_name or not last_name:
+                raise ValidationError("La actualización de persona natural requiere nombres y apellidos completos.")
+            name_object = {"firstName": first_name, "lastName": last_name}
+            if client.segundo_nombre:
+                name_object["secondName"] = client.segundo_nombre.strip()
+            if client.segundo_apellido:
+                name_object["secondLastName"] = client.segundo_apellido.strip()
+            payload["nameObject"] = name_object
         elif client.razon_social:
             payload["name"] = client.razon_social.strip()
         elif client.nombre:
             payload["name"] = client.nombre.strip()
         if any(field in fields for field in {"nombre", "primer_nombre", "segundo_nombre", "primer_apellido", "segundo_apellido", "razon_social"}):
             if client.tipo_cliente == Cliente.TIPO_PERSONA:
-                first_name = str(client.primer_nombre or "").strip()
-                last_name = str(client.primer_apellido or "").strip()
-                if not first_name or not last_name:
-                    raise ValidationError("La actualización de persona natural requiere nombres y apellidos completos.")
-                name_object = {"firstName": first_name, "lastName": last_name}
-                if client.segundo_nombre:
-                    name_object["secondName"] = client.segundo_nombre.strip()
-                if client.segundo_apellido:
-                    name_object["secondLastName"] = client.segundo_apellido.strip()
-                payload["nameObject"] = name_object
+                # Ya se construye de forma obligatoria arriba para toda
+                # actualización de persona natural.
+                pass
             elif client.razon_social:
                 payload["name"] = client.razon_social.strip()
         for field in fields:

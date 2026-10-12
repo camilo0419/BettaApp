@@ -811,6 +811,32 @@ class AutomationTests(TestCase):
         self.assertEqual(mapping.metadata["last_confirmed"]["telefono"], client.telefono)
 
     @patch("tienda.services.alegra_write.AlegraWriteClient")
+    def test_put_de_persona_incluye_name_object_aunque_solo_cambie_telefono(self, transport_class):
+        client, mapping, operation, service, remote = self._prepare_phone_update_for_confirmation(transport_class.return_value)
+
+        def update_response(external_id, payload, *, authorization):
+            self.assertEqual(external_id, mapping.external_id)
+            self.assertEqual(payload["nameObject"], {
+                "firstName": client.primer_nombre,
+                "lastName": client.primer_apellido,
+            })
+            self.assertEqual(payload["name"], client.nombre_mostrado)
+            self.assertEqual(payload["phonePrimary"], client.telefono)
+            return {"id": external_id}
+
+        transport_class.return_value.update_contact.side_effect = update_response
+        transport_class.return_value.get_contact.return_value = {**remote, "phonePrimary": client.telefono}
+
+        result = service.execute_update(
+            operation.pk,
+            authorization=authorize_external_write(
+                client_id=client.pk, operation="PUT", environment="production", confirmed=True,
+            ),
+        )
+
+        self.assertEqual(result.state, AlegraWriteOperation.STATE_SYNCED)
+
+    @patch("tienda.services.alegra_write.AlegraWriteClient")
     def test_put_get_con_valor_diferente_queda_en_revision_sin_reintento(self, transport_class):
         client, mapping, operation, service, remote = self._prepare_phone_update_for_confirmation(transport_class.return_value)
         transport_class.return_value.update_contact.return_value = {"id": mapping.external_id}
