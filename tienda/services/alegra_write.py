@@ -8,6 +8,7 @@ Las pruebas inyectan un transporte falso y nunca llaman a la red.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import os
@@ -342,7 +343,12 @@ class AlegraContactWriteService:
         # Reusing its deterministic key would mutate/replay operation 1 instead of
         # creating an auditable attempt.  Uncertain/sent operations stay blocked.
         if not created and operation.state == AlegraWriteOperation.STATE_FAILED:
-            retry_key = f"{key}:retry:{uuid.uuid4().hex}"
+            # The database column is 64 characters.  Keep retries distinct from
+            # the original deterministic key, but normalize the complete retry
+            # identity to the same fixed-size digest before persisting it.
+            retry_key = hashlib.sha256(
+                f"{key}:retry:{uuid.uuid4().hex}".encode("utf-8")
+            ).hexdigest()
             operation = AlegraWriteOperation.objects.create(
                 system=system, client=client, operation=AlegraWriteOperation.OP_CREATE,
                 idempotency_key=retry_key, state=AlegraWriteOperation.STATE_PENDING,

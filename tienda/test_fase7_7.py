@@ -164,6 +164,8 @@ class AlegraWriteAdapterTests(TestCase):
         self.assertEqual(first.state, AlegraWriteOperation.STATE_FAILED)
         self.assertEqual(first.attempts, 1)
         self.assertEqual(retry.state, AlegraWriteOperation.STATE_PENDING)
+        self.assertLessEqual(len(retry.idempotency_key), 64)
+        self.assertEqual(len(retry.idempotency_key), 64)
         self.assertEqual(retry.result_metadata["supersedes_operation_id"], first.pk)
 
     def test_create_success_creates_map_atomically(self):

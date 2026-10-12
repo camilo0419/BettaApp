@@ -78,7 +78,20 @@ class Command(BaseCommand):
             counts[result["classification"]] += 1
             rows.append(result)
             if options["apply"] and result["classification"] in {"UNIQUE_MATCH", "SAFE_CREATE"}:
-                result["applied"] = self._apply_result(result, local, system, content_type, importer)
+                try:
+                    result["applied"] = self._apply_result(result, local, system, content_type, importer)
+                except Exception as exc:  # keep one bad local record from aborting the batch
+                    result["applied"] = "APPLY_ERROR"
+                    counts["APPLY_ERROR"] += 1
+                    SyncAuditLog.objects.create(
+                        system=system,
+                        operation="historical_reconciliation_apply",
+                        resource="contacts",
+                        result=SyncAuditLog.RESULT_ERROR,
+                        detail="No fue posible aplicar el resultado local; requiere revisión.",
+                        metadata={"client_id": local.pk, "error_type": exc.__class__.__name__},
+                    )
+                    continue
                 counts[result["applied"]] += 1
         mode = "APLICACIÓN LOCAL AUTORIZADA" if options["apply"] else "DRY-RUN"
         self.stdout.write(
