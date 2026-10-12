@@ -29,6 +29,8 @@ from tienda.services.alegra_write import (
 from tienda.services.alegra_bidirectional_clients import BidirectionalClientSync
 from tienda.services.alegra_contact_import import normalize_identity
 from tienda.services.alegra_inbound_sync import InboundClientSyncService
+from tienda.services.alegra_normalization import extract_identification_context
+from tienda.services.geografia import normalize_location
 from tienda.services.database_lock import DatabaseLockUnavailable, advisory_lock
 
 OUTBOUND_PROCESS_LOCK = "bettaapp:alegra:outbound:contacts"
@@ -347,6 +349,8 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
     # los valores que el usuario guardó: si el campo no vino en la respuesta,
     # debe seguir siendo una actualización pendiente, nunca un no-op.
     local_snapshot = metadata.get("local_snapshot")
+    unverified_fields = []
+    mismatched_fields = []
     if isinstance(local_snapshot, dict):
         remote_field_keys = {
             "nombre": ("name", "nameObject"),
@@ -383,7 +387,58 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
                     return True, remote.get(key)
             return False, None
 
+        def remote_snapshot_value(field):
+            """Obtiene el valor comparable y conserva la ausencia del atributo."""
+            if field == "nombre":
+                if "name" in remote:
+                    return True, remote.get("name")
+                name_object = remote.get("nameObject")
+                if isinstance(name_object, dict):
+                    value = " ".join(
+                        str(name_object.get(key) or "").strip()
+                        for key in ("firstName", "secondName", "lastName", "secondLastName")
+                        if str(name_object.get(key) or "").strip()
+                    )
+                    return True, value
+                return False, None
+            if field == "tipo_cliente":
+                if "kindOfPerson" not in remote:
+                    return False, None
+                kind = str(remote.get("kindOfPerson") or "").upper()
+                if kind == "LEGAL_ENTITY":
+                    return True, "empresa"
+                if kind == "PERSON_ENTITY":
+                    return True, "persona"
+                return True, ""
+            if field in {"tipo_identificacion", "identificacion", "digito_verificacion"}:
+                identity = extract_identification_context(remote)
+                identification_object = remote.get("identificationObject")
+                present_keys = {
+                    "tipo_identificacion": ("identificationType", "type"),
+                    "identificacion": ("identification", "number"),
+                    "digito_verificacion": ("verificationDigit", "dv"),
+                }[field]
+                if not any(key in remote for key in present_keys[:1]) and not (
+                    isinstance(identification_object, dict) and present_keys[1] in identification_object
+                ):
+                    return False, None
+                return True, {
+                    "tipo_identificacion": identity.get("type") or "",
+                    "identificacion": identity.get("number") or "",
+                    "digito_verificacion": identity.get("dv") or "",
+                }[field]
+            return remote_field_value(field)
+
+        def comparable(field, value):
+            value = str(value or "").strip()
+            return normalize_location(value) if field in {"ciudad", "departamento", "pais"} else value
+
         for field, value in local_snapshot.items():
+            snapshot_present, snapshot_remote_value = remote_snapshot_value(field)
+            if not snapshot_present:
+                unverified_fields.append(field)
+            elif comparable(field, snapshot_remote_value) != comparable(field, value):
+                mismatched_fields.append(field)
             if str(value or "").strip() == str(baseline.get(field, "") or "").strip():
                 continue
             present, remote_value = remote_field_value(field)
@@ -398,6 +453,9 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
                 comparison["local_fields"].append(field)
             if field not in comparison["changed_fields"]:
                 comparison["changed_fields"].append(field)
+    else:
+        # Una intención sin fotografía local no puede demostrar igualdad.
+        unverified_fields.append("local_snapshot")
     if comparison["conflict_fields"]:
         operation.state = AlegraWriteOperation.STATE_CONFLICT
         operation.error_code = "conflict"
@@ -416,6 +474,26 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
         operation.save(update_fields=["state", "error_code", "reconciliation_reason", "updated_at"])
         return operation
     if not local_fields and not comparison["changed_fields"]:
+        if unverified_fields:
+            operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+            operation.error_code = "remote_incomplete"
+            operation.reconciliation_reason = "El GET no confirmó todos los campos de la intención; requiere revisión."
+            operation.result_metadata = {
+                **metadata,
+                "remote_confirmation": {"status": "incomplete", "fields": sorted(set(unverified_fields))},
+            }
+            operation.save(update_fields=["state", "error_code", "reconciliation_reason", "result_metadata", "updated_at"])
+            return operation
+        if mismatched_fields:
+            operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+            operation.error_code = "remote_mismatch"
+            operation.reconciliation_reason = "El GET no coincide con el snapshot local; no se confirma la operación."
+            operation.result_metadata = {
+                **metadata,
+                "remote_confirmation": {"status": "mismatch", "fields": sorted(set(mismatched_fields))},
+            }
+            operation.save(update_fields=["state", "error_code", "reconciliation_reason", "result_metadata", "updated_at"])
+            return operation
         # La intención se creó por un baseline parcial o por una edición que
         # finalmente ya coincide con Alegra. No hay PUT que ejecutar ni motivo
         # para clasificarla como cambio protegido.
@@ -428,30 +506,21 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
             "confirmed_by_get": True,
         }
         operation.save(update_fields=["state", "result_metadata", "updated_at"])
-        synced = BidirectionalClientSync().build_betta_payload(operation.client)
-        # Solo confirmar en el baseline los campos que realmente llegaron en
-        # la respuesta GET. Los campos omitidos siguen sin estar confirmados.
-        address = remote.get("address") if isinstance(remote.get("address"), dict) else {}
-        present_fields = {
-            "nombre": "name" in remote or isinstance(remote.get("nameObject"), dict),
-            "email": "email" in remote,
-            "telefono": "phonePrimary" in remote,
-            "telefono_secundario": "phoneSecondary" in remote,
-            "celular": "mobile" in remote,
-            "direccion": "address" in remote and "address" in address,
-            "ciudad": "address" in remote and "city" in address,
-            "departamento": "address" in remote and "department" in address,
-            "pais": "address" in remote and "country" in address,
-            "codigo_postal": "address" in remote and "zipCode" in address,
+        synced = {
+            field: local_snapshot[field]
+            for field in local_snapshot
+            if field not in unverified_fields and field not in mismatched_fields
         }
-        synced = {field: value for field, value in synced.items() if present_fields.get(field, True)}
         mapping_metadata = dict(mapping.metadata or {})
+        previous_synced = mapping_metadata.get("last_synced_fields", {})
+        if not isinstance(previous_synced, dict):
+            previous_synced = {}
         previous_confirmed = mapping_metadata.get("last_confirmed", {})
         if not isinstance(previous_confirmed, dict):
             previous_confirmed = {}
         mapping.metadata = {
             **mapping_metadata,
-            "last_synced_fields": synced,
+            "last_synced_fields": {**previous_synced, **synced},
             "last_confirmed": {**previous_confirmed, **synced},
         }
         mapping.last_synced_at = timezone.now()

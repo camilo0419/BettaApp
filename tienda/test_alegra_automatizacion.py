@@ -12,6 +12,7 @@ from tienda.services.alegra_bidirectional_clients import SafeAlegraWriteAdapter,
 from tienda.services.alegra_import import AlegraItemImporter
 from tienda.services.alegra_operation_queue import enqueue_create, enqueue_missing_creates, enqueue_update_if_changed, process_pending_operations, linked_client_update_candidates
 from tienda.services.alegra_operation_queue import alegra_system
+from tienda.services.alegra_write import AlegraContactWriteService, authorize_external_write
 
 
 class Response:
@@ -756,3 +757,96 @@ class AutomationTests(TestCase):
         self.assertEqual(result["prepared"], [])
         self.assertEqual(len([item for item in result["diagnostics"] if item["reason"] == "missing_baseline"]), 3)
         transport_class.return_value.get_contact.assert_not_called()
+
+    def _prepare_phone_update_for_confirmation(self, transport):
+        client = self._linked_client("Cliente confirmación", "991001120")
+        client.telefono = "4444444"
+        client.save(update_fields=["telefono", "fecha_actualizacion"])
+        mapping = self._contact_map(client, "C-confirmation", {
+            "source": "alegra_write",
+            "last_synced_fields": {
+                "nombre": client.nombre,
+                "identificacion": client.identificacion,
+                "tipo_identificacion": client.tipo_identificacion,
+                "telefono": "2222222",
+            },
+        })
+        remote = {
+            "id": mapping.external_id,
+            "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY",
+            "regime": "COMMON_REGIME",
+            "phonePrimary": "2222222",
+            "type": ["client"],
+            "status": "active",
+        }
+        service = AlegraContactWriteService(transport=transport)
+        operation, _payload = service.prepare_update(
+            client,
+            mapping.system,
+            external_id=mapping.external_id,
+            remote_row=remote,
+            baseline=mapping.metadata["last_synced_fields"],
+        )
+        return client, mapping, operation, service, remote
+
+    @patch("tienda.services.alegra_write.AlegraWriteClient")
+    def test_put_get_confirma_campos_y_actualiza_baseline_solo_confirmados(self, transport_class):
+        client, mapping, operation, service, remote = self._prepare_phone_update_for_confirmation(transport_class.return_value)
+        transport_class.return_value.update_contact.return_value = {"id": mapping.external_id}
+        transport_class.return_value.get_contact.return_value = {**remote, "phonePrimary": client.telefono}
+
+        result = service.execute_update(
+            operation.pk,
+            authorization=authorize_external_write(
+                client_id=client.pk, operation="PUT", environment="production", confirmed=True,
+            ),
+        )
+
+        mapping.refresh_from_db()
+        self.assertEqual(result.state, AlegraWriteOperation.STATE_SYNCED)
+        self.assertTrue(result.result_metadata["confirmed_by_get"])
+        self.assertEqual(result.result_metadata["remote_confirmation"]["status"], "verified")
+        self.assertEqual(mapping.metadata["last_confirmed"]["telefono"], client.telefono)
+
+    @patch("tienda.services.alegra_write.AlegraWriteClient")
+    def test_put_get_con_valor_diferente_queda_en_revision_sin_reintento(self, transport_class):
+        client, mapping, operation, service, remote = self._prepare_phone_update_for_confirmation(transport_class.return_value)
+        transport_class.return_value.update_contact.return_value = {"id": mapping.external_id}
+        transport_class.return_value.get_contact.return_value = {**remote, "phonePrimary": "9999999"}
+
+        result = service.execute_update(
+            operation.pk,
+            authorization=authorize_external_write(
+                client_id=client.pk, operation="PUT", environment="production", confirmed=True,
+            ),
+        )
+
+        result.refresh_from_db()
+        self.assertEqual(result.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(result.error_code, "remote_mismatch")
+        self.assertEqual(result.attempts, 1)
+        self.assertEqual(result.result_metadata["remote_confirmation"]["mismatched_fields"], ["telefono"])
+        transport_class.return_value.update_contact.assert_called_once()
+
+    @patch("tienda.services.alegra_write.AlegraWriteClient")
+    def test_put_get_incompleto_no_confirma_ni_repite_escritura(self, transport_class):
+        client, mapping, operation, service, remote = self._prepare_phone_update_for_confirmation(transport_class.return_value)
+        transport_class.return_value.update_contact.return_value = {"id": mapping.external_id}
+        incomplete = dict(remote)
+        incomplete.pop("phonePrimary")
+        transport_class.return_value.get_contact.return_value = incomplete
+
+        result = service.execute_update(
+            operation.pk,
+            authorization=authorize_external_write(
+                client_id=client.pk, operation="PUT", environment="production", confirmed=True,
+            ),
+        )
+
+        result.refresh_from_db()
+        self.assertEqual(result.state, AlegraWriteOperation.STATE_NEEDS_RECONCILIATION)
+        self.assertEqual(result.error_code, "remote_incomplete")
+        self.assertEqual(result.result_metadata["remote_confirmation"]["missing_fields"], ["telefono"])
+        transport_class.return_value.update_contact.assert_called_once()

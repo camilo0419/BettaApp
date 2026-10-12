@@ -30,7 +30,7 @@ from .alegra_bidirectional_clients import BidirectionalClientSync
 from .alegra_client import AlegraConfigurationError, AlegraError, AlegraReadOnlyClient, extract_rows
 from .alegra_contact_import import normalize_identity
 from .alegra_normalization import extract_identification_context
-from .geografia import alegra_location
+from .geografia import alegra_location, normalize_location
 from .database_lock import DatabaseLockUnavailable, advisory_lock
 
 
@@ -629,6 +629,64 @@ class AlegraContactWriteService:
         operation.save(update_fields=["state", "error_code", "error_message", "updated_at"])
         return operation
 
+    @staticmethod
+    def _confirmed_update_value(row: Mapping[str, Any], field: str) -> tuple[bool, Any]:
+        simple = {
+            "email": "email",
+            "telefono": "phonePrimary",
+            "telefono_secundario": "phoneSecondary",
+            "celular": "mobile",
+        }
+        if field in simple:
+            key = simple[field]
+            return key in row, row.get(key)
+        address_fields = {
+            "direccion": "address",
+            "ciudad": "city",
+            "departamento": "department",
+            "pais": "country",
+            "codigo_postal": "zipCode",
+        }
+        if field in address_fields:
+            address = row.get("address")
+            if not isinstance(address, Mapping) or address_fields[field] not in address:
+                return False, None
+            return True, address.get(address_fields[field])
+        return False, None
+
+    @staticmethod
+    def _same_confirmed_value(field: str, expected: Any, actual: Any) -> bool:
+        expected = str(expected or "").strip()
+        actual = str(actual or "").strip()
+        if field in {"ciudad", "departamento", "pais"}:
+            return normalize_location(expected) == normalize_location(actual)
+        return expected == actual
+
+    def _mark_confirmation_issue(
+        self, operation_id: int, *, code: str, reason: str,
+        missing_fields: list[str] | None = None,
+        mismatched_fields: list[str] | None = None,
+    ) -> AlegraWriteOperation:
+        operation = AlegraWriteOperation.objects.get(pk=operation_id)
+        metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
+        metadata = {
+            **metadata,
+            "remote_confirmation": {
+                "status": "incomplete" if missing_fields else "mismatch",
+                "missing_fields": sorted(set(missing_fields or [])),
+                "mismatched_fields": sorted(set(mismatched_fields or [])),
+            },
+        }
+        operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+        operation.error_code = code
+        operation.error_message = reason[:500]
+        operation.reconciliation_reason = reason[:500]
+        operation.result_metadata = metadata
+        operation.save(update_fields=[
+            "state", "error_code", "error_message", "reconciliation_reason", "result_metadata", "updated_at",
+        ])
+        return operation
+
     def execute_update(self, operation_id: int, *, authorization: WriteAuthorization) -> AlegraWriteOperation:
         if not self.transport:
             self.transport = AlegraWriteClient()
@@ -664,8 +722,39 @@ class AlegraContactWriteService:
             if str(confirmed.get("id")) != str(operation.external_id):
                 raise AlegraWriteResponseError("La lectura posterior no confirmó el contacto actualizado.")
             operation = AlegraWriteOperation.objects.get(pk=operation_id)
+            metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
+            fields = [str(field) for field in metadata.get("fields", [])]
+            local_payload = BidirectionalClientSync().build_betta_payload(operation.client)
+            missing_fields = []
+            mismatched_fields = []
+            for field in fields:
+                present, actual = self._confirmed_update_value(confirmed, field)
+                if not present:
+                    missing_fields.append(field)
+                elif not self._same_confirmed_value(field, local_payload.get(field), actual):
+                    mismatched_fields.append(field)
+            if missing_fields:
+                return self._mark_confirmation_issue(
+                    operation_id,
+                    code="remote_incomplete",
+                    reason="El GET posterior no confirmó todos los campos enviados; no se repite el PUT.",
+                    missing_fields=missing_fields,
+                    mismatched_fields=mismatched_fields,
+                )
+            if mismatched_fields:
+                return self._mark_confirmation_issue(
+                    operation_id,
+                    code="remote_mismatch",
+                    reason="El GET posterior devolvió valores diferentes; requiere revisión antes de reintentar.",
+                    mismatched_fields=mismatched_fields,
+                )
             operation.state = AlegraWriteOperation.STATE_SYNCED
-            operation.result_metadata = {"response_id_present": bool(response.get("id") or operation.external_id), "confirmed_by_get": True}
+            operation.result_metadata = {
+                **metadata,
+                "response_id_present": bool(response.get("id") or operation.external_id),
+                "confirmed_by_get": True,
+                "remote_confirmation": {"status": "verified", "fields": fields},
+            }
             operation.save(update_fields=["state", "result_metadata", "updated_at"])
             mapping = ExternalObjectMap.objects.filter(
                 system=operation.system, resource_type="contacts", external_id=operation.external_id,
@@ -673,11 +762,17 @@ class AlegraContactWriteService:
                 status=ExternalObjectMap.STATUS_ACTIVE,
             ).first()
             if mapping:
-                synced = BidirectionalClientSync().build_betta_payload(operation.client)
-                previous_confirmed = mapping.metadata.get("last_confirmed", {}) if isinstance(mapping.metadata, dict) else {}
+                synced = {field: local_payload[field] for field in fields if field in local_payload}
+                mapping_metadata = dict(mapping.metadata or {})
+                previous_synced = mapping_metadata.get("last_synced_fields", {})
+                if not isinstance(previous_synced, dict):
+                    previous_synced = {}
+                previous_confirmed = mapping_metadata.get("last_confirmed", {})
+                if not isinstance(previous_confirmed, dict):
+                    previous_confirmed = {}
                 mapping.metadata = {
-                    **(mapping.metadata or {}),
-                    "last_synced_fields": synced,
+                    **mapping_metadata,
+                    "last_synced_fields": {**previous_synced, **synced},
                     # Conserva los campos protegidos confirmados y actualiza
                     # únicamente la fotografía compartida que acaba de
                     # confirmarse mediante PUT + GET.
