@@ -2641,6 +2641,11 @@ def cliente_alegra_revisar_cambios(request, cliente_id):
     try:
         remote = AlegraWriteClient().get_contact(mapping.external_id)
         review = InboundClientSyncService(AlegraWriteClient()).review(cliente, mapping, remote)
+        review["name_conflict_only"] = (
+            review.get("state") == "conflict"
+            and review.get("conflict_fields") == ["nombre"]
+            and not review.get("protected_fields")
+        )
         review_token = signing.dumps(review, salt="tienda.alegra_inbound_review")
     except (AlegraError, InboundSyncConflict, ValidationError) as exc:
         messages.error(request, f"No se pudieron consultar cambios de Alegra: {exc}")
