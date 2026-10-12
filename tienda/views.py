@@ -2756,10 +2756,11 @@ def cliente_alegra_operacion_procesar(request, cliente_id, operation_id):
             "Alegra immediate processing deferred because the outbound lock is busy",
             extra={"cliente_id": cliente.pk, "operation_id": operation.pk},
         )
+        operation.refresh_from_db()
         return JsonResponse({
             "ok": True,
             "operation_id": operation.pk,
-            "state": "sent",
+            "state": operation.state,
             "message": "La operación ya está siendo procesada.",
             "started": False,
         }, status=409)

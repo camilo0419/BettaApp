@@ -5,6 +5,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from tienda.models import AlegraWriteOperation, Cliente, ExternalSystem
+from tienda.services.database_lock import advisory_lock
 from tienda.services.alegra_write import build_contact_payload
 
 
@@ -271,6 +272,25 @@ class ClienteCrearViewTests(TestCase):
         with patch("tienda.views.process_pending_operations") as process:
             response = self.client.post(reverse("panel_cliente_alegra_operacion_procesar", args=[cliente.pk, operation.pk]))
         self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["started"])
+        process.assert_not_called()
+
+    @patch("tienda.views.process_pending_operations")
+    def test_endpoint_reporta_pending_si_el_bloqueo_global_esta_ocupado(self, process):
+        cliente = Cliente.objects.create(nombre="Bloqueo concurrente")
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_UPDATE,
+            idempotency_key="busy-lock-operation-key", state=AlegraWriteOperation.STATE_PENDING,
+        )
+        with advisory_lock("bettaapp:alegra:outbound:contacts"):
+            response = self.client.post(
+                reverse("panel_cliente_alegra_operacion_procesar", args=[cliente.pk, operation.pk])
+            )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertTrue(response.json()["ok"])
+        self.assertEqual(response.json()["state"], AlegraWriteOperation.STATE_PENDING)
         self.assertFalse(response.json()["started"])
         process.assert_not_called()
 
