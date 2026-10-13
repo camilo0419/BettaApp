@@ -262,8 +262,8 @@ class InboundClientSyncService:
         identity_conflict_fields = sorted(
             set(conflicts) & {"tipo_identificacion", "identificacion"}
         )
-        identity_conflict_only = bool(identity_conflict_fields) and set(conflicts).issubset(
-            {"tipo_identificacion", "identificacion"}
+        identity_resolution_available = bool(identity_conflict_fields) and set(conflicts).issubset(
+            {"nombre", "tipo_identificacion", "identificacion"}
         ) and set(protected).issubset({"tipo_identificacion", "identificacion"}) and identity_values_complete
         state = CONFLICT if conflicts else (PENDING if remote_fields else (LOCAL_ONLY if comparison.get("local_fields") else SYNCED))
         external_values = self.sync._external_values(remote_row)
@@ -271,7 +271,9 @@ class InboundClientSyncService:
         name_differs = bool(local_values.get("nombre") and external_values.get("nombre")) and (
             normalize_name(local_values["nombre"]) != normalize_name(external_values["nombre"])
         )
-        name_resolution_available = name_differs and not protected and set(conflicts).issubset({"nombre"})
+        name_resolution_available = name_differs and set(conflicts).issubset(
+            {"nombre", "tipo_identificacion", "identificacion"}
+        ) and set(protected).issubset({"tipo_identificacion", "identificacion"})
         changes = []
         for field in sorted(set(comparison.get("changed_fields", [])) | set(protected)):
             changes.append({
@@ -296,7 +298,8 @@ class InboundClientSyncService:
             "conflict_fields": conflicts,
             "protected_fields": protected,
             "name_resolution_available": name_resolution_available,
-            "identity_conflict_only": identity_conflict_only,
+            "identity_conflict_only": identity_resolution_available,
+            "identity_resolution_available": identity_resolution_available,
             "identity_conflict_fields": identity_conflict_fields,
             "identity_local": {
                 "type": str(client.tipo_identificacion or "").strip().casefold(),

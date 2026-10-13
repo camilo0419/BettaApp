@@ -974,6 +974,47 @@ class AutomationTests(TestCase):
         self.assertEqual(review["identity_external"]["number"], "900000001")
         self.assertEqual(set(review["identity_conflict_fields"]), {"identificacion"})
 
+    def test_name_and_identity_can_be_authorized_as_independent_operations(self):
+        from tienda.services.alegra_inbound_sync import InboundClientSyncService
+
+        client = self._linked_client("Nombre local", "900000042")
+        mapping = self._contact_map(client, "cross-field-1", {
+            "source": "alegra_write",
+            "last_synced_fields": {
+                "nombre": "Nombre remoto", "tipo_identificacion": "cc",
+                "identificacion": "900000041",
+            },
+        })
+        remote = {
+            "id": mapping.external_id, "name": "Nombre remoto",
+            "identificationObject": {"type": "CC", "number": "900000041"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        service = InboundClientSyncService(Mock())
+        service.transport.get_contact.return_value = remote
+        review = service.review(client, mapping, remote)
+        self.assertTrue(review["name_resolution_available"])
+        self.assertTrue(review["identity_resolution_available"])
+        name_result = service.resolve_name_conflict(client.pk, mapping.pk, review, "apply_local")
+        identity_result = service.resolve_identity_conflict(client.pk, mapping.pk, review, "apply_local")
+        self.assertNotEqual(name_result["operation_id"], identity_result["operation_id"])
+        self.assertEqual(
+            AlegraWriteOperation.objects.get(pk=name_result["operation_id"]).result_metadata["authorized_conflict_fields"],
+            ["nombre"],
+        )
+        self.assertEqual(
+            set(AlegraWriteOperation.objects.get(pk=identity_result["operation_id"]).result_metadata["authorized_conflict_fields"]),
+            {"tipo_identificacion", "identificacion"},
+        )
+        from tienda.services.alegra_operation_queue import _materialize_deferred_update
+        materialized = _materialize_deferred_update(
+            AlegraWriteOperation.objects.get(pk=name_result["operation_id"]),
+            AlegraContactWriteService(transport=service.transport),
+        )
+        self.assertEqual(materialized.result_metadata["fields"], ["nombre"])
+        self.assertNotIn("phonePrimary", materialized.result_metadata["prepared_payload"])
+
     def test_name_difference_local_only_exposes_both_decisions_and_queues_local_choice(self):
         from tienda.services.alegra_inbound_sync import InboundClientSyncService
 

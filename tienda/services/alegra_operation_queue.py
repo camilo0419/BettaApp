@@ -361,6 +361,7 @@ def enqueue_authorized_name_conflict_update(
     )
     metadata = {
         "deferred_prepare": True,
+        "resolution_kind": "name",
         "local_snapshot": local_snapshot,
         "baseline": {"nombre": baseline.get("nombre", "")},
         "authorized_conflict_fields": ["nombre"],
@@ -404,6 +405,7 @@ def enqueue_authorized_identity_conflict_update(
     )
     metadata = {
         "deferred_prepare": True,
+        "resolution_kind": "identification",
         "local_snapshot": local_snapshot,
         "baseline": {
             "tipo_identificacion": baseline.get("tipo_identificacion", ""),
@@ -585,21 +587,29 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
             }
             operation.save(update_fields=["state", "error_code", "reconciliation_reason", "result_metadata", "updated_at"])
             return operation
-        unauthorized_conflicts = set(comparison["conflict_fields"]) - authorized_fields
-        if unauthorized_conflicts or not set(comparison["conflict_fields"]).issubset(authorized_fields):
-            authorized_fields = set()
-        else:
-            comparison["conflict_fields"] = []
-            # La comparación de tres vías clasifica un conflicto en
-            # ``conflict_fields`` y no en ``local_fields``. Una autorización
-            # explícita convierte únicamente esos campos revisados en cambios
-            # locales ejecutables; los demás campos conservan su clasificación.
-            for field in sorted(authorized_fields):
-                if isinstance(local_snapshot, dict) and field in local_snapshot:
-                    if field not in comparison["local_fields"]:
-                        comparison["local_fields"].append(field)
-                    if field not in comparison["changed_fields"]:
-                        comparison["changed_fields"].append(field)
+        unresolved_conflicts = sorted(set(comparison["conflict_fields"]) - authorized_fields)
+        # Una resolución por campo no convierte los demás conflictos en
+        # aprobados. Se conserva su diagnóstico, pero esta operación solo
+        # puede transportar los campos expresamente autorizados; el contexto
+        # remoto evita sobrescribir los restantes.
+        comparison["conflict_fields"] = []
+        comparison["local_fields"] = [
+            field for field in comparison["local_fields"] if field in authorized_fields
+        ]
+        comparison["changed_fields"] = [
+            field for field in comparison["changed_fields"] if field in authorized_fields
+        ]
+        for field in sorted(authorized_fields):
+            if isinstance(local_snapshot, dict) and field in local_snapshot:
+                if field not in comparison["local_fields"]:
+                    comparison["local_fields"].append(field)
+                if field not in comparison["changed_fields"]:
+                    comparison["changed_fields"].append(field)
+        if unresolved_conflicts:
+            metadata = {
+                **metadata,
+                "unresolved_conflict_fields": unresolved_conflicts,
+            }
     if comparison["conflict_fields"]:
         operation.state = AlegraWriteOperation.STATE_CONFLICT
         operation.error_code = "conflict"

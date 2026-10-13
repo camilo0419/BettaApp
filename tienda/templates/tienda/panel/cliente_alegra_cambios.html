@@ -16,7 +16,7 @@
 
 <div class="panel-card">
   <div class="info-box">
-    <strong>{% if review.state == 'pending' %}Hay cambios externos revisables{% elif review.state == 'conflict' %}Revisión bloqueada por conflicto{% else %}No hay cambios externos aplicables{% endif %}</strong>
+    <strong>{% if review.name_resolution_available or review.identity_resolution_available %}Diferencias que requieren decisión por campo{% elif review.state == 'pending' %}Hay cambios externos revisables{% elif review.state == 'conflict' %}Revisión bloqueada por conflicto{% else %}No hay cambios externos aplicables{% endif %}</strong>
     <p>{{ review.reason }}</p>
     <p>La consulta fue de solo lectura. Los campos tributarios nunca se aplican automáticamente.</p>
   </div>

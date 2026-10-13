@@ -271,6 +271,35 @@ class ClienteCrearViewTests(TestCase):
         forbidden = self.client.get(reverse("panel_cliente_alegra_operacion_estado", args=[other.pk, operation.pk]))
         self.assertEqual(forbidden.status_code, 404)
 
+    def test_estado_de_conciliacion_identificacion_es_contextual_y_no_crea_operaciones(self):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Identidad pendiente",
+            primer_nombre="Identidad", primer_apellido="Pendiente",
+            identificacion="444444444", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME",
+        )
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_UPDATE,
+            idempotency_key="identity-pending-status", state=AlegraWriteOperation.STATE_PENDING,
+            result_metadata={"resolution_kind": "identification", "authorized_conflict_fields": ["tipo_identificacion", "identificacion"]},
+        )
+        status = self.client.get(reverse("panel_cliente_alegra_operacion_estado", args=[cliente.pk, operation.pk]))
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["state"], "pending")
+        self.assertEqual(status.json()["resolution_kind"], "identification")
+        self.assertIsNone(status.json()["review_url"])
+
+        operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+        operation.error_code = "identity_duplicate"
+        operation.reconciliation_reason = "La identificación ya pertenece a otro contacto."
+        operation.save(update_fields=["state", "error_code", "reconciliation_reason", "updated_at"])
+        status = self.client.get(reverse("panel_cliente_alegra_operacion_estado", args=[cliente.pk, operation.pk]))
+        self.assertEqual(status.json()["state"], "reconciliation")
+        self.assertEqual(status.json()["resolution_kind"], "identification")
+        self.assertIn("revisar-cambios", status.json()["review_url"])
+        self.assertEqual(AlegraWriteOperation.objects.filter(client=cliente).count(), 1)
+
     def test_candidato_remoto_ofrece_revision_explicita_en_detalle_y_estado(self):
         cliente = Cliente.objects.create(
             tipo_cliente=Cliente.TIPO_PERSONA, nombre="Cliente revisión", primer_nombre="Cliente",

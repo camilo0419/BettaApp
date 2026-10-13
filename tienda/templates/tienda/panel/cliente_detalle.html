@@ -352,7 +352,7 @@
     <div class="client-sync-spinner" data-operation-spinner aria-hidden="true"></div>
     <p class="muted" data-operation-attempts>La operación se está procesando de forma segura.</p>
     <div class="modal-actions">
-      <button type="button" class="btn btn-outline" data-operation-continue hidden>Continuar</button>
+      <button type="button" class="btn btn-outline" data-operation-continue hidden>Cerrar</button>
       <a class="btn btn-primary" href="#" data-operation-review hidden>Revisar coincidencia</a>
       <a class="btn btn-primary" href="#alegra-sync-status" data-operation-view hidden>Ver estado</a>
     </div>
@@ -371,6 +371,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const reviewLink = modal.querySelector("[data-operation-review]");
   let polls = 0;
   let stopped = false;
+  let confirmedSynced = false;
   const statusPanel = document.querySelector("[data-client-sync-status]");
   const statusLabel = statusPanel?.querySelector("[data-sync-status-label]");
   const statusDetail = statusPanel?.querySelector("[data-sync-status-detail]");
@@ -378,6 +379,8 @@ document.addEventListener("DOMContentLoaded", function () {
   const statusCodes = ["pending", "syncing", "synced", "reconciliation", "correction"];
   function updateStatusPanel(data) {
     if (!statusPanel || !data) return;
+    if (confirmedSynced && data.state !== "synced") return;
+    if (data.state === "synced") confirmedSynced = true;
     statusCodes.forEach(function (code) { statusPanel.classList.remove("alegra-client-sync-" + code); });
     const code = data.state === "synced" ? "synced" : ((data.state === "syncing" || data.state === "sent") ? "syncing" : ((data.state === "reconciliation" || data.state === "needs_reconciliation" || data.state === "conflict") ? "reconciliation" : ((data.state === "correction" || data.state === "failed") ? "correction" : "pending")));
     statusPanel.classList.add("alegra-client-sync-" + code);
@@ -386,6 +389,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (statusAt && data.updated_at) { statusAt.hidden = false; statusAt.textContent = "Última actualización: " + new Date(data.updated_at).toLocaleString(); }
   }
   function finish(data, timedOut) {
+    if (confirmedSynced && (!data || data.state !== "synced")) return;
     stopped = true;
     modal.setAttribute("aria-busy", "false");
     updateStatusPanel(data);
@@ -395,16 +399,21 @@ document.addEventListener("DOMContentLoaded", function () {
       modal.hidden = true;
       return;
     }
-    const hasCandidateReview = Boolean(data && data.review_url);
-    title.textContent = hasCandidateReview ? "Conciliación con Alegra" : (timedOut ? "Pendiente de sincronización" : (data.label || "Estado de sincronización"));
-    message.textContent = hasCandidateReview ? "Se encontró un contacto en Alegra con la misma identificación. Revisa sus datos antes de vincularlo" : (timedOut ? "El cliente se guardó en BettaApp. Alegra aún no ha confirmado la operación; puedes consultar su estado posteriormente." : (data.message || "Consulta el estado desde la ficha del cliente."));
-    attempts.textContent = hasCandidateReview ? "La creación automática está detenida para evitar duplicados." : (data.attempts ? "Intentos registrados: " + data.attempts : "La operación continúa pendiente de confirmación.");
+    const hasReview = Boolean(data && data.review_url);
+    const isIdentityReview = data && data.resolution_kind === "identification";
+    const isCandidateReview = hasReview && !data.resolution_kind;
+    title.textContent = hasReview && isIdentityReview ? "Conciliación de identificación" : (hasReview ? "Conciliación con Alegra" : (timedOut ? "Pendiente de sincronización" : (data.label || "Estado de sincronización")));
+    message.textContent = isCandidateReview ? "Se encontró un contacto en Alegra con la misma identificación. Revisa sus datos antes de vincularlo" : (hasReview ? (data.message || (isIdentityReview ? "La identificación requiere revisión." : "Revisa los datos antes de continuar.")) : (timedOut ? "El cliente se guardó en BettaApp. Alegra aún no ha confirmado la operación; puedes consultar su estado posteriormente." : (data.message || "Consulta el estado desde la ficha del cliente.")));
+    attempts.textContent = isCandidateReview ? "La creación automática está detenida para evitar duplicados." : (hasReview ? "La operación está detenida hasta una decisión explícita." : (data.attempts ? "Intentos registrados: " + data.attempts : "La operación continúa registrada."));
     spinner.hidden = true;
     continueButton.hidden = false;
-    continueButton.textContent = hasCandidateReview ? "Cerrar" : "Continuar";
-    reviewLink.hidden = !hasCandidateReview;
-    if (hasCandidateReview) reviewLink.href = data.review_url;
-    viewLink.hidden = hasCandidateReview;
+    continueButton.textContent = "Cerrar";
+    reviewLink.hidden = !hasReview;
+    if (hasReview) {
+      reviewLink.href = data.review_url;
+      reviewLink.textContent = isIdentityReview ? "Revisar identificación" : "Revisar coincidencia";
+    }
+    viewLink.hidden = Boolean(hasReview) || !data || ["pending", "syncing", "sent"].indexOf(data.state) < 0;
   }
   function poll() {
     if (stopped) return;
@@ -466,7 +475,8 @@ document.addEventListener("DOMContentLoaded", function () {
             message.textContent = response.status === 409 ? (data.message || "La operación está ocupada o requiere configuración.") : "La operación quedó registrada, pero el procesamiento inmediato fue rechazado.";
             spinner.hidden = true;
             continueButton.hidden = false;
-            viewLink.hidden = response.status === 403;
+            continueButton.textContent = "Cerrar";
+            viewLink.hidden = true;
             if (response.status !== 403) window.setTimeout(poll, 2000);
             return;
           }

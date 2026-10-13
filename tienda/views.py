@@ -2774,6 +2774,9 @@ def cliente_alegra_operacion_estado(request, cliente_id, operation_id):
     else:
         message = reasons.get(operation.error_code, "La operación no puede continuar automáticamente y requiere revisión.")
     metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
+    resolution_kind = str(metadata.get("resolution_kind") or "").strip()
+    if not resolution_kind and set(metadata.get("authorized_conflict_fields") or []) == {"tipo_identificacion", "identificacion"}:
+        resolution_kind = "identification"
     candidates = metadata.get("remote_candidates") if operation.error_code == "remote_candidate" else []
     review_url = None
     if operation.state == AlegraWriteOperation.STATE_NEEDS_RECONCILIATION and operation.error_code == "remote_candidate":
@@ -2782,6 +2785,18 @@ def cliente_alegra_operacion_estado(request, cliente_id, operation_id):
             kwargs={"cliente_id": cliente.pk, "operation_id": operation.pk},
         )
         message = "Alegra encontró contactos con la misma identificación. Revisa y confirma una vinculación explícita."
+    elif operation.state in {
+        AlegraWriteOperation.STATE_CONFLICT,
+        AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+    } and resolution_kind in {"name", "identification"}:
+        review_url = reverse(
+            "panel_cliente_alegra_revisar_cambios",
+            kwargs={"cliente_id": cliente.pk},
+        )
+        if resolution_kind == "identification":
+            message = operation.reconciliation_reason or "La actualización de identificación requiere revisión."
+        else:
+            message = operation.reconciliation_reason or "La actualización de nombre requiere revisión."
     return JsonResponse({
         "operation_id": operation.pk,
         "state": code,
@@ -2792,6 +2807,7 @@ def cliente_alegra_operacion_estado(request, cliente_id, operation_id):
         "external_id": operation.external_id if operation.state == AlegraWriteOperation.STATE_SYNCED else None,
         "candidate_count": len(candidates) if isinstance(candidates, list) else 0,
         "review_url": review_url,
+        "resolution_kind": resolution_kind,
         "terminal": operation.state in {
             AlegraWriteOperation.STATE_SYNCED,
             AlegraWriteOperation.STATE_FAILED,
