@@ -88,6 +88,7 @@ urlpatterns = [
     path("panel/clientes/<int:cliente_id>/alegra/revisar-cambios/", views.cliente_alegra_revisar_cambios, name="panel_cliente_alegra_revisar_cambios"),
     path("panel/clientes/<int:cliente_id>/alegra/aplicar-cambios/", views.cliente_alegra_aplicar_cambios, name="panel_cliente_alegra_aplicar_cambios"),
     path("panel/clientes/<int:cliente_id>/alegra/resolver-nombre/", views.cliente_alegra_resolver_nombre, name="panel_cliente_alegra_resolver_nombre"),
+    path("panel/clientes/<int:cliente_id>/alegra/resolver-identificacion/", views.cliente_alegra_resolver_identificacion, name="panel_cliente_alegra_resolver_identificacion"),
     path("panel/clientes/<int:cliente_id>/toggle/", views.cliente_toggle, name="panel_cliente_toggle"),
     path("panel/clientes/<int:cliente_id>/portal/crear/", views.cliente_portal_crear, name="panel_cliente_portal_crear"),
     path("panel/clientes/portal/<int:usuario_id>/editar/", views.cliente_portal_editar, name="panel_cliente_portal_editar"),

@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from tienda.models import Cliente, ExternalObjectMap, SyncAuditLog
 from .alegra_bidirectional_clients import BidirectionalClientSync, CONFLICT, PENDING, SYNCED
+from .alegra_contact_import import normalize_identity, normalize_name
 from .alegra_normalization import extract_identification_context
 from .geografia import normalize_location
 from .database_lock import advisory_lock
@@ -251,9 +252,26 @@ class InboundClientSyncService:
         protected = sorted(set(protected))
         remote_fields = [field for field in comparison.get("remote_fields", []) if field in self.WRITABLE_FIELDS]
         conflicts = sorted(set(comparison.get("conflict_fields", [])) | set(protected))
+        identity = extract_identification_context(remote_row)
+        identity_values_complete = bool(
+            str(client.tipo_identificacion or "").strip()
+            and normalize_identity(client.identificacion)
+            and str(identity.get("type") or "").strip()
+            and normalize_identity(identity.get("number"))
+        )
+        identity_conflict_fields = sorted(
+            set(conflicts) & {"tipo_identificacion", "identificacion"}
+        )
+        identity_conflict_only = bool(identity_conflict_fields) and set(conflicts).issubset(
+            {"tipo_identificacion", "identificacion"}
+        ) and set(protected).issubset({"tipo_identificacion", "identificacion"}) and identity_values_complete
         state = CONFLICT if conflicts else (PENDING if remote_fields else (LOCAL_ONLY if comparison.get("local_fields") else SYNCED))
         external_values = self.sync._external_values(remote_row)
         local_values = self.sync._local_values(client)
+        name_differs = bool(local_values.get("nombre") and external_values.get("nombre")) and (
+            normalize_name(local_values["nombre"]) != normalize_name(external_values["nombre"])
+        )
+        name_resolution_available = name_differs and not protected and set(conflicts).issubset({"nombre"})
         changes = []
         for field in sorted(set(comparison.get("changed_fields", [])) | set(protected)):
             changes.append({
@@ -277,6 +295,17 @@ class InboundClientSyncService:
             "local_fields": comparison.get("local_fields", []),
             "conflict_fields": conflicts,
             "protected_fields": protected,
+            "name_resolution_available": name_resolution_available,
+            "identity_conflict_only": identity_conflict_only,
+            "identity_conflict_fields": identity_conflict_fields,
+            "identity_local": {
+                "type": str(client.tipo_identificacion or "").strip().casefold(),
+                "number": normalize_identity(client.identificacion),
+            },
+            "identity_external": {
+                "type": str(identity.get("type") or "").strip().casefold(),
+                "number": normalize_identity(identity.get("number")),
+            },
             "baseline": dict(baseline),
             "changes": changes,
             "local_version": self._local_version(client),
@@ -356,8 +385,8 @@ class InboundClientSyncService:
         for key in ("external_id", "local_id", "local_hash", "baseline_hash", "remote_hash"):
             if str(current_review.get(key)) != str(review.get(key)):
                 raise InboundSyncConflict("La revisión quedó obsoleta; vuelva a consultar Alegra.")
-        if current_review["state"] != CONFLICT or current_review["conflict_fields"] != ["nombre"] or current_review["protected_fields"]:
-            raise InboundSyncConflict("El caso ya no es un conflicto exclusivo de nombre.")
+        if not current_review.get("name_resolution_available"):
+            raise InboundSyncConflict("El caso ya no contiene una diferencia de nombre resoluble.")
 
         content_type = ContentType.objects.get_for_model(Cliente)
         mapping_qs = ExternalObjectMap.objects.filter(
@@ -433,3 +462,99 @@ class InboundClientSyncService:
                         metadata={"client_id": client.pk, "mapping_id": mapping.pk, "decision": decision, "fields": ["nombre"]},
                     )
                     return {"status": "remote_kept", "updated_fields": ["nombre"]}
+
+    def resolve_identity_conflict(self, client_id: int, mapping_id: int, review: Mapping[str, Any], decision: str, *, actor=None) -> dict[str, Any]:
+        """Concilia conjuntamente tipo y número de identificación.
+
+        ``keep_remote`` modifica solo el cliente local. ``apply_local`` crea
+        una operación PUT autorizada para el procesador normal; nunca escribe
+        directamente desde la vista.
+        """
+        if decision not in {"keep_remote", "apply_local"}:
+            raise ValidationError("La decisión de identificación no es válida.")
+        client = Cliente.objects.get(pk=client_id)
+        mapping = ExternalObjectMap.objects.select_related("system").get(pk=mapping_id)
+        remote = self.transport.get_contact(mapping.external_id)
+        current_review = self.review(client, mapping, remote)
+        for key in ("external_id", "local_id", "local_hash", "baseline_hash", "remote_hash"):
+            if str(current_review.get(key)) != str(review.get(key)):
+                raise InboundSyncConflict("La revisión quedó obsoleta; vuelva a consultar Alegra.")
+        if not current_review.get("identity_conflict_only"):
+            raise InboundSyncConflict("El caso ya no es un conflicto exclusivo de identificación.")
+
+        identity = extract_identification_context(remote)
+        remote_type = str(identity.get("type") or "").strip().casefold()
+        remote_number = normalize_identity(identity.get("number"))
+        if not remote_type or not remote_number:
+            raise ValidationError("Alegra no devolvió tipo y número de identificación completos.")
+        content_type = ContentType.objects.get_for_model(Cliente)
+        mapping_qs = ExternalObjectMap.objects.filter(
+            system=mapping.system, resource_type="contacts", content_type=content_type,
+            object_id=client.pk, status=ExternalObjectMap.STATUS_ACTIVE,
+        )
+        if mapping.object_id != client.pk or mapping.status != ExternalObjectMap.STATUS_ACTIVE or mapping_qs.count() != 1:
+            raise InboundSyncConflict("El cliente no tiene un único vínculo activo válido para conciliar.")
+
+        if decision == "apply_local":
+            from .alegra_operation_queue import enqueue_authorized_identity_conflict_update
+            operation = enqueue_authorized_identity_conflict_update(
+                client, mapping, current_review.get("baseline") or {}, current_review["remote_hash"], actor=actor,
+            )
+            SyncAuditLog.objects.create(
+                system=mapping.system, operation="resolve_alegra_identity_conflict", resource="contacts",
+                external_id=mapping.external_id, actor=actor, result=SyncAuditLog.RESULT_SUCCESS,
+                detail="Se autorizó una actualización pendiente exclusivamente de la identificación.",
+                metadata={"client_id": client.pk, "mapping_id": mapping.pk, "decision": decision,
+                          "fields": ["tipo_identificacion", "identificacion"], "operation_id": operation.pk},
+            )
+            return {"status": "local_queued", "operation_id": operation.pk,
+                    "updated_fields": ["tipo_identificacion", "identificacion"]}
+
+        with advisory_lock(f"bettaapp:alegra:queue:contact:{client.pk}"):
+            with transaction.atomic():
+                mapping = ExternalObjectMap.objects.select_for_update().get(pk=mapping_id)
+                client = Cliente.objects.select_for_update().get(pk=client_id)
+                locked_remote = self.transport.get_contact(mapping.external_id)
+                if self._stable_hash(locked_remote) != current_review["remote_hash"]:
+                    raise InboundSyncConflict("El contacto remoto cambió durante la conciliación; vuelva a consultar Alegra.")
+                locked_identity = extract_identification_context(locked_remote)
+                locked_type = str(locked_identity.get("type") or "").strip().casefold()
+                locked_number = normalize_identity(locked_identity.get("number"))
+                if not locked_type or not locked_number:
+                    raise ValidationError("Alegra no devolvió una identificación confirmable.")
+                duplicate_local = any(
+                    str(other.tipo_identificacion or "").strip().casefold() == locked_type
+                    and normalize_identity(other.identificacion) == locked_number
+                    for other in Cliente.objects.exclude(pk=client.pk).only(
+                        "tipo_identificacion", "identificacion",
+                    ).iterator()
+                )
+                if duplicate_local:
+                    raise InboundSyncConflict("La identificación remota ya pertenece a otro cliente local.")
+                client.tipo_identificacion = locked_type
+                client.identificacion = locked_number
+                client.full_clean()
+                client.save(update_fields=["tipo_identificacion", "identificacion", "fecha_actualizacion"])
+                values = self.sync._external_values(locked_remote)
+                metadata = dict(mapping.metadata or {})
+                confirmed = dict(metadata.get("last_confirmed") or {})
+                synced = dict(metadata.get("last_synced_fields") or {})
+                for key in ("tipo_identificacion", "identificacion"):
+                    confirmed[key] = values.get(key, "")
+                    synced[key] = values.get(key, "")
+                metadata.update({
+                    "last_confirmed": confirmed,
+                    "last_synced_fields": synced,
+                    "baseline_source": "alegra_identity_conflict_resolution_get",
+                })
+                mapping.metadata = metadata
+                mapping.last_synced_at = timezone.now()
+                mapping.save(update_fields=["metadata", "last_synced_at", "updated_at"])
+                SyncAuditLog.objects.create(
+                    system=mapping.system, operation="resolve_alegra_identity_conflict", resource="contacts",
+                    external_id=mapping.external_id, actor=actor, result=SyncAuditLog.RESULT_SUCCESS,
+                    detail="Se conservó la identificación remota después de una revisión fresca.",
+                    metadata={"client_id": client.pk, "mapping_id": mapping.pk, "decision": decision,
+                              "fields": ["tipo_identificacion", "identificacion"]},
+                )
+                return {"status": "remote_kept", "updated_fields": ["tipo_identificacion", "identificacion"]}

@@ -949,6 +949,123 @@ class AutomationTests(TestCase):
         self.assertEqual(len([item for item in result["diagnostics"] if item["reason"] == "missing_baseline"]), 3)
         transport_class.return_value.get_contact.assert_not_called()
 
+    def test_identity_conflict_review_exposes_both_decisions_and_keeps_type_number_together(self):
+        from tienda.services.alegra_inbound_sync import InboundClientSyncService
+
+        client = self._linked_client("Cliente identidad", "900000002")
+        mapping = self._contact_map(client, "identity-1", {
+            "source": "alegra_write",
+            "last_synced_fields": {
+                "nombre": client.nombre,
+                "tipo_identificacion": "cc",
+                "identificacion": "900000001",
+            },
+        })
+        remote = {
+            "id": mapping.external_id,
+            "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": "900000001"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        review = InboundClientSyncService(Mock()).review(client, mapping, remote)
+        self.assertTrue(review["identity_conflict_only"])
+        self.assertEqual(review["identity_local"]["number"], "900000002")
+        self.assertEqual(review["identity_external"]["number"], "900000001")
+        self.assertEqual(set(review["identity_conflict_fields"]), {"identificacion"})
+
+    def test_name_difference_local_only_exposes_both_decisions_and_queues_local_choice(self):
+        from tienda.services.alegra_inbound_sync import InboundClientSyncService
+
+        client = self._linked_client("1 1", "900000032")
+        mapping = self._contact_map(client, "name-1", {
+            "source": "alegra_write",
+            "last_synced_fields": {
+                "nombre": "Test 222 BettaApp Test",
+                "tipo_identificacion": "cc",
+                "identificacion": client.identificacion,
+            },
+        })
+        remote = {
+            "id": mapping.external_id, "name": "Test 222 BettaApp Test",
+            "identificationObject": {"type": "CC", "number": client.identificacion},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        service = InboundClientSyncService(Mock())
+        service.transport.get_contact.return_value = remote
+        review = service.review(client, mapping, remote)
+        self.assertEqual(review["state"], "local_only")
+        self.assertTrue(review["name_resolution_available"])
+        result = service.resolve_name_conflict(client.pk, mapping.pk, review, "apply_local")
+        self.assertEqual(result["status"], "local_queued")
+
+    def test_identity_apply_local_is_idempotent_and_builds_joint_payload(self):
+        from tienda.services.alegra_inbound_sync import InboundClientSyncService
+
+        client = self._linked_client("Cliente identidad local", "900000012")
+        mapping = self._contact_map(client, "identity-2", {
+            "source": "alegra_write",
+            "last_synced_fields": {
+                "nombre": client.nombre,
+                "tipo_identificacion": "cc",
+                "identificacion": "900000011",
+            },
+        })
+        remote = {
+            "id": mapping.external_id,
+            "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": "900000011"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        service = InboundClientSyncService(Mock())
+        service.transport.get_contact.return_value = remote
+        review = service.review(client, mapping, remote)
+        first = service.resolve_identity_conflict(client.pk, mapping.pk, review, "apply_local")
+        second = service.resolve_identity_conflict(client.pk, mapping.pk, review, "apply_local")
+        self.assertEqual(first["operation_id"], second["operation_id"])
+        operation = AlegraWriteOperation.objects.get(pk=first["operation_id"])
+        self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
+        payload = AlegraContactWriteService()._build_update_payload(
+            client,
+            ["tipo_identificacion", "identificacion"],
+            external_context={
+                "identification": "900000011",
+                "identificationObject": {"type": "CC", "number": "900000011"},
+                "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+                "type": "client", "status": "active",
+            },
+            authorized_fields={"tipo_identificacion", "identificacion"},
+        )
+        self.assertEqual(payload["identification"], "900000012")
+        self.assertEqual(payload["identificationObject"]["type"], "CC")
+        self.assertEqual(payload["identificationObject"]["number"], "900000012")
+
+    def test_identity_keep_remote_blocks_existing_local_duplicate(self):
+        from tienda.services.alegra_inbound_sync import InboundSyncConflict, InboundClientSyncService
+
+        client = self._linked_client("Cliente identidad remota", "900000022")
+        duplicate = self._linked_client("Otro cliente", "900000021")
+        mapping = self._contact_map(client, "identity-3", {
+            "source": "alegra_write",
+            "last_synced_fields": {
+                "nombre": client.nombre, "tipo_identificacion": "cc",
+                "identificacion": "900000020",
+            },
+        })
+        remote = {
+            "id": mapping.external_id, "name": client.nombre,
+            "identificationObject": {"type": "CC", "number": duplicate.identificacion},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        service = InboundClientSyncService(Mock())
+        service.transport.get_contact.return_value = remote
+        review = service.review(client, mapping, remote)
+        with self.assertRaises(InboundSyncConflict):
+            service.resolve_identity_conflict(client.pk, mapping.pk, review, "keep_remote")
+
     def _prepare_phone_update_for_confirmation(self, transport):
         client = self._linked_client("Cliente confirmación", "991001120")
         client.telefono = "4444444"

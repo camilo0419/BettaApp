@@ -388,6 +388,52 @@ def enqueue_authorized_name_conflict_update(
             return operation
 
 
+def enqueue_authorized_identity_conflict_update(
+    client: Cliente, mapping: ExternalObjectMap, baseline: dict, remote_hash: str, *, actor=None,
+) -> AlegraWriteOperation:
+    """Crea una única actualización autorizada de tipo y número documental."""
+    local_snapshot = {
+        "tipo_identificacion": str(client.tipo_identificacion or "").strip().casefold(),
+        "identificacion": normalize_identity(client.identificacion),
+    }
+    if not local_snapshot["tipo_identificacion"] or not local_snapshot["identificacion"]:
+        raise ValidationError("La identificación local está incompleta.")
+    key = BidirectionalClientSync.idempotency_key(
+        "betta_to_alegra_identity_conflict_resolution", str(mapping.external_id),
+        {**local_snapshot, "remote_hash": remote_hash},
+    )
+    metadata = {
+        "deferred_prepare": True,
+        "local_snapshot": local_snapshot,
+        "baseline": {
+            "tipo_identificacion": baseline.get("tipo_identificacion", ""),
+            "identificacion": baseline.get("identificacion", ""),
+        },
+        "authorized_conflict_fields": ["tipo_identificacion", "identificacion"],
+        "authorized_remote_hash": remote_hash,
+        "resolution_actor_id": getattr(actor, "pk", None),
+    }
+    with advisory_lock(f"bettaapp:alegra:queue:contact:{client.pk}"):
+        with transaction.atomic():
+            content_type = ContentType.objects.get_for_model(Cliente)
+            active_maps = ExternalObjectMap.objects.filter(
+                system=mapping.system, resource_type="contacts", content_type=content_type,
+                object_id=client.pk, status=ExternalObjectMap.STATUS_ACTIVE,
+            )
+            if mapping.object_id != client.pk or mapping.status != ExternalObjectMap.STATUS_ACTIVE or active_maps.count() != 1:
+                raise ValidationError("El cliente no tiene un único vínculo activo válido para conciliar.")
+            operation, _ = AlegraWriteOperation.objects.get_or_create(
+                system=mapping.system, client=client, operation=AlegraWriteOperation.OP_UPDATE,
+                idempotency_key=key,
+                defaults={
+                    "external_id": str(mapping.external_id),
+                    "state": AlegraWriteOperation.STATE_PENDING,
+                    "result_metadata": metadata,
+                },
+            )
+            return operation
+
+
 def _materialize_deferred_update(operation, service: AlegraContactWriteService):
     """Completa una intención de actualización usando GET solo en el procesador."""
     metadata = operation.result_metadata if isinstance(operation.result_metadata, dict) else {}
@@ -569,6 +615,7 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
     local_fields = [
         field for field in all_local_fields
         if field not in AlegraContactWriteService.PROTECTED_UPDATE_FIELDS
+        or field in authorized_fields
     ]
     if not local_fields and comparison["remote_fields"]:
         operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
@@ -642,8 +689,34 @@ def _materialize_deferred_update(operation, service: AlegraContactWriteService):
         operation.reconciliation_reason = "Los cambios detectados son tributarios o de identidad y requieren revisión manual."
         operation.save(update_fields=["state", "error_code", "reconciliation_reason", "updated_at"])
         return operation
+    if authorized_fields.intersection({"tipo_identificacion", "identificacion"}):
+        candidates = service.transport.find_candidates(
+            identification=normalize_identity(operation.client.identificacion),
+        )
+        other_candidates = [
+            row for row in candidates
+            if str(row.get("id") or "").strip() != str(operation.external_id)
+        ]
+        if other_candidates:
+            operation.state = AlegraWriteOperation.STATE_NEEDS_RECONCILIATION
+            operation.error_code = "identity_duplicate"
+            operation.reconciliation_reason = "La identificación local ya corresponde a otro contacto Alegra; requiere revisión manual."
+            operation.result_metadata = {
+                **metadata,
+                "remote_confirmation": {
+                    "status": "duplicate_identity",
+                    "candidate_count": len(other_candidates),
+                },
+            }
+            operation.save(update_fields=[
+                "state", "error_code", "reconciliation_reason", "result_metadata", "updated_at",
+            ])
+            return operation
     context = service._build_update_context(remote)
-    payload = service._build_update_payload(operation.client, local_fields, external_context=context)
+    payload = service._build_update_payload(
+        operation.client, local_fields, external_context=context,
+        authorized_fields=authorized_fields,
+    )
     operation.result_metadata = {
         **metadata,
         "deferred_prepare": False,

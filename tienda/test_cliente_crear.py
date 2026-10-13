@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
 from django.core import signing
 from django.contrib.messages import get_messages
 from django.test import Client, TestCase
@@ -48,6 +49,41 @@ class ClienteCrearViewTests(TestCase):
         response = self.client.get(reverse("alegra_writes_configuration_status"))
 
         self.assertEqual(response.status_code, 403)
+
+    @patch("tienda.views.AlegraWriteClient")
+    def test_revision_muestra_decisiones_para_conflicto_de_identificacion(self, transport_class):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Cliente identidad",
+            primer_nombre="Ana", primer_apellido="Prueba",
+            tipo_identificacion=Cliente.ID_CC, identificacion="900000002",
+            regimen_tributario="COMMON_REGIME",
+        )
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        ExternalObjectMap.objects.create(
+            system=system, resource_type="contacts", external_id="identity-view",
+            content_type=ContentType.objects.get_for_model(Cliente), object_id=cliente.pk,
+            status=ExternalObjectMap.STATUS_ACTIVE,
+            metadata={
+                "source": "alegra_write",
+                "last_synced_fields": {
+                    "nombre": cliente.nombre, "tipo_identificacion": "cc",
+                    "identificacion": "900000001",
+                },
+            },
+        )
+        transport_class.return_value.get_contact.return_value = {
+            "id": "identity-view", "name": cliente.nombre,
+            "identificationObject": {"type": "CC", "number": "900000001"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        response = self.client.get(reverse("panel_cliente_alegra_revisar_cambios", args=[cliente.pk]))
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn("Conservar identificación de Alegra", body)
+        self.assertIn("Aplicar identificación de BettaApp", body)
+        self.assertIn("900000002", body)
+        self.assertIn("900000001", body)
 
     def test_post_invalido_muestra_errores_y_no_crea_cliente(self):
         response = self.client.post(self.url, {"tipo_cliente": Cliente.TIPO_PERSONA, "nombre": ""})

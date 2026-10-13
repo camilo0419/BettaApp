@@ -129,7 +129,6 @@ from .services.alegra_write import (
     RemoteCandidateLinkConflict,
     summarize_remote_candidate,
 )
-from .services.alegra_bidirectional_clients import CONFLICT
 from .services.alegra_inbound_sync import InboundClientSyncService, InboundSyncConflict
 from .services.alegra_operation_queue import (
     OUTBOUND_PROCESS_LOCK,
@@ -2649,10 +2648,9 @@ def cliente_alegra_revisar_cambios(request, cliente_id):
         remote = AlegraWriteClient().get_contact(mapping.external_id)
         review = InboundClientSyncService(AlegraWriteClient()).review(cliente, mapping, remote)
         review["name_conflict_only"] = (
-            review.get("state") == CONFLICT
-            and review.get("conflict_fields") == ["nombre"]
-            and not review.get("protected_fields")
+            bool(review.get("name_resolution_available"))
         )
+        review["identity_conflict_only"] = bool(review.get("identity_conflict_only"))
         review_token = signing.dumps(review, salt="tienda.alegra_inbound_review")
     except (AlegraError, InboundSyncConflict, ValidationError) as exc:
         messages.error(request, f"No se pudieron consultar cambios de Alegra: {exc}")
@@ -2710,6 +2708,30 @@ def cliente_alegra_resolver_nombre(request, cliente_id):
         return redirect(f"{reverse('panel_cliente_detalle', kwargs={'cliente_id': cliente.pk})}?sync_operation={result['operation_id']}")
     except (AlegraError, InboundSyncConflict, DatabaseLockUnavailable, ValidationError, TypeError, ValueError) as exc:
         messages.error(request, f"No se resolvió el conflicto de nombre: {exc}")
+        return redirect("panel_cliente_alegra_revisar_cambios", cliente_id=cliente.pk)
+
+
+@panel_staff_required
+@require_POST
+def cliente_alegra_resolver_identificacion(request, cliente_id):
+    """Resuelve exclusivamente un conflicto revisado de identificación."""
+    cliente = get_object_or_404(Cliente, pk=cliente_id)
+    token = request.POST.get("review_token", "")
+    decision = request.POST.get("decision", "")
+    try:
+        review = signing.loads(token, salt="tienda.alegra_inbound_review", max_age=900)
+        if int(review.get("local_id")) != cliente.pk:
+            raise InboundSyncConflict("La revisión no corresponde al cliente solicitado.")
+        result = InboundClientSyncService(AlegraWriteClient()).resolve_identity_conflict(
+            cliente.pk, int(review["mapping_id"]), review, decision, actor=request.user,
+        )
+        if result["status"] == "remote_kept":
+            messages.success(request, "Se conservó la identificación de Alegra y se actualizó el baseline local.")
+            return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+        messages.success(request, f"Se autorizó la actualización de identificación (operación {result['operation_id']}).")
+        return redirect(f"{reverse('panel_cliente_detalle', kwargs={'cliente_id': cliente.pk})}?sync_operation={result['operation_id']}")
+    except (AlegraError, InboundSyncConflict, DatabaseLockUnavailable, ValidationError, TypeError, ValueError) as exc:
+        messages.error(request, f"No se resolvió el conflicto de identificación: {exc}")
         return redirect("panel_cliente_alegra_revisar_cambios", cliente_id=cliente.pk)
 
 

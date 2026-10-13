@@ -601,10 +601,12 @@ class AlegraContactWriteService:
         fields: list[str],
         *,
         external_context: Mapping[str, Any] | None = None,
+        authorized_fields: set[str] | None = None,
     ) -> dict[str, Any]:
         if external_context is None:
             raise ValidationError("La actualización requiere el contexto colombiano confirmado mediante GET.")
         payload: dict[str, Any] = dict(external_context)
+        authorized_fields = set(authorized_fields or ())
         simple = {"email": "email", "telefono": "phonePrimary", "telefono_secundario": "phoneSecondary", "celular": "mobile"}
         if client.tipo_cliente == Cliente.TIPO_PERSONA:
             if not client.nombre_mostrado:
@@ -635,6 +637,16 @@ class AlegraContactWriteService:
                 pass
             elif client.razon_social:
                 payload["name"] = client.razon_social.strip()
+        if authorized_fields.intersection({"tipo_identificacion", "identificacion"}):
+            document_type = COLOMBIA_ID_TYPES.get(client.tipo_identificacion)
+            document_number = normalize_identity(client.identificacion)
+            if not document_type or not document_number:
+                raise ValidationError("La identificación autorizada no es válida para Colombia.")
+            identification_object = dict(payload.get("identificationObject") or {})
+            identification_object["type"] = document_type
+            identification_object["number"] = document_number
+            payload["identificationObject"] = identification_object
+            payload["identification"] = document_number
         for field in fields:
             if field in simple:
                 value = str(getattr(client, field, "") or "").strip()
@@ -824,6 +836,16 @@ class AlegraContactWriteService:
                 )
                 return True, value
             return False, None
+        if field in {"tipo_identificacion", "identificacion"}:
+            identity = extract_identification_context(row)
+            identification_object = row.get("identificationObject")
+            if not isinstance(identification_object, Mapping):
+                return False, None
+            if field == "tipo_identificacion":
+                present = "type" in identification_object or "identificationType" in row
+                return present, identity.get("type") or ""
+            present = "number" in identification_object or "identification" in row
+            return present, identity.get("number") or ""
         simple = {
             "email": "email",
             "telefono": "phonePrimary",
@@ -853,6 +875,10 @@ class AlegraContactWriteService:
         actual = str(actual or "").strip()
         if field == "nombre":
             return normalize_name(expected) == normalize_name(actual)
+        if field == "identificacion":
+            return normalize_identity(expected) == normalize_identity(actual)
+        if field == "tipo_identificacion":
+            return expected.casefold() == actual.casefold()
         if field in {"ciudad", "departamento", "pais"}:
             return normalize_location(expected) == normalize_location(actual)
         return expected == actual
@@ -900,6 +926,7 @@ class AlegraContactWriteService:
                 client,
                 metadata.get("fields", []),
                 external_context=metadata.get("external_context"),
+                authorized_fields=set(metadata.get("authorized_conflict_fields") or []),
             )
             prepared_payload = (operation.result_metadata or {}).get("prepared_payload")
             if prepared_payload is not None and payload != prepared_payload:
