@@ -12,7 +12,6 @@
   </div>
   <div class="head-actions">
     <a href="{% url 'panel_cliente_editar' cliente.id %}" class="btn btn-primary">Editar cliente</a>
-    {% if not alegra_map %}{% if candidate_review_url %}<a href="{{ candidate_review_url }}" class="btn btn-outline">Revisar coincidencia con Alegra</a>{% else %}<form method="post" action="{% url 'panel_cliente_alegra_preparar' cliente.id %}" class="inline-form">{% csrf_token %}<button class="btn btn-outline" type="submit">Preparar sincronización Alegra</button></form>{% endif %}{% else %}<a href="{% url 'panel_cliente_alegra_revisar_cambios' cliente.id %}" class="btn btn-outline">Consultar cambios de Alegra</a><form method="post" action="{% url 'panel_cliente_alegra_preparar_actualizacion' cliente.id %}" class="inline-form">{% csrf_token %}<button class="btn btn-outline" type="submit">Preparar actualización en Alegra</button></form>{% endif %}
     <a href="{% url 'panel_proyecto_crear' %}?cliente={{ cliente.id }}" class="btn btn-outline">Crear proyecto</a>
     <a href="{% url 'panel_clientes' %}" class="btn btn-outline">Volver</a>
   </div>
@@ -56,10 +55,26 @@
         </section>
       </div>
       <div id="alegra-sync-status" class="info-box alegra-client-sync alegra-client-sync-{{ alegra_sync_status.code }}" data-client-sync-status>
-        <div class="alegra-client-sync-head"><strong>Estado de sincronización</strong><span class="alegra-status-badge" data-sync-status-label>{{ alegra_sync_status.label }}</span></div>
-        <p data-sync-status-detail>{{ alegra_sync_status.detail }}</p>
+        <div class="alegra-client-sync-head"><strong>{{ alegra_panel.title }}</strong><span class="alegra-status-badge" data-sync-status-label>{{ alegra_panel.label }}</span></div>
+        <p data-sync-status-detail>{{ alegra_panel.detail }}</p>
         <p class="muted" data-sync-status-at{% if not alegra_sync_at %} hidden{% endif %}>{% if alegra_sync_at %}Última actualización: {{ alegra_sync_at|date:'Y-m-d H:i' }}{% endif %}</p>
-        {% if alegra_map %}<p>Vinculación activa con Alegra. Las nuevas sincronizaciones actualizarán el contacto existente.</p>{% endif %}
+        {% if alegra_map %}<p class="muted">Vinculación activa. Las nuevas sincronizaciones actualizarán el contacto existente.</p>{% endif %}
+        {% if candidate_link_conflicts %}
+          <div class="alegra-sync-conflict-list">
+            <strong>Vínculo previo detectado</strong>
+            {% for conflict in candidate_link_conflicts %}<p>Contacto Alegra {{ conflict.external_id }} ya está vinculado al cliente local {{ conflict.client_id }} ({{ conflict.client_label }}).</p>{% endfor %}
+            <p class="muted">Revisa los dos registros antes de solicitar una intervención administrativa. No se transferirá ni eliminará ningún vínculo automáticamente.</p>
+          </div>
+        {% endif %}
+        {% if alegra_panel.action_url %}
+          <div class="alegra-sync-actions">
+            {% if alegra_panel.action_method == 'post' %}
+              <form method="post" action="{{ alegra_panel.action_url }}" class="inline-form">{% csrf_token %}<button class="btn btn-primary" type="submit">{{ alegra_panel.action_label }}</button></form>
+            {% else %}
+              <a href="{{ alegra_panel.action_url }}" class="btn btn-primary">{{ alegra_panel.action_label }}</a>
+            {% endif %}
+          </div>
+        {% endif %}
         {% if user.is_staff %}<details class="alegra-sync-technical"><summary>Ver historial técnico</summary>{% for operation in alegra_operations %}<p>{{ operation.get_operation_display }} · {{ operation.get_state_display }} · {{ operation.updated_at|date:'Y-m-d H:i' }}{% if operation.error_message %} · {{ operation.error_message }}{% endif %}</p>{% empty %}<p>Sin operaciones de sincronización registradas.</p>{% endfor %}</details>{% endif %}
       </div>
       {% if cliente.notas %}<p>{{ cliente.notas }}</p>{% endif %}

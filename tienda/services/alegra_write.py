@@ -90,7 +90,12 @@ def summarize_remote_candidate(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def candidate_fingerprint(candidate: Mapping[str, Any]) -> str:
-    raw = json.dumps(dict(candidate), sort_keys=True, ensure_ascii=False, default=str)
+    # Las revisiones antiguas pueden guardar el tipo documental en la forma
+    # presentada por Alegra (por ejemplo, ``CC``), mientras que el GET fresco
+    # ya pasa por la normalización interna (``cc``).  La huella debe comparar
+    # la identidad semántica, no esa diferencia de representación.
+    canonical = summarize_remote_candidate(candidate)
+    raw = json.dumps(canonical, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -440,14 +445,18 @@ class AlegraContactWriteService:
             if local_type and remote_type and local_type != remote_type:
                 raise RemoteCandidateLinkConflict("El tipo de documento del candidato no coincide.")
             content_type = ContentType.objects.get_for_model(Cliente)
-            active_external_qs = ExternalObjectMap.objects.filter(
+            external_maps = list(ExternalObjectMap.objects.filter(
                 system=operation.system, resource_type="contacts", external_id=external_id,
-                status=ExternalObjectMap.STATUS_ACTIVE,
-            )
-            if active_external_qs.count() > 1:
+            ).order_by("pk"))
+            if len(external_maps) > 1:
+                # La identidad externa es única por diseño; si una base
+                # histórica incumple esa garantía, no escoger arbitrariamente.
                 raise RemoteCandidateLinkConflict("Existen vínculos activos ambiguos para el contacto Alegra.")
-            active_external = active_external_qs.first()
-            if active_external and (active_external.content_type_id != content_type.pk or active_external.object_id != client.pk):
+            existing_external = external_maps[0] if external_maps else None
+            if existing_external and (
+                existing_external.content_type_id != content_type.pk
+                or existing_external.object_id != client.pk
+            ):
                 raise RemoteCandidateLinkConflict("El contacto Alegra ya está vinculado a otro cliente.")
             active_local_qs = ExternalObjectMap.objects.filter(
                 system=operation.system, resource_type="contacts", content_type=content_type,
@@ -474,7 +483,7 @@ class AlegraContactWriteService:
                 },
             }
             with transaction.atomic():
-                if active_external is None:
+                if existing_external is None:
                     ExternalObjectMap.objects.create(
                         system=operation.system, resource_type="contacts", external_id=external_id,
                         content_type=content_type, object_id=client.pk,
@@ -482,9 +491,16 @@ class AlegraContactWriteService:
                         metadata=map_metadata,
                     )
                 else:
-                    active_external.last_synced_at = timezone.now()
-                    active_external.metadata = map_metadata
-                    active_external.save(update_fields=["last_synced_at", "metadata", "updated_at"])
+                    # Reutiliza un vínculo histórico del mismo cliente en vez
+                    # de intentar crear otro registro con la misma identidad.
+                    existing_external.content_type = content_type
+                    existing_external.object_id = client.pk
+                    existing_external.status = ExternalObjectMap.STATUS_ACTIVE
+                    existing_external.last_synced_at = timezone.now()
+                    existing_external.metadata = map_metadata
+                    existing_external.save(update_fields=[
+                        "content_type", "object_id", "status", "last_synced_at", "metadata", "updated_at",
+                    ])
                 operation.external_id = external_id
                 operation.state = AlegraWriteOperation.STATE_SYNCED
                 operation.reconciliation_reason = "Vinculación manual confirmada; no se creó un contacto nuevo."

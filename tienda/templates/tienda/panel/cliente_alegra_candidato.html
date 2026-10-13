@@ -40,12 +40,20 @@
             <dt>Estado</dt><dd>{{ candidate.status|default:'-' }}</dd>
           </dl>
         </div>
-        <form method="post" action="{% url 'panel_cliente_alegra_vincular_candidato' cliente.id operation.id %}">
-          {% csrf_token %}
-          <input type="hidden" name="candidate_token" value="{{ candidate_token }}">
-          <input type="hidden" name="external_id" value="{{ candidate.id }}">
-          <button type="submit" class="btn btn-primary">Confirmar vinculación</button>
-        </form>
+        {% if candidate.linked_client_id %}
+          <div class="info-box candidate-link-blocked">
+            <strong>Vínculo existente</strong>
+            <p>Este contacto ya está vinculado al cliente local {{ candidate.linked_client_id }} ({{ candidate.linked_client_label }}).</p>
+            <p class="muted">No se transferirá ni eliminará el vínculo automáticamente.</p>
+          </div>
+        {% else %}
+          <form method="post" action="{% url 'panel_cliente_alegra_vincular_candidato' cliente.id operation.id %}">
+            {% csrf_token %}
+            <input type="hidden" name="candidate_token" value="{{ candidate_token }}">
+            <input type="hidden" name="external_id" value="{{ candidate.id }}">
+            <button type="submit" class="btn btn-primary">Confirmar vinculación</button>
+          </form>
+        {% endif %}
       </article>
       {% empty %}
       <p>No hay candidatos disponibles para esta revisión.</p>

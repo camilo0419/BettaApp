@@ -12,7 +12,7 @@ from tienda.services.alegra_bidirectional_clients import SafeAlegraWriteAdapter,
 from tienda.services.alegra_import import AlegraItemImporter
 from tienda.services.alegra_operation_queue import enqueue_create, enqueue_missing_creates, enqueue_update_if_changed, process_pending_operations, linked_client_update_candidates
 from tienda.services.alegra_operation_queue import alegra_system
-from tienda.services.alegra_write import AlegraContactWriteService, authorize_external_write
+from tienda.services.alegra_write import AlegraContactWriteService, authorize_external_write, summarize_remote_candidate
 
 
 class Response:
@@ -640,6 +640,43 @@ class AutomationTests(TestCase):
         self.assertTrue(ExternalObjectMap.objects.filter(
             object_id=client.pk, external_id="A-1", status=ExternalObjectMap.STATUS_ACTIVE,
         ).exists())
+        transport.create_contact.assert_not_called()
+
+    def test_explicit_link_reuses_existing_inactive_map_for_same_client(self):
+        client = self._linked_client("Ana Prueba", "123456790")
+        operation = AlegraWriteOperation.objects.create(
+            system=alegra_system(), client=client, operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="candidate-review-inactive-map", state=AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+            error_code="remote_candidate",
+        )
+        remote = {
+            "id": "A-1", "name": "Contacto remoto", "identification": "123456790",
+            "identificationObject": {"type": "CC", "number": "123456790"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME",
+            "type": ["client"], "status": "active",
+        }
+        transport = Mock()
+        transport.get_contact.return_value = remote
+        service = AlegraContactWriteService(transport=transport)
+        operation.result_metadata = {"remote_candidates": [
+            summarize_remote_candidate(remote),
+        ]}
+        operation.save(update_fields=["result_metadata"])
+        mapping = self._contact_map(client, "A-1", {"source": "historical"})
+        mapping.status = ExternalObjectMap.STATUS_UNLINKED
+        mapping.save(update_fields=["status", "updated_at"])
+
+        linked = service.link_existing_candidate(
+            operation.pk, "A-1", operation.result_metadata["remote_candidates"][0],
+        )
+
+        self.assertEqual(linked.state, AlegraWriteOperation.STATE_SYNCED)
+        mapping.refresh_from_db()
+        self.assertEqual(mapping.status, ExternalObjectMap.STATUS_ACTIVE)
+        self.assertEqual(
+            ExternalObjectMap.objects.filter(system=alegra_system(), external_id="A-1").count(),
+            1,
+        )
         transport.create_contact.assert_not_called()
 
     @patch("tienda.services.alegra_operation_queue.AlegraWriteClient")

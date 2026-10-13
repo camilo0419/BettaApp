@@ -1,10 +1,12 @@
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.core import signing
+from django.contrib.messages import get_messages
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from tienda.models import AlegraWriteOperation, Cliente, ExternalSystem
+from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap, ExternalSystem
 from tienda.services.database_lock import advisory_lock
 from tienda.services.alegra_write import build_contact_payload
 
@@ -250,7 +252,7 @@ class ClienteCrearViewTests(TestCase):
             }]},
         )
         detail = self.client.get(reverse("panel_cliente_detalle", args=[cliente.pk]))
-        self.assertContains(detail, "Revisar coincidencia con Alegra")
+        self.assertContains(detail, "Revisar coincidencia")
         modal_detail = self.client.get(
             f"{reverse('panel_cliente_detalle', args=[cliente.pk])}?sync_operation={operation.pk}"
         )
@@ -263,6 +265,37 @@ class ClienteCrearViewTests(TestCase):
         review = self.client.get(reverse("panel_cliente_alegra_revisar_candidato", args=[cliente.pk, operation.pk]))
         self.assertContains(review, "Confirmar vinculación")
         self.assertContains(review, "Contacto remoto")
+
+    def test_candidato_ya_vinculado_no_ofrece_confirmacion_inevitable(self):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Cliente pendiente", primer_nombre="Cliente",
+            primer_apellido="Pendiente", identificacion="1017166215", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME",
+        )
+        owner = Cliente.objects.create(nombre="Cliente propietario")
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="candidate-already-linked", state=AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+            error_code="remote_candidate", result_metadata={"remote_candidates": [{
+                "id": "676", "name": "Contacto remoto", "identification": "1017166215",
+                "identification_type": "CC", "kind_of_person": "PERSON_ENTITY",
+                "regime": "COMMON_REGIME", "status": "active",
+            }]},
+        )
+        from django.contrib.contenttypes.models import ContentType
+        ExternalObjectMap.objects.create(
+            system=system, resource_type="contacts", external_id="676",
+            content_type=ContentType.objects.get_for_model(Cliente), object_id=owner.pk,
+            status=ExternalObjectMap.STATUS_ACTIVE,
+        )
+
+        detail = self.client.get(reverse("panel_cliente_detalle", args=[cliente.pk]))
+        self.assertContains(detail, "Vínculo previo detectado")
+        self.assertContains(detail, "Revisar conflicto de vínculo")
+        review = self.client.get(reverse("panel_cliente_alegra_revisar_candidato", args=[cliente.pk, operation.pk]))
+        self.assertContains(review, "Vínculo existente")
+        self.assertNotContains(review, "Confirmar vinculación")
 
     @patch("tienda.views.AlegraWriteClient")
     def test_revision_historica_sin_candidatos_guardados_consulta_y_renderiza(self, transport_class):
@@ -309,6 +342,54 @@ class ClienteCrearViewTests(TestCase):
         response = self.client.get(reverse("panel_cliente_alegra_revisar_candidato", args=[cliente.pk, operation.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Contacto recuperado")
+
+    @patch("tienda.services.alegra_write.AlegraWriteClient")
+    def test_post_confirmacion_vincula_candidato_sin_http_500(self, transport_class):
+        cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Cliente 164", primer_nombre="Cliente",
+            primer_apellido="Prueba", identificacion="1017166214", tipo_identificacion=Cliente.ID_CC,
+            regimen_tributario="COMMON_REGIME",
+        )
+        system = ExternalSystem.objects.create(code="alegra", name="Alegra")
+        candidate = {
+            "id": "676", "name": "Nombre remoto distinto", "identification": "1017166214",
+            "identification_type": "CC", "kind_of_person": "PERSON_ENTITY",
+            "regime": "COMMON_REGIME", "status": "active", "dv": "", "type": "",
+        }
+        operation = AlegraWriteOperation.objects.create(
+            system=system, client=cliente, operation=AlegraWriteOperation.OP_CREATE,
+            idempotency_key="confirm-candidate-164", state=AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+            error_code="remote_candidate", result_metadata={"remote_candidates": [candidate]},
+        )
+        transport_class.return_value.get_contact.return_value = {
+            "id": "676", "name": "Nombre remoto distinto", "identification": "1017166214",
+            "identificationObject": {"type": "CC", "number": "1017166214"},
+            "kindOfPerson": "PERSON_ENTITY", "regime": "COMMON_REGIME", "status": "active",
+        }
+        token = signing.dumps(
+            {"client_id": cliente.pk, "operation_id": operation.pk, "candidate_ids": ["676"]},
+            salt="tienda.alegra_candidate_review",
+        )
+        response = self.client.post(
+            reverse("panel_cliente_alegra_vincular_candidato", args=[cliente.pk, operation.pk]),
+            {"candidate_token": token, "external_id": "676"},
+        )
+        self.assertEqual(response.status_code, 302)
+        operation.refresh_from_db()
+        self.assertEqual(
+            operation.state,
+            AlegraWriteOperation.STATE_SYNCED,
+            [str(message) for message in get_messages(response.wsgi_request)],
+        )
+        repeated = self.client.post(
+            reverse("panel_cliente_alegra_vincular_candidato", args=[cliente.pk, operation.pk]),
+            {"candidate_token": token, "external_id": "676"},
+        )
+        self.assertEqual(repeated.status_code, 302)
+        self.assertEqual(
+            ExternalObjectMap.objects.filter(system=system, resource_type="contacts", external_id="676").count(),
+            1,
+        )
 
     @patch("tienda.views.process_pending_operations")
     def test_endpoint_procesa_unicamente_la_operacion_del_cliente(self, process):

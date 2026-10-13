@@ -2804,6 +2804,31 @@ def cliente_alegra_revisar_candidato(request, cliente_id, operation_id):
     if not candidates:
         messages.info(request, "La consulta explícita no encontró candidatos; la operación requiere una nueva revisión.")
         return redirect("panel_cliente_detalle", cliente_id=cliente.pk)
+    candidate_links = {
+        str(row["external_id"]): row["object_id"]
+        for row in ExternalObjectMap.objects.filter(
+            resource_type="contacts",
+            external_id__in=[str(item.get("id")) for item in candidates],
+            status=ExternalObjectMap.STATUS_ACTIVE,
+            content_type__model="cliente",
+        ).values("external_id", "object_id")
+        if row["object_id"]
+    }
+    owners = {
+        client.pk: str(client)
+        for client in Cliente.objects.filter(pk__in=set(candidate_links.values())).only(
+            "id", "nombre", "nombre_comercial", "razon_social"
+        )
+    }
+    candidates = [
+        {
+            **candidate,
+            "linked_client_id": owner_id if owner_id != cliente.pk else None,
+            "linked_client_label": owners.get(owner_id, f"Cliente {owner_id}") if owner_id != cliente.pk else "",
+        }
+        for candidate in candidates
+        for owner_id in [candidate_links.get(str(candidate.get("id")))]
+    ]
     token = signing.dumps(
         {"client_id": cliente.pk, "operation_id": operation.pk, "candidate_ids": [str(item.get("id")) for item in candidates]},
         salt="tienda.alegra_candidate_review",
@@ -3013,6 +3038,7 @@ def cliente_detalle(request, cliente_id):
     if requested_operation_id and AlegraWriteOperation.objects.filter(pk=requested_operation_id, client=cliente).exists():
         sync_operation_id = requested_operation_id
     candidate_review_url = ""
+    candidate_link_conflicts = []
     if not alegra_map and latest_operation and latest_operation.state == AlegraWriteOperation.STATE_NEEDS_RECONCILIATION:
         operation_metadata = latest_operation.result_metadata if isinstance(latest_operation.result_metadata, dict) else {}
         if latest_operation.error_code == "remote_candidate":
@@ -3020,6 +3046,87 @@ def cliente_detalle(request, cliente_id):
                 "panel_cliente_alegra_revisar_candidato",
                 kwargs={"cliente_id": cliente.pk, "operation_id": latest_operation.pk},
             )
+            candidate_ids = [
+                str(item.get("id")).strip()
+                for item in operation_metadata.get("remote_candidates", [])
+                if isinstance(item, dict) and str(item.get("id") or "").strip()
+            ]
+            if candidate_ids:
+                linked_candidates = ExternalObjectMap.objects.filter(
+                    resource_type="contacts",
+                    external_id__in=candidate_ids,
+                    status=ExternalObjectMap.STATUS_ACTIVE,
+                    content_type__model="cliente",
+                ).values("external_id", "object_id")
+                linked_client_ids = {row["object_id"] for row in linked_candidates if row["object_id"]}
+                linked_clients = {
+                    client.pk: client
+                    for client in Cliente.objects.filter(pk__in=linked_client_ids).only("id", "nombre", "nombre_comercial", "razon_social")
+                }
+                candidate_link_conflicts = [
+                    {
+                        "external_id": row["external_id"],
+                        "client_id": row["object_id"],
+                        "client_label": str(linked_clients.get(row["object_id"]) or f"Cliente {row['object_id']}"),
+                    }
+                    for row in linked_candidates
+                    if row["object_id"] != cliente.pk
+                ]
+
+    alegra_panel = {
+        "title": "Sincronización con Alegra",
+        "state": sync_status["code"],
+        "label": sync_status["label"],
+        "detail": sync_status["detail"],
+        "action_label": "",
+        "action_url": "",
+        "action_method": "get",
+    }
+    if candidate_link_conflicts:
+        alegra_panel.update({
+            "state": "conflict",
+            "label": "Vínculo en conflicto",
+            "detail": "El contacto encontrado ya está vinculado a otro cliente local. No se puede transferir automáticamente.",
+            "action_label": "Revisar conflicto de vínculo",
+            "action_url": candidate_review_url,
+        })
+    elif candidate_review_url:
+        alegra_panel.update({
+            "state": "reconciliation",
+            "label": "Revisión requerida",
+            "detail": "Se encontró un posible contacto en Alegra. Compara sus datos antes de confirmar una vinculación.",
+            "action_label": "Revisar coincidencia",
+            "action_url": candidate_review_url,
+        })
+    elif not alegra_map and not latest_operation and cliente.alegra_sync_policy != Cliente.ALEGRA_SYNC_HISTORICAL_PENDING:
+        alegra_panel.update({
+            "label": "Pendiente",
+            "detail": "Aún no existe una confirmación externa. Este cliente todavía no tiene un contacto confirmado en Alegra.",
+            "action_label": "Preparar sincronización",
+            "action_url": reverse("panel_cliente_alegra_preparar", kwargs={"cliente_id": cliente.pk}),
+            "action_method": "post",
+        })
+    elif alegra_map and operation_is_newer and latest_operation.state in {
+        AlegraWriteOperation.STATE_NEEDS_RECONCILIATION,
+        AlegraWriteOperation.STATE_CONFLICT,
+    }:
+        alegra_panel.update({
+            "action_label": "Revisar diferencias",
+            "action_url": reverse("panel_cliente_alegra_revisar_cambios", kwargs={"cliente_id": cliente.pk}),
+        })
+    elif alegra_map and operation_is_newer and latest_operation.state == AlegraWriteOperation.STATE_PENDING:
+        alegra_panel.update({
+            "label": "Pendiente de sincronización",
+            "detail": "La operación está registrada y se procesará sin crear otro contacto.",
+            "action_label": "Ver estado",
+            "action_url": "#alegra-sync-status",
+        })
+    elif alegra_map and not operation_is_newer:
+        alegra_panel.update({
+            "state": "synced",
+            "label": "Sincronizado",
+            "detail": "El vínculo activo está confirmado en BettaApp.",
+        })
     return render(
         request,
         "tienda/panel/cliente_detalle.html",
@@ -3039,6 +3146,8 @@ def cliente_detalle(request, cliente_id):
                 kwargs={"cliente_id": cliente.id, "operation_id": sync_operation_id},
             ) if sync_operation_id else "",
             "candidate_review_url": candidate_review_url,
+            "candidate_link_conflicts": candidate_link_conflicts,
+            "alegra_panel": alegra_panel,
             "contactos": cliente.contactos.all(),
             "puntos_venta": cliente.puntos_venta.all(),
             "usuarios_portal": cliente.usuarios_portal.select_related("user", "contacto"),
