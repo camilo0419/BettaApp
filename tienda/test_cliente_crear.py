@@ -7,7 +7,7 @@ from django.contrib.messages import get_messages
 from django.test import Client, TestCase
 from django.urls import reverse
 
-from tienda.models import AlegraWriteOperation, Cliente, ExternalObjectMap, ExternalSystem
+from tienda.models import AlegraWriteOperation, Cliente, ColombiaMunicipio, ExternalObjectMap, ExternalSystem
 from tienda.services.database_lock import advisory_lock
 from tienda.services.alegra_write import build_contact_payload
 
@@ -17,6 +17,10 @@ class ClienteCrearViewTests(TestCase):
         self.staff = User.objects.create_user(username="staff-create-client", password="Test123!", is_staff=True)
         self.client.force_login(self.staff)
         self.url = reverse("panel_cliente_crear")
+        self.municipio = ColombiaMunicipio.objects.create(
+            codigo="05001", codigo_departamento="05", nombre="Medellín",
+            departamento="Antioquia", version="DIVIPOLA-TEST",
+        )
 
     @patch.dict(
         "os.environ",
@@ -103,6 +107,8 @@ class ClienteCrearViewTests(TestCase):
             "identificacion": "1019059653",
             "regimen_tributario": "SIMPLIFIED_REGIME",
             "direccion": "Calle 10 # 20-30",
+            "municipio_departamento": "Medellín, Antioquia",
+            "divipola_code": "05001",
             "activo": "on",
         }
         with patch("tienda.views.AlegraWriteClient") as transport, \
@@ -127,6 +133,8 @@ class ClienteCrearViewTests(TestCase):
             "identificacion": "1019059655",
             "regimen_tributario": "SIMPLIFIED_REGIME",
             "direccion": "Calle 10 # 20-30",
+            "municipio_departamento": "Medellín, Antioquia",
+            "divipola_code": "05001",
             "activo": "on",
         }
         with patch("tienda.services.alegra_operation_queue.AlegraWriteClient") as queue_transport:
@@ -138,6 +146,26 @@ class ClienteCrearViewTests(TestCase):
         operation = AlegraWriteOperation.objects.get()
         self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
         queue_transport.return_value.find_candidates.assert_not_called()
+
+    def test_alta_completa_sin_departamento_no_crea_operacion(self):
+        data = {
+            "tipo_cliente": Cliente.TIPO_PERSONA,
+            "nombre": "Cliente sin departamento",
+            "primer_nombre": "Cliente",
+            "primer_apellido": "Incompleto",
+            "tipo_identificacion": Cliente.ID_CC,
+            "identificacion": "1019059656",
+            "regimen_tributario": "SIMPLIFIED_REGIME",
+            "direccion": "Calle 10 # 20-30",
+            "activo": "on",
+        }
+
+        response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Selecciona un departamento para continuar")
+        self.assertFalse(Cliente.objects.filter(identificacion="1019059656").exists())
+        self.assertFalse(AlegraWriteOperation.objects.filter(client__identificacion="1019059656").exists())
 
     def test_nombres_separados_construyen_nombre_local(self):
         data = {
@@ -151,6 +179,8 @@ class ClienteCrearViewTests(TestCase):
             "identificacion": "1019059654",
             "regimen_tributario": "SIMPLIFIED_REGIME",
             "direccion": "Calle 10 # 20-30",
+            "municipio_departamento": "Medellín, Antioquia",
+            "divipola_code": "05001",
             "activo": "on",
         }
         response = self.client.post(self.url, data)
@@ -178,6 +208,8 @@ class ClienteCrearViewTests(TestCase):
             "tipo_identificacion": Cliente.ID_NIT,
             "regimen_tributario": "COMMON_REGIME",
             "direccion": "Calle 10 # 20-30",
+            "municipio_departamento": "Medellín, Antioquia",
+            "divipola_code": "05001",
             "activo": "on",
         }
         with patch("tienda.services.alegra_operation_queue.AlegraWriteClient") as queue_transport:
@@ -627,6 +659,8 @@ class ClienteCrearViewTests(TestCase):
                     "identificacion": "111111111",
                     "regimen_tributario": "COMMON_REGIME",
                     "direccion": "Calle 10 # 20-30",
+                    "municipio_departamento": "Medellín, Antioquia",
+                    "divipola_code": "05001",
                     "activo": "on",
                 },
             )

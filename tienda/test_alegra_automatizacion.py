@@ -74,6 +74,17 @@ class AutomationTests(TestCase):
         self.assertEqual(operation.state, AlegraWriteOperation.STATE_PENDING)
         transport_class.return_value.find_candidates.assert_called_once_with(identification="123456789")
 
+    def test_new_client_without_department_is_not_queued(self):
+        client = Cliente.objects.create(
+            tipo_cliente=Cliente.TIPO_PERSONA, nombre="Persona sin ubicación",
+            primer_nombre="Ana", primer_apellido="Prueba", identificacion="123456788",
+            tipo_identificacion=Cliente.ID_CC, regimen_tributario="COMMON_REGIME",
+            direccion="Calle 1",
+        )
+
+        self.assertIsNone(enqueue_create(client))
+        self.assertFalse(AlegraWriteOperation.objects.filter(client=client).exists())
+
     def test_repeated_create_enqueue_reuses_single_pending_operation(self):
         client = Cliente.objects.create(
             tipo_cliente=Cliente.TIPO_PERSONA, nombre="Persona repetida",

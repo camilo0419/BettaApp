@@ -30,7 +30,7 @@ from .alegra_bidirectional_clients import BidirectionalClientSync
 from .alegra_client import AlegraConfigurationError, AlegraError, AlegraReadOnlyClient, extract_rows
 from .alegra_contact_import import normalize_identity, normalize_name
 from .alegra_normalization import extract_identification_context
-from .geografia import alegra_location, normalize_location
+from .geografia import alegra_location, normalize_location, validate_sync_location
 from .database_lock import DatabaseLockUnavailable, advisory_lock
 
 
@@ -327,6 +327,11 @@ def build_contact_payload(client: Cliente, *, colombia_profile: Mapping[str, Any
         if not legal_name:
             raise ValidationError("Persona jurídica requiere razon_social explícita.")
         payload["name"] = legal_name
+    # Alegra no recibe una dirección colombiana parcial: el adaptador debe
+    # impedir que una alta salga con ciudad/departamento omitidos. Se ejecuta
+    # después de las validaciones fiscales para conservar sus diagnósticos.
+    if str(getattr(client, "direccion", "") or "").strip():
+        validate_sync_location(client)
     mapping = {
         "email": "email", "telefono": "phonePrimary", "telefono_secundario": "phoneSecondary",
         "celular": "mobile",
@@ -655,6 +660,7 @@ class AlegraContactWriteService:
         address_fields = {"direccion": "address", "ciudad": "city", "departamento": "department",
                           "pais": "country", "codigo_postal": "zipCode"}
         if any(field in address_fields for field in fields):
+            validate_sync_location(client)
             if not str(getattr(client, "direccion", "") or "").strip():
                 raise ValidationError("La dirección física es obligatoria.")
             location = alegra_location(getattr(client, "divipola_municipio", None))

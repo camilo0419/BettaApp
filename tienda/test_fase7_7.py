@@ -62,6 +62,7 @@ class AlegraWriteAdapterTests(TestCase):
             nombre="Cliente local", razon_social="Cliente Local SAS", tipo_cliente=Cliente.TIPO_EMPRESA,
             identificacion="900123456", tipo_identificacion="nit", digito_verificacion="1",
             email="local@example.test", telefono="3000000000", direccion="Calle 1", ciudad="Bogota",
+            departamento="Cundinamarca",
         )
         self.profile = {"kind_of_person": "LEGAL_ENTITY", "regime": "COMMON_REGIME"}
         self.authorization = authorize_external_write(

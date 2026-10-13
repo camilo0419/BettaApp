@@ -32,6 +32,7 @@ from tienda.services.alegra_contact_import import normalize_identity
 from tienda.services.alegra_inbound_sync import InboundClientSyncService
 from tienda.services.alegra_normalization import extract_identification_context
 from tienda.services.geografia import normalize_location
+from tienda.services.geografia import SyncLocationValidationError
 from tienda.services.database_lock import DatabaseLockUnavailable, advisory_lock
 
 OUTBOUND_PROCESS_LOCK = "bettaapp:alegra:outbound:contacts"
@@ -139,6 +140,14 @@ def enqueue_create(client: Cliente, *, actor=None, timeout=None, defer_remote_ch
         return None
     try:
         payload = build_contact_payload(client)
+    except SyncLocationValidationError as exc:
+        SyncAuditLog.objects.create(
+            system=alegra_system(), operation="enqueue_contact_create", resource="contacts",
+            actor=actor, result=SyncAuditLog.RESULT_ERROR,
+            detail="Alta no encolada: falta una ubicación colombiana completa.",
+            metadata={"client_id": client.pk, "queued": False, "state": "invalid_location"},
+        )
+        return None
     except ValidationError as exc:
         return _persist_create_validation_block(client, exc, actor=actor)
 

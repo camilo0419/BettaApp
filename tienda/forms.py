@@ -43,6 +43,7 @@ from .models import (
     CompromisoPago,
     CarteraResponsable,
 )
+from .services.geografia import SyncLocationValidationError, validate_sync_location
 from .services.geografia import normalize_location
 
 User = get_user_model()
@@ -500,6 +501,35 @@ class ClienteForm(forms.ModelForm):
                 cleaned_data["nombre"] = referencia
             else:
                 self.add_error("razon_social", "Ingresa la razón social o el nombre comercial de la empresa.")
+        # Solo se exige la ubicación para un registro que realmente está listo
+        # para sincronización automática. Los históricos incompletos y las
+        # ediciones que no cambian su ubicación siguen siendo compatibles.
+        policy = getattr(self.instance, "alegra_sync_policy", Cliente.ALEGRA_SYNC_AUTO)
+        sync_ready = bool(
+            policy == Cliente.ALEGRA_SYNC_AUTO
+            and cleaned_data.get("identificacion")
+            and cleaned_data.get("tipo_identificacion")
+            and cleaned_data.get("regimen_tributario")
+            and (
+                (tipo == Cliente.TIPO_EMPRESA and (cleaned_data.get("razon_social") or cleaned_data.get("nombre_comercial")))
+                or (tipo == Cliente.TIPO_PERSONA and cleaned_data.get("primer_nombre") and cleaned_data.get("primer_apellido"))
+            )
+        )
+        if sync_ready and (not self.instance.pk or location_code or location_text):
+            candidate = self.instance
+            for field in ("tipo_cliente", "identificacion", "tipo_identificacion", "regimen_tributario", "ciudad", "departamento"):
+                if field in cleaned_data:
+                    setattr(candidate, field, cleaned_data[field])
+            municipio = getattr(self, "_selected_divipola", None)
+            if municipio is not None:
+                candidate.divipola_municipio = municipio
+                candidate.ciudad = municipio.nombre
+                candidate.departamento = municipio.departamento
+            try:
+                validate_sync_location(candidate, require_catalog=not self.instance.pk)
+            except SyncLocationValidationError as exc:
+                message = str(exc)
+                self.add_error("municipio_departamento", message)
         return cleaned_data
 
     def clean_divipola_code(self):

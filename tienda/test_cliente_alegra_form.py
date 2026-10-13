@@ -4,11 +4,17 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 
 from tienda.forms import ClienteForm
-from tienda.models import Cliente
+from tienda.models import Cliente, ColombiaMunicipio
 from tienda.services.alegra_write import build_contact_payload
 
 
 class ClienteAlegraFormTests(TestCase):
+    def setUp(self):
+        self.municipio = ColombiaMunicipio.objects.create(
+            codigo="05001", codigo_departamento="05", nombre="Medellín",
+            departamento="Antioquia", version="DIVIPOLA-TEST",
+        )
+
     def natural_data(self, **overrides):
         data = {
             "tipo_cliente": Cliente.TIPO_PERSONA,
@@ -27,6 +33,8 @@ class ClienteAlegraFormTests(TestCase):
             "celular": "",
             "whatsapp": "",
             "direccion": "Calle 10 # 20-30",
+            "municipio_departamento": "Medellín, Antioquia",
+            "divipola_code": "05001",
             "ciudad": "",
             "departamento": "",
             "pais": "",
@@ -51,6 +59,12 @@ class ClienteAlegraFormTests(TestCase):
         self.assertEqual(payload["identificationObject"], {"type": "CC", "number": "1019059650"})
         self.assertEqual(payload["regime"], "SIMPLIFIED_REGIME")
         self.assertNotIn("name", payload)
+
+    def test_form_rechaza_alta_automatica_sin_departamento(self):
+        form = ClienteForm(data=self.natural_data(municipio_departamento="", divipola_code=""))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Selecciona un departamento para continuar", str(form.errors["municipio_departamento"]))
 
     def test_local_form_save_does_not_call_external_transport(self):
         form = ClienteForm(data=self.natural_data(identificacion="1019059651"))
